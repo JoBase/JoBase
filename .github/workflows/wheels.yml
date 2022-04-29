@@ -1,5 +1,7 @@
 name: Publish JoBase
-on: push
+
+on:
+  workflow_dispatch:
 
 env:
   GLFW: "3.3.7"
@@ -72,7 +74,6 @@ jobs:
     name: Upload
     needs: [wheels, source]
     runs-on: ubuntu-latest
-    #if: github.event_name == 'release' && github.event.action == 'published'
 
     steps:
       - name: Download
