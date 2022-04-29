@@ -1,0 +1,88 @@
+name: Publish JoBase
+on: push
+
+env:
+  GLFW: "3.3.7"
+
+jobs:
+  wheels:
+    name: Build ${{matrix.plat[1]}} Wheels
+    runs-on: ${{matrix.plat[0]}}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        plat:
+          - [ubuntu-latest, Linux, "*"]
+          - [macos-latest, MacOS, "*"]
+          - [windows-latest, Win64, "*64"]
+          - [windows-latest, Win32, "*32"]
+
+    env:
+      BASE: ${{matrix.plat[1] == 'Win64' && 64 || 32}}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Build
+        uses: pypa/cibuildwheel@v2.3.1
+        env:
+          CIBW_BUILD: ${{matrix.plat[2]}}
+          CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux_2_24_x86_64
+          CIBW_MANYLINUX_I686_IMAGE: quay.io/pypa/manylinux_2_24_i686
+
+          CIBW_BEFORE_ALL_WINDOWS: >
+            curl github.com/glfw/glfw/releases/download/${{env.GLFW}}/glfw-${{env.GLFW}}.bin.WIN${{env.BASE}}.zip
+            -L -o src/glfw.zip &&
+            unzip src/glfw.zip -d src/glfw
+
+          CIBW_BEFORE_ALL: |
+            curl github.com/glfw/glfw/releases/download/${{env.GLFW}}/glfw-${{env.GLFW}}.bin.MACOS.zip -L -o src/glfw.zip
+            unzip src/glfw.zip -d src/glfw
+
+          CIBW_BEFORE_ALL_LINUX: |
+            apt-get update
+            apt-get install -y xorg-dev
+            curl github.com/glfw/glfw/releases/download/${{env.GLFW}}/glfw-${{env.GLFW}}.zip -L -o src/glfw.zip
+            unzip src/glfw.zip -d src/glfw
+            cmake -S src/glfw/glfw-${{env.GLFW}} -B lib/glfw
+            cmake --build lib/glfw --target install
+
+      - name: Upload
+        uses: actions/upload-artifact@v2
+        with:
+          path: wheelhouse/*.whl
+
+  source:
+    name: Build Source
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Build
+        run: pipx run build --sdist
+
+      - uses: actions/upload-artifact@v2
+        with:
+          path: dist/*.tar.gz
+
+  upload:
+    name: Upload
+    needs: [wheels, source]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'published'
+
+    steps:
+      - name: Download
+        uses: actions/download-artifact@v2
+        with:
+          name: artifact
+          path: dist
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@master
+        with:
+          password: ${{secrets.PYPI_TOKEN}}

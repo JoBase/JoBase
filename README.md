@@ -1,21 +1,8 @@
-![alt text](https://jobase.org/resources/logo.png)
+# JoBase
+**Fast Python Game Library**
 
-JoBase is aimed at beginner coders who want to make games with Python.
-It has been built to make coding fun and intuitive.
-JoBase is built on the Pyglet library.
+JoBase is a blazingly fast Python game library for beginner coders.
+It is written in pure C and uses the OpenGL library.
 
-## Installation
-
-Use the package manager [pip](https://pip.pypa.io/en/stable/) to install JoBase.
-
-```bash
-pip install JoBase
-```
-
-## Get Started
-
-To get started, follow the steps at [jobase.org](https://jobase.org).
-
-## License
-
-[GNU General Public License v3.0](https://choosealicense.com/licenses/gpl-3.0/)
+Please visit [jobase.org](https://jobase.org) for tutorials and documentation.
+If you find any problems, please contact us at [hello@jobase.org](mailto:hello@jobase.org) if you have any questions.
