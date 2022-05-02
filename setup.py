@@ -1,6 +1,8 @@
 from setuptools import setup, Extension
-from os import getenv
-from sys import platform
+from sys import platform, maxsize
+from os import getenv, system
+
+glfw = "3.3.7"
 
 libraries = []
 extra_compile_args = []
@@ -8,7 +10,16 @@ include_dirs = []
 library_dirs = []
 
 if platform == "win32":
-    folder = "src/glfw/glfw-" + getenv("GLFW") + ".bin.WIN" + getenv("BASE")
+    base = getenv("BASE") if getenv("BASE") else maxsize > 2 ** 32
+    folder = "src/glfw/glfw-" + glfw + ".bin.WIN" + base
+
+    command = "curl github.com/glfw/glfw/releases/download/" + glfw + "/" + folder + ".zip -L -o src/glfw.zip"
+    print(command)
+    system(command)
+
+    command = "unzip src/glfw.zip -d src/glfw"
+    print(command)
+    system(command)
 
     include_dirs = ["include", folder + "/include"]
     library_dirs = [folder + "/lib-vc2022"]
