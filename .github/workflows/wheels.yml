@@ -63,7 +63,7 @@ jobs:
     name: Upload
     needs: [wheels, source]
     runs-on: ubuntu-latest
-    if: ${{github.event.inputs.upload}}
+    if: ${{github.event.inputs.upload == true}}
 
     steps:
       - name: Download
