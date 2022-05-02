@@ -4,13 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       upload:
-        description: Upload type
+        description: Upload to PyPI
         required: true
-        default: release
-        type: choice
-        options:
-          - release
-          - test
+        type: boolean
 
 env:
   GLFW: "3.3.7"
@@ -67,6 +63,7 @@ jobs:
     name: Upload
     needs: [wheels, source]
     runs-on: ubuntu-latest
+    if: ${{github.event.inputs.upload}}
 
     steps:
       - name: Download
@@ -75,15 +72,7 @@ jobs:
           name: artifact
           path: dist
 
-      - name: Test
-        uses: pypa/gh-action-pypi-publish@master
-        if: github.event.inputs.upload == 'test'
-        with:
-          password: ${{secrets.TEST_PYPI_TOKEN}}
-          repository_url: https://test.pypi.org/legacy/
-
       - name: Release
         uses: pypa/gh-action-pypi-publish@master
-        if: github.event.inputs.upload == 'release'
         with:
           password: ${{secrets.PYPI_TOKEN}}
