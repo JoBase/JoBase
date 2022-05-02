@@ -1,8 +1,16 @@
-name: Publish JoBase
+name: Compile JoBase
 
 on:
-  push
-  #workflow_dispatch:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: Upload type
+        required: true
+        default: release
+        type: choice
+        options:
+          - release
+          - test
 
 env:
   GLFW: "3.3.7"
@@ -15,10 +23,10 @@ jobs:
     strategy:
       matrix:
         plat:
-          #- [ubuntu-latest, Linux, "*many*"]
-          #- [macos-latest, MacOS, "*"] # "*64"
-          - [windows-latest, Win64, cp310-win_amd64]
-          #- [windows-latest, Win32, "*32"]
+          - [ubuntu-latest, Linux, "*many*"]
+          - [macos-latest, MacOS, "*"]
+          - [windows-latest, Win64, "*64"]
+          - [windows-latest, Win32, "*32"]
 
     env:
       BASE: ${{matrix.plat[1] == 'Win64' && 64 || 32}}
@@ -27,67 +35,55 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-        https://github.com/glfw/glfw/releases/download/3.3.7/glfw-3.3.7.bin.WIN64.zip
-                github.com/glfw/glfw/releases/download/3.3.7/glfw-3.3.7.bin.WIN64.zip
-
       - name: Build
         uses: pypa/cibuildwheel@v2.3.1
         env:
           CIBW_BUILD: ${{matrix.plat[2]}}
-          # CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux_2_24_x86_64
-          # CIBW_MANYLINUX_I686_IMAGE: quay.io/pypa/manylinux_2_24_i686
-
-          # # CIBW_BEFORE_ALL_WINDOWS: >
-          # #   curl github.com/glfw/glfw/releases/download/${{env.GLFW}}/glfw-${{env.GLFW}}.bin.WIN${{env.BASE}}.zip
-          # #   -L -o src/glfw.zip &&
-          # #   unzip src/glfw.zip -d src/glfw
-
-          # # CIBW_BEFORE_ALL: |
-          # #   curl github.com/glfw/glfw/releases/download/${{env.GLFW}}/glfw-${{env.GLFW}}.bin.MACOS.zip -L -o src/glfw.zip
-          # #   unzip src/glfw.zip -d src/glfw
-
-          # CIBW_BEFORE_ALL_LINUX: |
-          #   apt-get update
-          #   apt-get install -y xorg-dev
-          #   curl github.com/glfw/glfw/releases/download/${{env.GLFW}}/glfw-${{env.GLFW}}.zip -L -o src/glfw.zip
-          #   unzip src/glfw.zip -d src/glfw
-          #   cmake -S src/glfw/glfw-${{env.GLFW}} -B lib/glfw
-          #   cmake --build lib/glfw --target install
+          CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux_2_24_x86_64
+          CIBW_MANYLINUX_I686_IMAGE: quay.io/pypa/manylinux_2_24_i686
 
       - name: Upload
         uses: actions/upload-artifact@v2
         with:
           path: wheelhouse/*.whl
 
-  # source:
-  #   name: Build Source
-  #   runs-on: ubuntu-latest
+  source:
+    name: Build Source
+    runs-on: ubuntu-latest
 
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
 
-  #     - name: Build
-  #       run: pipx run build --sdist
+      - name: Build
+        run: pipx run build --sdist
 
-  #     - name: Upload
-  #       uses: actions/upload-artifact@v2
-  #       with:
-  #         path: dist/*.tar.gz
+      - name: Upload
+        uses: actions/upload-artifact@v2
+        with:
+          path: dist/*.tar.gz
 
-  # upload:
-  #   name: Upload
-  #   needs: [wheels, source]
-  #   runs-on: ubuntu-latest
+  upload:
+    name: Upload
+    needs: [wheels, source]
+    runs-on: ubuntu-latest
 
-  #   steps:
-  #     - name: Download
-  #       uses: actions/download-artifact@v2
-  #       with:
-  #         name: artifact
-  #         path: dist
+    steps:
+      - name: Download
+        uses: actions/download-artifact@v2
+        with:
+          name: artifact
+          path: dist
 
-  #     - name: Publish
-  #       uses: pypa/gh-action-pypi-publish@master
-  #       with:
-  #         password: ${{secrets.PYPI_TOKEN}}
+      - name: Test
+        uses: pypa/gh-action-pypi-publish@master
+        if: github.event.inputs.upload == 'test'
+        with:
+          password: ${{secrets.TEST_PYPI_TOKEN}}
+          repository_url: https://test.pypi.org/legacy/
+
+      - name: Release
+        uses: pypa/gh-action-pypi-publish@master
+        if: github.event.inputs.upload == 'release'
+        with:
+          password: ${{secrets.PYPI_TOKEN}}

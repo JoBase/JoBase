@@ -1,6 +1,6 @@
 from setuptools import setup, Extension
 from sys import platform, maxsize
-from os import getenv, system
+from os import getenv, system, environ
 
 glfw = "3.3.7"
 
@@ -13,13 +13,8 @@ if platform == "win32":
     base = getenv("BASE") if getenv("BASE") else maxsize > 2 ** 32
     folder = "/glfw-" + glfw + ".bin.WIN" + base
 
-    command = "curl github.com/glfw/glfw/releases/download/" + glfw + folder + ".zip -L -o src/glfw.zip"
-    print(command)
-    system(command)
-
-    command = "unzip src/glfw.zip -d src/glfw"
-    print(command)
-    system(command)
+    system("curl github.com/glfw/glfw/releases/download/" + glfw + folder + ".zip -L -o src/glfw.zip")
+    system("unzip src/glfw.zip -d src/glfw")
 
     include_dirs = ["include", "src/glfw" + folder + "/include"]
     library_dirs = ["src/glfw" + folder + "/lib-vc2022"]
@@ -30,6 +25,13 @@ if platform == "win32":
     ]
 
 elif platform == "linux":
+    system("apt-get update")
+    system("apt-get install -y xorg-dev")
+    system("curl github.com/glfw/glfw/releases/download/" + glfw + "/glfw-" + glfw + ".zip -L -o src/glfw.zip")
+    system("unzip src/glfw.zip -d src/glfw")
+    system("cmake -S src/glfw/glfw-" + glfw + " -B lib/glfw")
+    system("cmake --build lib/glfw --target install")
+
     extra_compile_args = ["-Wextra", "-Wno-comment", "-Wfloat-conversion"]
     include_dirs = ["include"]
 
@@ -39,10 +41,14 @@ elif platform == "linux":
     ]
 
 elif platform == "darwin":
-    folder = "src/glfw/glfw-" + getenv("GLFW") + ".bin.MACOS"
+    folder = "/glfw-" + glfw + ".bin.MACOS"
 
-    include_dirs = ["include", folder + "/include"]
-    library_dirs = [folder + "/lib-x86_64"]
+    system("curl github.com/glfw/glfw/releases/download/" + glfw + folder + ".zip -L -o src/glfw.zip")
+    system("unzip src/glfw.zip -d src/glfw")
+
+    environ["LDFLAGS"] = "-framework CoreVideo -framework OpenGL -framework IOKit -framework Cocoa -framework Carbon"
+    include_dirs = ["include", "src/glfw" + folder + "/include"]
+    library_dirs = ["src/glfw" + folder + "/lib-x86_64"]
     libraries = ["glfw3"]
 
 setup(
