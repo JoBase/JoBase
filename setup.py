@@ -11,9 +11,9 @@ library_dirs = []
 
 if platform == "win32":
     base = getenv("BASE") if getenv("BASE") else maxsize > 2 ** 32
-    folder = "src/glfw/glfw-" + glfw + ".bin.WIN" + base
+    folder = "/glfw-" + glfw + ".bin.WIN" + base
 
-    command = "curl github.com/glfw/glfw/releases/download/" + glfw + "/" + folder + ".zip -L -o src/glfw.zip"
+    command = "curl github.com/glfw/glfw/releases/download/" + glfw + folder + ".zip -L -o src/glfw.zip"
     print(command)
     system(command)
 
@@ -21,8 +21,8 @@ if platform == "win32":
     print(command)
     system(command)
 
-    include_dirs = ["include", folder + "/include"]
-    library_dirs = [folder + "/lib-vc2022"]
+    include_dirs = ["include", "src/glfw" + folder + "/include"]
+    library_dirs = ["src/glfw" + folder + "/lib-vc2022"]
 
     libraries = [
         "glfw3", "opengl32", "kernel32", "user32", "gdi32", "winspool",

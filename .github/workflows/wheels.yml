@@ -1,7 +1,8 @@
 name: Publish JoBase
 
 on:
-  workflow_dispatch:
+  push
+  #workflow_dispatch:
 
 env:
   GLFW: "3.3.7"
@@ -25,6 +26,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+
+        https://github.com/glfw/glfw/releases/download/3.3.7/glfw-3.3.7.bin.WIN64.zip
+                github.com/glfw/glfw/releases/download/3.3.7/glfw-3.3.7.bin.WIN64.zip
 
       - name: Build
         uses: pypa/cibuildwheel@v2.3.1
@@ -55,35 +59,35 @@ jobs:
         with:
           path: wheelhouse/*.whl
 
-  source:
-    name: Build Source
-    runs-on: ubuntu-latest
+  # source:
+  #   name: Build Source
+  #   runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v2
 
-      - name: Build
-        run: pipx run build --sdist
+  #     - name: Build
+  #       run: pipx run build --sdist
 
-      - name: Upload
-        uses: actions/upload-artifact@v2
-        with:
-          path: dist/*.tar.gz
+  #     - name: Upload
+  #       uses: actions/upload-artifact@v2
+  #       with:
+  #         path: dist/*.tar.gz
 
-  upload:
-    name: Upload
-    needs: [wheels, source]
-    runs-on: ubuntu-latest
+  # upload:
+  #   name: Upload
+  #   needs: [wheels, source]
+  #   runs-on: ubuntu-latest
 
-    steps:
-      - name: Download
-        uses: actions/download-artifact@v2
-        with:
-          name: artifact
-          path: dist
+  #   steps:
+  #     - name: Download
+  #       uses: actions/download-artifact@v2
+  #       with:
+  #         name: artifact
+  #         path: dist
 
-      - name: Publish
-        uses: pypa/gh-action-pypi-publish@master
-        with:
-          password: ${{secrets.PYPI_TOKEN}}
+  #     - name: Publish
+  #       uses: pypa/gh-action-pypi-publish@master
+  #       with:
+  #         password: ${{secrets.PYPI_TOKEN}}
