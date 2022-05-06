@@ -9,6 +9,8 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <stb_image/stb_image.h>
+#include <ft2build.h>
+#include FT_FREETYPE_H
 
 #ifdef _WIN32
 PyMODINIT_FUNC PyInit___init__;
@@ -978,124 +980,124 @@ static PyObject *Key_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject
     Key *self = key = (Key *) type -> tp_alloc(type, 0);
 
     Set data[] = {
-        [32] = {.key = "space"},
-        [39] = {.key = "apostrophe"},
-        [44] = {.key = "comma"},
-        [45] = {.key = "minus"},
-        [46] = {.key = "period"},
-        [47] = {.key = "slash"},
-        [48] = {.key = "_0"},
-        [49] = {.key = "_1"},
-        [50] = {.key = "_2"},
-        [51] = {.key = "_3"},
-        [52] = {.key = "_4"},
-        [53] = {.key = "_5"},
-        [54] = {.key = "_6"},
-        [55] = {.key = "_7"},
-        [56] = {.key = "_8"},
-        [57] = {.key = "_9"},
-        [59] = {.key = "semicolon"},
-        [61] = {.key = "equal"},
-        [65] = {.key = "a"},
-        [66] = {.key = "b"},
-        [67] = {.key = "c"},
-        [68] = {.key = "d"},
-        [69] = {.key = "e"},
-        [70] = {.key = "f"},
-        [71] = {.key = "g"},
-        [72] = {.key = "h"},
-        [73] = {.key = "i"},
-        [74] = {.key = "j"},
-        [75] = {.key = "k"},
-        [76] = {.key = "l"},
-        [77] = {.key = "m"},
-        [78] = {.key = "n"},
-        [79] = {.key = "o"},
-        [80] = {.key = "p"},
-        [81] = {.key = "q"},
-        [82] = {.key = "r"},
-        [83] = {.key = "s"},
-        [84] = {.key = "t"},
-        [85] = {.key = "u"},
-        [86] = {.key = "v"},
-        [87] = {.key = "w"},
-        [88] = {.key = "x"},
-        [89] = {.key = "y"},
-        [90] = {.key = "z"},
-        [91] = {.key = "left_bracket"},
-        [92] = {.key = "backslash"},
-        [93] = {.key = "right_bracket"},
-        [96] = {.key = "grave_accent"},
-        [256] = {.key = "escape"},
-        [257] = {.key = "enter"},
-        [258] = {.key = "tab"},
-        [259] = {.key = "backspace"},
-        [260] = {.key = "insert"},
-        [261] = {.key = "delete"},
-        [262] = {.key = "right"},
-        [263] = {.key = "left"},
-        [264] = {.key = "down"},
-        [265] = {.key = "up"},
-        [266] = {.key = "page_up"},
-        [267] = {.key = "page_down"},
-        [268] = {.key = "home"},
-        [269] = {.key = "end"},
-        [280] = {.key = "caps_lock"},
-        [281] = {.key = "scroll_lock"},
-        [282] = {.key = "num_lock"},
-        [283] = {.key = "print_screen"},
-        [284] = {.key = "pause"},
-        [290] = {.key = "f1"},
-        [291] = {.key = "f2"},
-        [292] = {.key = "f3"},
-        [293] = {.key = "f4"},
-        [294] = {.key = "f5"},
-        [295] = {.key = "f6"},
-        [296] = {.key = "f7"},
-        [297] = {.key = "f8"},
-        [298] = {.key = "f9"},
-        [299] = {.key = "f10"},
-        [300] = {.key = "f11"},
-        [301] = {.key = "f12"},
-        [302] = {.key = "f13"},
-        [303] = {.key = "f14"},
-        [304] = {.key = "f15"},
-        [305] = {.key = "f16"},
-        [306] = {.key = "f17"},
-        [307] = {.key = "f18"},
-        [308] = {.key = "f19"},
-        [309] = {.key = "f20"},
-        [310] = {.key = "f21"},
-        [311] = {.key = "f22"},
-        [312] = {.key = "f23"},
-        [313] = {.key = "f24"},
-        [314] = {.key = "f25"},
-        [320] = {.key = "pad_0"},
-        [321] = {.key = "pad_1"},
-        [322] = {.key = "pad_2"},
-        [323] = {.key = "pad_3"},
-        [324] = {.key = "pad_4"},
-        [325] = {.key = "pad_5"},
-        [326] = {.key = "pad_6"},
-        [327] = {.key = "pad_7"},
-        [328] = {.key = "pad_8"},
-        [329] = {.key = "pad_9"},
-        [330] = {.key = "pad_decimal"},
-        [331] = {.key = "pad_divide"},
-        [332] = {.key = "pad_multiply"},
-        [333] = {.key = "pad_subtract"},
-        [334] = {.key = "pad_add"},
-        [335] = {.key = "pad_enter"},
-        [336] = {.key = "pad_equal"},
-        [340] = {.key = "left_shift"},
-        [341] = {.key = "left_ctrl"},
-        [342] = {.key = "left_alt"},
-        [343] = {.key = "left_super"},
-        [344] = {.key = "right_shift"},
-        [345] = {.key = "right_ctrl"},
-        [346] = {.key = "right_alt"},
-        [347] = {.key = "right_super"},
-        [348] = {.key = "menu"}
+        [GLFW_KEY_SPACE] = {.key = "space"},
+        [GLFW_KEY_APOSTROPHE] = {.key = "apostrophe"},
+        [GLFW_KEY_COMMA] = {.key = "comma"},
+        [GLFW_KEY_MINUS] = {.key = "minus"},
+        [GLFW_KEY_PERIOD] = {.key = "period"},
+        [GLFW_KEY_SLASH] = {.key = "slash"},
+        [GLFW_KEY_0] = {.key = "_0"},
+        [GLFW_KEY_1] = {.key = "_1"},
+        [GLFW_KEY_2] = {.key = "_2"},
+        [GLFW_KEY_3] = {.key = "_3"},
+        [GLFW_KEY_4] = {.key = "_4"},
+        [GLFW_KEY_5] = {.key = "_5"},
+        [GLFW_KEY_6] = {.key = "_6"},
+        [GLFW_KEY_7] = {.key = "_7"},
+        [GLFW_KEY_8] = {.key = "_8"},
+        [GLFW_KEY_9] = {.key = "_9"},
+        [GLFW_KEY_SEMICOLON] = {.key = "semicolon"},
+        [GLFW_KEY_EQUAL] = {.key = "equal"},
+        [GLFW_KEY_A] = {.key = "a"},
+        [GLFW_KEY_B] = {.key = "b"},
+        [GLFW_KEY_C] = {.key = "c"},
+        [GLFW_KEY_D] = {.key = "d"},
+        [GLFW_KEY_E] = {.key = "e"},
+        [GLFW_KEY_F] = {.key = "f"},
+        [GLFW_KEY_G] = {.key = "g"},
+        [GLFW_KEY_H] = {.key = "h"},
+        [GLFW_KEY_I] = {.key = "i"},
+        [GLFW_KEY_J] = {.key = "j"},
+        [GLFW_KEY_K] = {.key = "k"},
+        [GLFW_KEY_L] = {.key = "l"},
+        [GLFW_KEY_M] = {.key = "m"},
+        [GLFW_KEY_N] = {.key = "n"},
+        [GLFW_KEY_O] = {.key = "o"},
+        [GLFW_KEY_P] = {.key = "p"},
+        [GLFW_KEY_Q] = {.key = "q"},
+        [GLFW_KEY_R] = {.key = "r"},
+        [GLFW_KEY_S] = {.key = "s"},
+        [GLFW_KEY_T] = {.key = "t"},
+        [GLFW_KEY_U] = {.key = "u"},
+        [GLFW_KEY_V] = {.key = "v"},
+        [GLFW_KEY_W] = {.key = "w"},
+        [GLFW_KEY_X] = {.key = "x"},
+        [GLFW_KEY_Y] = {.key = "y"},
+        [GLFW_KEY_Z] = {.key = "z"},
+        [GLFW_KEY_LEFT_BRACKET] = {.key = "left_bracket"},
+        [GLFW_KEY_BACKSLASH] = {.key = "backslash"},
+        [GLFW_KEY_RIGHT_BRACKET] = {.key = "right_bracket"},
+        [GLFW_KEY_GRAVE_ACCENT] = {.key = "grave_accent"},
+        [GLFW_KEY_ESCAPE] = {.key = "escape"},
+        [GLFW_KEY_ENTER] = {.key = "enter"},
+        [GLFW_KEY_TAB] = {.key = "tab"},
+        [GLFW_KEY_BACKSPACE] = {.key = "backspace"},
+        [GLFW_KEY_INSERT] = {.key = "insert"},
+        [GLFW_KEY_DELETE] = {.key = "delete"},
+        [GLFW_KEY_RIGHT] = {.key = "right"},
+        [GLFW_KEY_LEFT] = {.key = "left"},
+        [GLFW_KEY_DOWN] = {.key = "down"},
+        [GLFW_KEY_UP] = {.key = "up"},
+        [GLFW_KEY_PAGE_UP] = {.key = "page_up"},
+        [GLFW_KEY_PAGE_DOWN] = {.key = "page_down"},
+        [GLFW_KEY_HOME] = {.key = "home"},
+        [GLFW_KEY_END] = {.key = "end"},
+        [GLFW_KEY_CAPS_LOCK] = {.key = "caps_lock"},
+        [GLFW_KEY_SCROLL_LOCK] = {.key = "scroll_lock"},
+        [GLFW_KEY_NUM_LOCK] = {.key = "num_lock"},
+        [GLFW_KEY_PRINT_SCREEN] = {.key = "print_screen"},
+        [GLFW_KEY_PAUSE] = {.key = "pause"},
+        [GLFW_KEY_F1] = {.key = "f1"},
+        [GLFW_KEY_F2] = {.key = "f2"},
+        [GLFW_KEY_F3] = {.key = "f3"},
+        [GLFW_KEY_F4] = {.key = "f4"},
+        [GLFW_KEY_F5] = {.key = "f5"},
+        [GLFW_KEY_F6] = {.key = "f6"},
+        [GLFW_KEY_F7] = {.key = "f7"},
+        [GLFW_KEY_F8] = {.key = "f8"},
+        [GLFW_KEY_F9] = {.key = "f9"},
+        [GLFW_KEY_F10] = {.key = "f10"},
+        [GLFW_KEY_F11] = {.key = "f11"},
+        [GLFW_KEY_F12] = {.key = "f12"},
+        [GLFW_KEY_F13] = {.key = "f13"},
+        [GLFW_KEY_F14] = {.key = "f14"},
+        [GLFW_KEY_F15] = {.key = "f15"},
+        [GLFW_KEY_F16] = {.key = "f16"},
+        [GLFW_KEY_F17] = {.key = "f17"},
+        [GLFW_KEY_F18] = {.key = "f18"},
+        [GLFW_KEY_F19] = {.key = "f19"},
+        [GLFW_KEY_F20] = {.key = "f20"},
+        [GLFW_KEY_F21] = {.key = "f21"},
+        [GLFW_KEY_F22] = {.key = "f22"},
+        [GLFW_KEY_F23] = {.key = "f23"},
+        [GLFW_KEY_F24] = {.key = "f24"},
+        [GLFW_KEY_F25] = {.key = "f25"},
+        [GLFW_KEY_KP_0] = {.key = "pad_0"},
+        [GLFW_KEY_KP_1] = {.key = "pad_1"},
+        [GLFW_KEY_KP_2] = {.key = "pad_2"},
+        [GLFW_KEY_KP_3] = {.key = "pad_3"},
+        [GLFW_KEY_KP_4] = {.key = "pad_4"},
+        [GLFW_KEY_KP_5] = {.key = "pad_5"},
+        [GLFW_KEY_KP_6] = {.key = "pad_6"},
+        [GLFW_KEY_KP_7] = {.key = "pad_7"},
+        [GLFW_KEY_KP_8] = {.key = "pad_8"},
+        [GLFW_KEY_KP_9] = {.key = "pad_9"},
+        [GLFW_KEY_KP_DECIMAL] = {.key = "pad_decimal"},
+        [GLFW_KEY_KP_DIVIDE] = {.key = "pad_divide"},
+        [GLFW_KEY_KP_MULTIPLY] = {.key = "pad_multiply"},
+        [GLFW_KEY_KP_SUBTRACT] = {.key = "pad_subtract"},
+        [GLFW_KEY_KP_ADD] = {.key = "pad_add"},
+        [GLFW_KEY_KP_ENTER] = {.key = "pad_enter"},
+        [GLFW_KEY_KP_EQUAL] = {.key = "pad_equal"},
+        [GLFW_KEY_LEFT_SHIFT] = {.key = "left_shift"},
+        [GLFW_KEY_LEFT_CONTROL] = {.key = "left_ctrl"},
+        [GLFW_KEY_LEFT_ALT] = {.key = "left_alt"},
+        [GLFW_KEY_LEFT_SUPER] = {.key = "left_super"},
+        [GLFW_KEY_RIGHT_SHIFT] = {.key = "right_shift"},
+        [GLFW_KEY_RIGHT_CONTROL] = {.key = "right_ctrl"},
+        [GLFW_KEY_RIGHT_ALT] = {.key = "right_alt"},
+        [GLFW_KEY_RIGHT_SUPER] = {.key = "right_super"},
+        [GLFW_KEY_MENU] = {.key = "menu"}
     };
 
     Py_XINCREF(self);
@@ -1458,15 +1460,6 @@ static PyMethodDef WindowMethods[] = {
 
 static PyObject *Window_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
     Window *self = window = (Window *) type -> tp_alloc(type, 0);
-
-    if (!glfwInit()) {
-        const char *buffer;
-        glfwGetError(&buffer);
-        PyErr_SetString(error, buffer);
-
-        Py_XDECREF(self);
-        return NULL;
-    }
 
     glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
@@ -2283,6 +2276,15 @@ static int Module_exec(PyObject *self) {
         return -1;
     }
 
+    if (!glfwInit()) {
+        const char *buffer;
+        glfwGetError(&buffer);
+        PyErr_SetString(error, buffer);
+
+        Py_DECREF(self);
+        return -1;
+    }
+
     #define ADD(name) if ( \
         PyModule_AddObject(self, name, object) < 0) { \
             Py_XDECREF(object); \
@@ -2307,7 +2309,7 @@ static int Module_exec(PyObject *self) {
 
     object = (PyObject *) &ImageType;
     ADD("Image");
-
+    
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);    
     GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
     program = glCreateProgram();
@@ -2407,6 +2409,27 @@ static int Module_exec(PyObject *self) {
 
     object = PyUnicode_FromString(pathAdd("images/enemy.png"));
     ADD("ENEMY");
+
+    object = PyUnicode_FromString(pathAdd("fonts/default.ttf"));
+    ADD("DEFAULT");
+
+    object = PyUnicode_FromString(pathAdd("fonts/code.ttf"));
+    ADD("CODE");
+
+    object = PyUnicode_FromString(pathAdd("fonts/pencil.ttf"));
+    ADD("PENCIL");
+
+    object = PyUnicode_FromString(pathAdd("fonts/serif.ttf"));
+    ADD("SERIF");
+
+    object = PyUnicode_FromString(pathAdd("fonts/handwriting.ttf"));
+    ADD("HANDWRITING");
+
+    object = PyUnicode_FromString(pathAdd("fonts/typewriter.ttf"));
+    ADD("TYPEWRITER");
+
+    object = PyUnicode_FromString(pathAdd("fonts/joined.ttf"));
+    ADD("JOINED");
 
     #undef ADD
     return 0;

@@ -1,59 +1,44 @@
-from setuptools import setup, Extension
-from sys import platform, maxsize
-from os import getenv, system, environ
-
-glfw = "3.3.7"
+import sys, os, setuptools
 
 libraries = []
-extra_compile_args = []
-include_dirs = []
 library_dirs = []
+extra_compile_args = []
 
-if platform == "win32":
-    base = getenv("BASE") if getenv("BASE") else maxsize > 2 ** 32
-    folder = "/glfw-" + glfw + ".bin.WIN" + base
-
-    system("curl github.com/glfw/glfw/releases/download/" + glfw + folder + ".zip -L -o src/glfw.zip")
-    system("unzip src/glfw.zip -d src/glfw")
-
-    include_dirs = ["include", "src/glfw" + folder + "/include"]
-    library_dirs = ["src/glfw" + folder + "/lib-vc2022"]
+if sys.platform == "win32":
+    library_dirs = ["glfw/build/src/Release", "freetype/build/Release"]
 
     libraries = [
-        "glfw3", "opengl32", "kernel32", "user32", "gdi32", "winspool",
-        "shell32", "ole32", "oleaut32", "uuid", "comdlg32", "advapi32"
+        "glfw3", "opengl32", "kernel32", "user32", "gdi32",
+        "winspool", "shell32", "ole32", "oleaut32", "uuid",
+        "comdlg32", "advapi32", "freetype"
     ]
 
-elif platform == "linux":
-    system("apt-get update")
-    system("apt-get install -y xorg-dev")
-    system("curl github.com/glfw/glfw/releases/download/" + glfw + "/glfw-" + glfw + ".zip -L -o src/glfw.zip")
-    system("unzip src/glfw.zip -d src/glfw")
-    system("cmake -S src/glfw/glfw-" + glfw + " -B lib/glfw")
-    system("cmake --build lib/glfw --target install")
+elif sys.platform == "darwin":
+    if not os.getenv("CIBUILDWHEEL"):
+        os.system("""
+            git clone https://github.com/glfw/glfw.git
+            cmake -S glfw -B glfw/build
+            cmake --build glfw/build
+            git clone https://gitlab.freedesktop.org/freetype/freetype.git
+            cmake -S freetype -B freetype/build
+            cmake --build freetype/build""")
 
+    library_dirs = ["glfw/build/src", "freetype/build"]
+    os.environ["LDFLAGS"] = "-framework OpenGL -framework IOKit -framework Cocoa"
+    libraries = ["glfw3", "freetype"]
+
+elif sys.platform == "linux":
+    library_dirs = ["glfw/build/src", "freetype/build"]
     extra_compile_args = ["-Wextra", "-Wno-comment", "-Wfloat-conversion"]
-    include_dirs = ["include"]
 
     libraries = [
-        "glfw3", "GL", "m", "X11", "pthread",
-        "Xi", "Xrandr", "dl", "rt", "png"
+        "glfw3", "GL", "m", "X11", "pthread", "Xi",
+        "Xrandr", "dl", "rt", "png", "freetype"
     ]
 
-elif platform == "darwin":
-    folder = "/glfw-" + glfw + ".bin.MACOS"
-
-    system("curl github.com/glfw/glfw/releases/download/" + glfw + folder + ".zip -L -o src/glfw.zip")
-    system("unzip src/glfw.zip -d src/glfw")
-
-    environ["LDFLAGS"] = "-framework CoreVideo -framework OpenGL -framework IOKit -framework Cocoa -framework Carbon"
-    include_dirs = ["include", "src/glfw" + folder + "/include"]
-    library_dirs = ["src/glfw" + folder + "/lib-x86_64"]
-    libraries = ["glfw3"]
-
-setup(
+setuptools.setup(
     name = "JoBase",
-    version = "1.3",
+    version = "1.4",
     author = "Reuben Ford",
     author_email = "hello@jobase.org",
     description = "Fast Python Game Library",
@@ -63,19 +48,19 @@ setup(
     python_requires = ">=3.6",
     license = "GPL-3.0-or-later",
     packages = ["JoBase"],
-    package_data = {"JoBase": ["images/*.png", "examples/*.py"]},
+    package_data = {"JoBase": ["images/*.png", "examples/*.py", "fonts/*.ttf"]},
     include_package_data = True,
 
     keywords = [
         "fast", "beginner", "extension",
         "library", "opengl", "glfw",
-        "games", "c", "children"
+        "games", "c", "children", "freetype"
     ],
 
     project_urls = {
-        "Source": "https://github.com/Grey41/JoBase",
-        "Tracker": "https://github.com/Grey41/JoBase/issues",
-        "Documentation": "https://jobase.org/tutorials",
+        "Source": "https://github.com/JoBase/JoBase",
+        "Documentation": "https://jobase.org",
+        "Reference": "https://jobase.org/reference"
     },
 
     classifiers = [
@@ -85,10 +70,10 @@ setup(
     ],
     
     ext_modules = [
-        Extension(
+        setuptools.Extension(
             "JoBase.__init__", ["src/module.c", "src/glad.c"],
             extra_compile_args = extra_compile_args,
-            include_dirs = include_dirs,
             library_dirs = library_dirs,
+            include_dirs = ["include"],
             libraries = libraries)
     ])

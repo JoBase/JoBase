@@ -1,4 +1,4 @@
-name: Compile JoBase
+name: Build JoBase
 
 on:
   workflow_dispatch:
@@ -8,24 +8,31 @@ on:
         required: true
         type: boolean
 
-env:
-  GLFW: "3.3.7"
-
 jobs:
   wheels:
-    name: Build ${{matrix.plat[1]}} Wheels
+    name: ${{matrix.plat[1]}} Wheels
     runs-on: ${{matrix.plat[0]}}
 
     strategy:
+      fail-fast: false
       matrix:
         plat:
-          - [ubuntu-latest, Linux, "*many*"]
           - [macos-latest, MacOS, "*"]
           - [windows-latest, Win64, "*64"]
           - [windows-latest, Win32, "*32"]
+          - [ubuntu-latest, Musl, "*musllinux*"]
+          - [ubuntu-latest, Manylinux, "*manylinux*"]
 
     env:
-      BASE: ${{matrix.plat[1] == 'Win64' && 64 || 32}}
+      BASE: ${{matrix.plat[1] == 'Win64' && 'x64' || matrix.plat[1]}}
+
+      BUILD: |
+        git clone https://github.com/glfw/glfw.git
+        cmake -S glfw -B glfw/build
+        cmake --build glfw/build
+        git clone https://gitlab.freedesktop.org/freetype/freetype.git
+        cmake -S freetype -B freetype/build
+        cmake --build freetype/build
 
     steps:
       - name: Checkout
@@ -35,8 +42,26 @@ jobs:
         uses: pypa/cibuildwheel@v2.3.1
         env:
           CIBW_BUILD: ${{matrix.plat[2]}}
-          CIBW_MANYLINUX_X86_64_IMAGE: quay.io/pypa/manylinux_2_24_x86_64
-          CIBW_MANYLINUX_I686_IMAGE: quay.io/pypa/manylinux_2_24_i686
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_24
+          CIBW_MANYLINUX_I686_IMAGE: manylinux_2_24
+          CIBW_ARCHS_LINUX: x86_64 i686
+          CIBW_BEFORE_ALL_MACOS: ${{env.BUILD}}
+
+          CIBW_BEFORE_ALL_WINDOWS: >
+            git clone https://github.com/glfw/glfw.git &&
+            cmake -A %BASE% -S glfw -B glfw/build &&
+            cmake --build glfw/build --config Release &&
+            git clone https://gitlab.freedesktop.org/freetype/freetype.git &&
+            cmake -A %BASE% -S freetype -B freetype/build &&
+            cmake --build freetype/build --config Release
+
+          CIBW_BEFORE_ALL_LINUX: |
+            ${{matrix.plat[1] == 'Musl' && '
+              apk update
+              apk add libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libpng-dev' || '
+              apt-get update
+              apt-get install -y xorg-dev'}}
+            ${{env.BUILD}}
 
       - name: Upload
         uses: actions/upload-artifact@v2

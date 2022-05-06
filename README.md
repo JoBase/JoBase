@@ -1,8 +1,8 @@
 # JoBase
 **Fast Python Game Library**
 
-[![](https://img.shields.io/github/commit-activity/m/jobase/jobase?label=Commit%20activity)](https://github.com/JoBase/JoBase/graphs/commit-activity)
-[![](https://img.shields.io/github/workflow/status/jobase/jobase/Compile%20JoBase?label=Build)](https://github.com/JoBase/JoBase/actions/workflows/wheels.yml)
+[![](https://img.shields.io/pypi/dm/jobase.svg?label=PyPI%20downloads)](https://pypi.org/project/jobase)
+[![](https://github.com/Grey41/JoBase/actions/workflows/wheels.yml/badge.svg)](https://github.com/Grey41/JoBase/actions/workflows/wheels.yml)
 
 JoBase is a blazingly fast Python game library for beginner coders.
 It is written in pure C and uses the OpenGL library.
