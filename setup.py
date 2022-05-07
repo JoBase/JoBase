@@ -59,8 +59,7 @@ setuptools.setup(
 
     project_urls = {
         "Source": "https://github.com/JoBase/JoBase",
-        "Documentation": "https://jobase.org",
-        "Reference": "https://jobase.org/reference"
+        "Documentation": "https://jobase.org/reference"
     },
 
     classifiers = [
