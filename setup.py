@@ -14,16 +14,7 @@ if sys.platform == "win32":
     ]
 
 elif sys.platform == "darwin":
-    if not os.getenv("CIBUILDWHEEL"):
-        os.system("""
-            git clone https://github.com/glfw/glfw.git
-            cmake -S glfw -B glfw/build
-            cmake --build glfw/build
-            git clone https://gitlab.freedesktop.org/freetype/freetype.git
-            cmake -S freetype -B freetype/build
-            cmake --build freetype/build""")
-
-    library_dirs = ["glfw/build/src", "freetype/build", "/usr/local/lib"]
+    library_dirs = ["glfw/build/src", "freetype/build"]
     os.environ["LDFLAGS"] = "-framework OpenGL -framework IOKit -framework Cocoa"
     libraries = ["glfw3", "freetype"]
 
@@ -33,7 +24,7 @@ elif sys.platform == "linux":
 
     libraries = [
         "glfw3", "GL", "m", "X11", "pthread", "Xi",
-        "Xrandr", "dl", "rt", "png", "freetype"
+        "Xrandr", "dl", "rt", "png", "freetype", "z"
     ]
 
 setuptools.setup(
