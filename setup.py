@@ -23,7 +23,7 @@ elif sys.platform == "darwin":
             cmake -S freetype -B freetype/build
             cmake --build freetype/build""")
 
-    library_dirs = ["glfw/build/src", "freetype/build"]
+    library_dirs = ["glfw/build/src", "freetype/build", "/usr/local/lib"]
     os.environ["LDFLAGS"] = "-framework OpenGL -framework IOKit -framework Cocoa"
     libraries = ["glfw3", "freetype"]
 
@@ -74,5 +74,5 @@ setuptools.setup(
             extra_compile_args = extra_compile_args,
             library_dirs = library_dirs,
             include_dirs = ["include"],
-            libraries = libraries)
+            libraries = libraries,)
     ])

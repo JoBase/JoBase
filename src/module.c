@@ -10,10 +10,7 @@
 #include <GLFW/glfw3.h>
 #include <stb_image/stb_image.h>
 #include <ft2build.h>
-
 #include FT_FREETYPE_H
-#include FT_GLYPH_H
-#include FT_TYPES_H
 
 #ifdef _WIN32
 PyMODINIT_FUNC PyInit___init__;
