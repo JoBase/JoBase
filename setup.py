@@ -74,5 +74,5 @@ setuptools.setup(
             extra_compile_args = extra_compile_args,
             library_dirs = library_dirs,
             include_dirs = ["include"],
-            libraries = libraries,)
+            libraries = libraries)
     ])
