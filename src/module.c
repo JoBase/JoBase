@@ -10,7 +10,10 @@
 #include <GLFW/glfw3.h>
 #include <stb_image/stb_image.h>
 #include <ft2build.h>
+
 #include FT_FREETYPE_H
+#include FT_GLYPH_H
+#include FT_TYPES_H
 
 #ifdef _WIN32
 PyMODINIT_FUNC PyInit___init__;
@@ -43,9 +46,28 @@ typedef struct Texture {
     struct Texture *next;
 } Texture;
 
+typedef struct Font {
+    char *name;
+    FT_Face face;
+    struct Font *next;
+} Font;
+
+typedef struct Char {
+    unsigned char loaded;
+    unsigned int advance;
+    Vec2 size;
+    Vec2 pos;
+    Vec2 box;
+    GLuint image;
+} Char;
+
 typedef struct Vector {
     PyObject_HEAD
     PyObject *parent;
+    const char *varX;
+    const char *varY;
+    const char *varZ;
+    const char *varW;
     getter getX;
     setter setX;
     getter getY;
@@ -85,7 +107,7 @@ typedef struct Camera {
 typedef struct Window {
     PyObject_HEAD
     GLFWwindow *window;
-    const char *caption;
+    char *caption;
     Vec4 color;
     Vec2 size;
     unsigned char resize;
@@ -110,7 +132,18 @@ typedef struct Image {
     Texture *texture;
 } Image;
 
+typedef struct Text {
+    Rectangle rect;
+    char *content;
+    int descender;
+    Char *chars;
+    Font *font;
+    Vec2 base;
+    Vec2 character;
+} Text;
+
 static Texture *textures;
+static Font *fonts;
 static PyObject *error;
 static Cursor *cursor;
 static Key *key;
@@ -124,6 +157,7 @@ static char *path;
 static unsigned short length;
 static GLuint program;
 static GLuint mesh;
+static FT_Library library;
 
 static const char *pathAdd(const char *file) {
     path[length] = 0;
@@ -196,8 +230,19 @@ static void memoryCleanup() {
         free(this);
     }
 
+    while (fonts) {
+        Font *this = fonts;
+        FT_Done_Face(this -> face);
+        free(this -> name);
+
+        fonts = this -> next;
+        free(this);
+    }
+
     glDeleteProgram(program);
     glDeleteVertexArrays(1, &mesh);
+
+    FT_Done_FreeType(library);
     glfwTerminate();
 
     Py_DECREF(path);
@@ -208,8 +253,102 @@ static void memoryCleanup() {
     Py_DECREF(camera);
 }
 
-static double constrainValue(double value, double min, double max) {
-    return value > max ? max : value < min ? min : value;
+static void setParameters() {
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+}
+
+static int resetText(Text *text) {
+    FT_Error error = FT_Set_Pixel_Sizes(
+        text -> font -> face, (FT_UInt) text -> character.x,
+        (FT_UInt) text -> character.y);
+
+    if (error) {
+        PyErr_SetString(PyExc_RuntimeError, FT_Error_String(error));
+        return -1;
+    }
+
+    text -> descender = text -> font -> face -> size -> metrics.descender >> 6;
+    text -> base.y = text -> font -> face -> size -> metrics.height >> 6;
+    text -> base.x = 0;
+
+    for (unsigned int i = 0; text -> content[i]; i ++) {
+        FT_UInt index = FT_Get_Char_Index(text -> font -> face, text -> content[i]);
+        Char item = text -> chars[index];
+
+        if (item.box.x != text -> character.x || item.box.y != text -> character.y) {
+            FT_Error error = FT_Load_Glyph(text -> font -> face, index, FT_LOAD_DEFAULT);
+            
+            if (error) {
+                PyErr_SetString(PyExc_RuntimeError, FT_Error_String(error));
+                return -1;
+            }
+
+            error = FT_Render_Glyph(text -> font -> face -> glyph, FT_RENDER_MODE_NORMAL);
+
+            if (error) {
+                PyErr_SetString(PyExc_RuntimeError, FT_Error_String(error));
+                return -1;
+            }
+
+            item.advance = text -> font -> face -> glyph -> metrics.horiAdvance >> 6;
+            item.size.x = text -> font -> face -> glyph -> metrics.width >> 6;
+            item.size.y = text -> font -> face -> glyph -> metrics.height >> 6;
+            item.pos.x = text -> font -> face -> glyph -> metrics.horiBearingX >> 6;
+            item.pos.y = text -> font -> face -> glyph -> metrics.horiBearingY >> 6;
+
+            if (item.loaded) glDeleteTextures(1, &item.image);
+            else item.loaded = 1;
+
+            glGenTextures(1, &item.image);
+            glBindTexture(GL_TEXTURE_2D, item.image);
+
+            glTexImage2D(
+                GL_TEXTURE_2D, 0, GL_RED, (GLsizei) item.size.x,
+                (GLsizei) item.size.y, 0, GL_RED, GL_UNSIGNED_BYTE,
+                text -> font -> face -> glyph -> bitmap.buffer);
+
+            setParameters();
+            glBindTexture(GL_TEXTURE_2D, 0);
+
+            text -> chars[index] = item;
+        }
+
+        if (!text -> content[i + 1]) text -> base.x += item.size.x / 2;
+        if (!i) text -> base.x += item.size.x / 2;
+
+        if (text -> content[i + 1])
+            text -> base.x += item.advance;
+    }
+
+    text -> rect.size.x = text -> base.x;
+    text -> rect.size.y = text -> base.y;
+
+    return 0;
+}
+
+static Font *loadFont(const char *name) {
+    for (Font *this = fonts; this; this = this -> next)
+        if (!strcmp(this -> name, name))
+            return this;
+
+    FT_Face face;
+    FT_Error error = FT_New_Face(library, name, 0, &face);
+
+    if (error) {
+        PyErr_SetString(PyExc_RuntimeError, FT_Error_String(error));
+        return NULL;
+    }
+
+    Font *font = malloc(sizeof(Font));
+    font -> name = strdup(name);
+    font -> face = face;
+    font -> next = fonts;
+    fonts = font;
+
+    return font;
 }
 
 static unsigned char collideLineLine(Vec2 p1, Vec2 p2, Vec2 p3, Vec2 p4) {
@@ -355,18 +494,18 @@ static GLfloat switchValues(GLfloat *matrix, unsigned char i, unsigned char j) {
     i += 4 + value;
     j += 4 - value;
 
-    #define e(a, b) matrix[((j + b) % 4) * 4 + ((i + a) % 4)]
+    #define E(a, b) matrix[((j + b) % 4) * 4 + ((i + a) % 4)]
 
     GLfloat final =
-        e(1, -1) * e(0, 0) * e(-1, 1) +
-        e(1, 1) * e(0, -1) * e(-1, 0) +
-        e(-1, -1) * e(1, 0) * e(0, 1) -
-        e(-1, -1) * e(0, 0) * e(1, 1) -
-        e(-1, 1) * e(0, -1) * e(1, 0) -
-        e(1, -1) * e(-1, 0) * e(0, 1);
+        E(1, -1) * E(0, 0) * E(-1, 1) +
+        E(1, 1) * E(0, -1) * E(-1, 0) +
+        E(-1, -1) * E(1, 0) * E(0, 1) -
+        E(-1, -1) * E(0, 0) * E(1, 1) -
+        E(-1, 1) * E(0, -1) * E(1, 0) -
+        E(1, -1) * E(-1, 0) * E(0, 1);
 
     return value % 2 ? final : -final;
-    #undef e
+    #undef E
 }
 
 static PyObject *strPos(Vec2 pos) {
@@ -660,6 +799,16 @@ static void updateView() {
         1, GL_FALSE, matrix);
 }
 
+static void setUniform(GLfloat *matrix, Vec4 color) {
+    glUniformMatrix4fv(
+        glGetUniformLocation(program, "object"),
+        1, GL_FALSE, matrix);
+
+    glUniform4f(
+        glGetUniformLocation(program, "color"), (GLfloat) color.x,
+        (GLfloat) color.y, (GLfloat) color.z, (GLfloat) color.w);
+}
+
 static void drawRectangle(Rectangle *rect) {
     Vec2 size = {rect -> size.x * rect -> shape.scale.x, rect -> size.y * rect -> shape.scale.y};
     GLfloat matrix[16];
@@ -669,176 +818,12 @@ static void drawRectangle(Rectangle *rect) {
     posMatrix(matrix, rect -> shape.anchor);
     rotMatrix(matrix, rect -> shape.angle);
     posMatrix(matrix, rect -> shape.pos);
-
-    glUniformMatrix4fv(
-        glGetUniformLocation(program, "object"),
-        1, GL_FALSE, matrix);
-
-    glUniform4f(
-        glGetUniformLocation(program, "color"), (GLfloat) rect -> shape.color.x,
-        (GLfloat) rect -> shape.color.y, (GLfloat) rect -> shape.color.z,
-        (GLfloat) rect -> shape.color.w);
+    setUniform(matrix, rect -> shape.color);
 
     glBindVertexArray(mesh);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindVertexArray(0);
 }
-
-static PyObject *Vector_getRed(Vector *self, void *Py_UNUSED(closure)) {
-    if (!self -> getX) {
-        PyErr_SetString(PyExc_AttributeError, "Cannot get the red attribute");
-        return NULL;
-    }
-
-    return self -> getX(self -> parent, NULL);
-}
-
-static int Vector_setRed(Vector *self, PyObject *value, void *Py_UNUSED(closure)) {
-    if (!self -> setX) {
-        PyErr_SetString(PyExc_AttributeError, "Cannot set the red attribute");
-        return -1;
-    }
-
-    return self -> setX(self -> parent, value, NULL);
-}
-
-static PyObject *Vector_getGreen(Vector *self, void *Py_UNUSED(closure)) {
-    if (!self -> getY) {
-        PyErr_SetString(PyExc_AttributeError, "Cannot get the green attribute");
-        return NULL;
-    }
-
-    return self -> getY(self -> parent, NULL);
-}
-
-static int Vector_setGreen(Vector *self, PyObject *value, void *Py_UNUSED(closure)) {
-    if (!self -> setY) {
-        PyErr_SetString(PyExc_AttributeError, "Cannot set the green attribute");
-        return -1;
-    }
-
-    return self -> setY(self -> parent, value, NULL);
-}
-
-static PyObject *Vector_getBlue(Vector *self, void *Py_UNUSED(closure)) {
-    if (!self -> getZ) {
-        PyErr_SetString(PyExc_AttributeError, "Cannot get the blue attribute");
-        return NULL;
-    }
-
-    return self -> getZ(self -> parent, NULL);
-}
-
-static int Vector_setBlue(Vector *self, PyObject *value, void *Py_UNUSED(closure)) {
-    if (!self -> setZ) {
-        PyErr_SetString(PyExc_AttributeError, "Cannot set the blue attribute");
-        return -1;
-    }
-
-    return self -> setZ(self -> parent, value, NULL);
-}
-
-static PyObject *Vector_getAlpha(Vector *self, void *Py_UNUSED(closure)) {
-    if (!self -> getW) {
-        PyErr_SetString(PyExc_AttributeError, "Cannot get the alpha attribute");
-        return NULL;
-    }
-
-    return self -> getW(self -> parent, NULL);
-}
-
-static int Vector_setAlpha(Vector *self, PyObject *value, void *Py_UNUSED(closure)) {
-    if (!self -> setW) {
-        PyErr_SetString(PyExc_AttributeError, "Cannot set the alpha attribute");
-        return -1;
-    }
-
-    return self -> setW(self -> parent, value, NULL);
-}
-
-static PyObject *Vector_getX(Vector *self, void *Py_UNUSED(closure)) {
-    if (!self -> getX) {
-        PyErr_SetString(PyExc_AttributeError, "Cannot get the x attribute");
-        return NULL;
-    }
-
-    return self -> getX(self -> parent, NULL);
-}
-
-static int Vector_setX(Vector *self, PyObject *value, void *Py_UNUSED(closure)) {
-    if (!self -> setX) {
-        PyErr_SetString(PyExc_AttributeError, "Cannot set the x attribute");
-        return -1;
-    }
-
-    return self -> setX(self -> parent, value, NULL);
-}
-
-static PyObject *Vector_getY(Vector *self, void *Py_UNUSED(closure)) {
-    if (!self -> getY) {
-        PyErr_SetString(PyExc_AttributeError, "Cannot get the y attribute");
-        return NULL;
-    }
-
-    return self -> getY(self -> parent, NULL);
-}
-
-static int Vector_setY(Vector *self, PyObject *value, void *Py_UNUSED(closure)) {
-    if (!self -> setY) {
-        PyErr_SetString(PyExc_AttributeError, "Cannot set the y attribute");
-        return -1;
-    }
-
-    return self -> setY(self -> parent, value, NULL);
-}
-
-static PyObject *Vector_getZ(Vector *self, void *Py_UNUSED(closure)) {
-    if (!self -> getZ) {
-        PyErr_SetString(PyExc_AttributeError, "Cannot get the z attribute");
-        return NULL;
-    }
-
-    return self -> getZ(self -> parent, NULL);
-}
-
-static int Vector_setZ(Vector *self, PyObject *value, void *Py_UNUSED(closure)) {
-    if (!self -> setZ) {
-        PyErr_SetString(PyExc_AttributeError, "Cannot set the z attribute");
-        return -1;
-    }
-
-    return self -> setZ(self -> parent, value, NULL);
-}
-
-static PyObject *Vector_getW(Vector *self, void *Py_UNUSED(closure)) {
-    if (!self -> getW) {
-        PyErr_SetString(PyExc_AttributeError, "Cannot get the w attribute");
-        return NULL;
-    }
-
-    return self -> getW(self -> parent, NULL);
-}
-
-static int Vector_setW(Vector *self, PyObject *value, void *Py_UNUSED(closure)) {
-    if (!self -> setW) {
-        PyErr_SetString(PyExc_AttributeError, "Cannot set the w attribute");
-        return -1;
-    }
-
-    return self -> setW(self -> parent, value, NULL);
-}
-
-static PyGetSetDef VectorGetSetters[] = {
-    {"x", (getter) Vector_getX, (setter) Vector_setX, "The x value of the vector", NULL},
-    {"y", (getter) Vector_getY, (setter) Vector_setY, "The y value of the vector", NULL},
-    {"z", (getter) Vector_getZ, (setter) Vector_setZ, "The z value of the vector", NULL},
-    {"w", (getter) Vector_getW, (setter) Vector_setW, "The w value of the vector", NULL},
-    {"red", (getter) Vector_getRed, (setter) Vector_setRed, "The red color of the vector", NULL},
-    {"green", (getter) Vector_getGreen, (setter) Vector_setGreen, "The green color of the vector", NULL},
-    {"blue", (getter) Vector_getBlue, (setter) Vector_setBlue, "The blue color of the vector", NULL},
-    {"alpha", (getter) Vector_getAlpha, (setter) Vector_setAlpha, "The opacity of the vector", NULL},
-    {NULL}
-};
 
 static void Vector_dealloc(Vector *self) {
     Py_DECREF(self -> parent);
@@ -853,6 +838,42 @@ static PyObject *Vector_repr(Vector *self) {
     return self -> repr(self -> parent);
 }
 
+static PyObject *Vector_getattro(Vector *self, PyObject *attr) {
+    const char *name = PyUnicode_AsUTF8(attr);
+
+    if (self -> getX && !strcmp(name, self -> varX))
+        return self -> getX(self -> parent, NULL);
+
+    if (self -> getY && !strcmp(name, self -> varY))
+        return self -> getY(self -> parent, NULL);
+
+    if (self -> getZ && !strcmp(name, self -> varZ))
+        return self -> getZ(self -> parent, NULL);
+
+    if (self -> getW && !strcmp(name, self -> varW))
+        return self -> getW(self -> parent, NULL);
+
+    return PyObject_GenericGetAttr((PyObject *) self, attr);
+}
+
+static int Vector_setattro(Vector *self, PyObject *attr, PyObject *value) {
+    const char *name = PyUnicode_AsUTF8(attr);
+    
+    if (self -> setX && !strcmp(name, self -> varX))
+        return self -> setX(self -> parent, value, NULL);
+
+    if (self -> setY && !strcmp(name, self -> varY))
+        return self -> setY(self -> parent, value, NULL);
+
+    if (self -> setZ && !strcmp(name, self -> varZ))
+        return self -> setZ(self -> parent, value, NULL);
+
+    if (self -> setW && !strcmp(name, self -> varW))
+        return self -> setW(self -> parent, value, NULL);
+
+    return PyObject_GenericSetAttr((PyObject *) self, attr, value);
+}
+
 static PyTypeObject VectorType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "Vector",
@@ -864,7 +885,8 @@ static PyTypeObject VectorType = {
     .tp_dealloc = (destructor) Vector_dealloc,
     .tp_str = (reprfunc) Vector_str,
     .tp_repr = (reprfunc) Vector_repr,
-    .tp_getset = VectorGetSetters
+    .tp_getattro = (getattrofunc) Vector_getattro,
+    .tp_setattro = (setattrofunc) Vector_setattro
 };
 
 static PyObject *Cursor_getX(Cursor *self, void *Py_UNUSED(closure)) {
@@ -1100,16 +1122,17 @@ static PyObject *Key_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject
         [GLFW_KEY_MENU] = {.key = "menu"}
     };
 
-    Py_XINCREF(self);
-    memcpy(self -> keys, data, sizeof data);
+    for (int i = 0; i <= GLFW_KEY_LAST; i ++)
+        self -> keys[i].key = data[i].key;
 
+    Py_XINCREF(self);
     return (PyObject *) self;
 }
 
 static PyObject *Key_getattro(Key *self, PyObject *attr) {
     const char *name = PyUnicode_AsUTF8(attr);
     
-    for (int i = 0; i < GLFW_KEY_LAST + 1; i ++) {
+    for (int i = 0; i <= GLFW_KEY_LAST; i ++) {
         Set set = self -> keys[i];
 
         if (set.key && !strcmp(set.key, name)) {
@@ -1193,6 +1216,9 @@ static PyObject *Camera_getPos(Camera *self, void *Py_UNUSED(closure)) {
     if (!pos) return NULL;
 
     pos -> parent = (PyObject *) self;
+    pos -> varX = "x";
+    pos -> varY = "y";
+
     pos -> str = (reprfunc) Camera_strPos;
     pos -> repr = (reprfunc) Camera_reprPos;
     pos -> getX = (getter) Camera_getX;
@@ -1244,8 +1270,11 @@ static PyObject *Window_getCaption(Window *self, void *Py_UNUSED(closure)) {
 static int Window_setCaption(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value);
 
-    if (!(self -> caption = PyUnicode_AsUTF8(value)) && PyErr_Occurred())
-        return -1;
+    const char *caption = PyUnicode_AsUTF8(value);
+    if (!caption) return -1;
+
+    free(self -> caption);
+    self -> caption = strdup(caption);
 
     glfwSetWindowTitle(self -> window, self -> caption);
     return 0;
@@ -1302,20 +1331,6 @@ static int Window_setBlue(Window *self, PyObject *value, void *Py_UNUSED(closure
     return 0;
 }
 
-static PyObject *Window_getAlpha(Window *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> color.w);
-}
-
-static int Window_setAlpha(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
-    CHECK(value);
-
-    if ((self -> color.w = PyFloat_AsDouble(value)) < 0 && PyErr_Occurred())
-        return -1;
-
-    glfwSetWindowOpacity(self -> window, (float) constrainValue(self -> color.w, 0, 1));
-    return 0;
-}
-
 static PyObject *Window_strColor(Window *self) {
     return strColor(self -> color);
 }
@@ -1329,6 +1344,10 @@ static PyObject *Window_getColor(Window *self, void *Py_UNUSED(closure)) {
     if (!color) return NULL;
 
     color -> parent = (PyObject *) self;
+    color -> varX = "red";
+    color -> varY = "green";
+    color -> varZ = "blue";
+
     color -> str = (reprfunc) Window_strColor;
     color -> repr = (reprfunc) Window_reprColor;
     color -> getX = (getter) Window_getRed;
@@ -1337,8 +1356,6 @@ static PyObject *Window_getColor(Window *self, void *Py_UNUSED(closure)) {
     color -> setY = (setter) Window_setGreen;
     color -> getZ = (getter) Window_getBlue;
     color -> setZ = (setter) Window_setBlue;
-    color -> getW = (getter) Window_getAlpha;
-    color -> setW = (setter) Window_setAlpha;
 
     Py_INCREF(self);
     return (PyObject *) color;
@@ -1352,7 +1369,6 @@ static int Window_setColor(Window *self, PyObject *value, void *Py_UNUSED(closur
         (GLfloat) self -> color.x, (GLfloat) self -> color.y,
         (GLfloat) self -> color.z, 1);
 
-    glfwSetWindowOpacity(self -> window, (float) constrainValue(self -> color.w, 0, 1));
     return 0;
 }
 
@@ -1377,6 +1393,9 @@ static PyObject *Window_getSize(Window *self, void *Py_UNUSED(closure)) {
     if (!size) return NULL;
 
     size -> parent = (PyObject *) self;
+    size -> varX = "x";
+    size -> varY = "y";
+
     size -> str = (reprfunc) Window_strSize;
     size -> repr = (reprfunc) Window_reprSize;
     size -> getX = (getter) Window_getWidth;
@@ -1411,7 +1430,6 @@ static PyGetSetDef WindowGetSetters[] = {
     {"red", (getter) Window_getRed, (setter) Window_setRed, "The red color of the window", NULL},
     {"green", (getter) Window_getGreen, (setter) Window_setGreen, "The green color of the window", NULL},
     {"blue", (getter) Window_getBlue, (setter) Window_setBlue, "The blue color of the window", NULL},
-    {"alpha", (getter) Window_getAlpha, (setter) Window_setAlpha, "The opacity of the window", NULL},
     {"color", (getter) Window_getColor, (setter) Window_setColor, "The color of the window", NULL},
     {"width", (getter) Window_getWidth, NULL, "The width of the window", NULL},
     {"height", (getter) Window_getHeight, NULL, "The height of the window", NULL},
@@ -1461,7 +1479,6 @@ static PyMethodDef WindowMethods[] = {
 static PyObject *Window_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
     Window *self = window = (Window *) type -> tp_alloc(type, 0);
 
-    glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     self -> window = glfwCreateWindow(1, 1, "", NULL, NULL);
 
@@ -1495,9 +1512,10 @@ static PyObject *Window_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObj
 
 static int Window_init(Window *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"caption", "width", "height", "color", NULL};
+
+    const char *caption = "JoBase";
     PyObject *color = NULL;
 
-    self -> caption = "JoBase";
     self -> color.x = 1;
     self -> color.y = 1;
     self -> color.z = 1;
@@ -1506,9 +1524,11 @@ static int Window_init(Window *self, PyObject *args, PyObject *kwds) {
     self -> size.y = 480;
 
     if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|sddO", kwlist,
-        &self -> caption, &self -> size.x,
-        &self -> size.y, &color)) return -1;
+        args, kwds, "|sddN", kwlist, &caption,
+        &self -> size.x, &self -> size.y,
+        &color)) return -1;
+
+    self -> caption = strdup(caption);
 
     if (color && setColor(color, &self -> color) < 0)
         return -1;
@@ -1522,9 +1542,13 @@ static int Window_init(Window *self, PyObject *args, PyObject *kwds) {
 
     glfwSetWindowTitle(self -> window, self -> caption);
     glfwSetWindowSize(self -> window, (int) self -> size.x, (int) self -> size.y);
-    glfwSetWindowOpacity(self -> window, (float) constrainValue(self -> color.w, 0, 1));
 
     return 0;
+}
+
+static void Window_dealloc(Window *self) {
+    free(self -> caption);
+    Py_TYPE(self) -> tp_free((PyObject *) self);
 }
 
 static PyTypeObject WindowType = {
@@ -1536,6 +1560,7 @@ static PyTypeObject WindowType = {
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_new = Window_new,
     .tp_init = (initproc) Window_init,
+    .tp_dealloc = (destructor) Window_dealloc,
     .tp_methods = WindowMethods,
     .tp_getset = WindowGetSetters
 };
@@ -1579,6 +1604,9 @@ static PyObject *Shape_getPos(Shape *self, void *Py_UNUSED(closure)) {
     if (!pos) return NULL;
 
     pos -> parent = (PyObject *) self;
+    pos -> varX = "x";
+    pos -> varY = "y";
+
     pos -> str = (reprfunc) Shape_strPos;
     pos -> repr = (reprfunc) Shape_reprPos;
     pos -> getX = (getter) Shape_getX;
@@ -1636,6 +1664,9 @@ static PyObject *Shape_getScale(Shape *self, void *Py_UNUSED(closure)) {
     if (!scale) return NULL;
 
     scale -> parent = (PyObject *) self;
+    scale -> varX = "x";
+    scale -> varY = "y";
+
     scale -> str = (reprfunc) Shape_strScale;
     scale -> repr = (reprfunc) Shape_reprScale;
     scale -> getX = (getter) Shape_getScaleX;
@@ -1693,6 +1724,9 @@ static PyObject *Shape_getAnchor(Shape *self, void *Py_UNUSED(closure)) {
     if (!anchor) return NULL;
 
     anchor -> parent = (PyObject *) self;
+    anchor -> varX = "x";
+    anchor -> varY = "y";
+
     anchor -> str = (reprfunc) Shape_strAnchor;
     anchor -> repr = (reprfunc) Shape_reprAnchor;
     anchor -> getX = (getter) Shape_getAnchorX;
@@ -1789,6 +1823,11 @@ static PyObject *Shape_getColor(Shape *self, void *Py_UNUSED(closure)) {
     if (!color) return NULL;
 
     color -> parent = (PyObject *) self;
+    color -> varX = "red";
+    color -> varY = "green";
+    color -> varZ = "blue";
+    color -> varW = "alpha";
+
     color -> str = (reprfunc) Shape_strColor;
     color -> repr = (reprfunc) Shape_reprColor;
     color -> getX = (getter) Shape_getRed;
@@ -1938,6 +1977,9 @@ static PyObject *Rectangle_getSize(Rectangle *self, void *Py_UNUSED(closure)) {
     if (!size) return NULL;
 
     size -> parent = (PyObject *) self;
+    size -> varX = "x";
+    size -> varY = "y";
+
     size -> str = (reprfunc) Rectangle_strSize;
     size -> repr = (reprfunc) Rectangle_reprSize;
     size -> getX = (getter) Rectangle_getWidth;
@@ -2086,7 +2128,7 @@ static int Rectangle_init(Rectangle *self, PyObject *args, PyObject *kwds) {
     self -> size.y = 50;
 
     if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|dddddO", kwlist, &self -> shape.pos.x,
+        args, kwds, "|dddddN", kwlist, &self -> shape.pos.x,
         &self -> shape.pos.y, &self -> size.x, &self -> size.y,
         &self -> shape.angle, &color)) return -1;
 
@@ -2140,7 +2182,7 @@ static int Image_init(Image *self, PyObject *args, PyObject *kwds) {
     self -> rect.shape.color.z = 1;
 
     if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|sdddddO", kwlist, &name,
+        args, kwds, "|sdddddN", kwlist, &name,
         &self -> rect.shape.pos.x, &self -> rect.shape.pos.y,
         &self -> rect.shape.angle, &size.x,
         &size.y, &color)) return -1;
@@ -2168,12 +2210,10 @@ static int Image_init(Image *self, PyObject *args, PyObject *kwds) {
     glGenTextures(1, &self -> texture -> source);
     glBindTexture(GL_TEXTURE_2D, self -> texture -> source);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
+
+    setParameters();
     stbi_image_free(image);
-    
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindTexture(GL_TEXTURE_2D, 0);
 
     self -> rect.size.x = size.x ? size.x : width;
     self -> rect.size.y = size.y ? size.y : height;
@@ -2198,6 +2238,217 @@ static PyTypeObject ImageType = {
     .tp_new = PyType_GenericNew,
     .tp_init = (initproc) Image_init,
     .tp_methods = ImageMethods
+};
+
+static PyObject *Text_getContent(Text *self, void *Py_UNUSED(closure)) {
+    return PyUnicode_FromString(self -> content);
+}
+
+static int Text_setContent(Text *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value);
+
+    const char *content = PyUnicode_AsUTF8(value);
+    if (!content) return -1;
+
+    free(self -> content);
+    self -> content = strdup(content);
+
+    return resetText(self);
+}
+
+static PyObject *Text_getFont(Text *self, void *Py_UNUSED(closure)) {
+    return PyUnicode_FromString(self -> font -> name);
+}
+
+static int Text_setFont(Text *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value);
+
+    FT_Long chars = self -> font -> face -> num_glyphs;
+    const char *name = PyUnicode_AsUTF8(value);
+
+    for (unsigned int i = 0; i < chars; i ++)
+        if (self -> chars[i].image)
+            glDeleteTextures(1, &self -> chars[i].image);
+
+    if (!name || !(self -> font = loadFont(name)))
+        return -1;
+
+    chars = self -> font -> face -> num_glyphs;
+    self -> chars = realloc(self -> chars, chars * sizeof(Char));
+
+    for (unsigned int i = 0; i < chars; i ++)
+        self -> chars[i].loaded = 0;
+
+    return resetText(self);
+}
+
+static PyObject *Text_getCharWidth(Text *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> character.x);
+}
+
+static int Text_setCharWidth(Text *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value);
+
+    if ((self -> character.x = PyFloat_AsDouble(value)) < 0 && PyErr_Occurred())
+        return -1;
+
+    return resetText(self);
+}
+
+static PyObject *Text_getCharHeight(Text *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> character.y);
+}
+
+static int Text_setCharHeight(Text *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value);
+
+    if ((self -> character.y = PyFloat_AsDouble(value)) < 0 && PyErr_Occurred())
+        return -1;
+
+    return resetText(self);
+}
+
+static PyObject *Text_strChar(Text *self) {
+    return strPos(self -> character);
+}
+
+static PyObject *Text_reprChar(Text *self) {
+    return reprPos(self -> character);
+}
+
+static PyObject *Text_getChar(Text *self, void *Py_UNUSED(closure)) {
+    Vector *size = (Vector *) PyObject_CallObject((PyObject *) &VectorType, NULL);
+    if (!size) return NULL;
+
+    size -> parent = (PyObject *) self;
+    size -> varX = "width";
+    size -> varY = "height";
+
+    size -> str = (reprfunc) Text_strChar;
+    size -> repr = (reprfunc) Text_reprChar;
+    size -> getX = (getter) Text_getCharWidth;
+    size -> setX = (setter) Text_setCharWidth;
+    size -> getY = (getter) Text_getCharHeight;
+    size -> setY = (setter) Text_setCharHeight;
+
+    Py_INCREF(self);
+    return (PyObject *) size;
+}
+
+static int Text_setChar(Text *self, PyObject *value, void *Py_UNUSED(closure)) {
+    if (setPos(value, &self -> character) < 0)
+        return -1;
+
+    return 0;
+}
+
+static PyGetSetDef TextGetSetters[] = {
+    {"content", (getter) Text_getContent, (setter) Text_setContent, "The message of the text", NULL},
+    {"font", (getter) Text_getFont, (setter) Text_setFont, "The text font family", NULL},
+    {"char", (getter) Text_getChar, (setter) Text_setChar, "The dimensions of each character", NULL},
+    {NULL}
+};
+
+static PyObject *Text_draw(Text *self, PyObject *Py_UNUSED(ignored)) {
+    double pen = self -> rect.shape.anchor.x - self -> base.x / 2;
+
+    Vec2 scale = {
+        self -> rect.shape.scale.x + self -> rect.size.x / self -> base.x - 1,
+        self -> rect.shape.scale.y + self -> rect.size.y / self -> base.y - 1
+    };
+
+    glUniform1i(glGetUniformLocation(program, "image"), 2);
+    glBindVertexArray(mesh);
+
+    for (unsigned int i = 0; self -> content[i]; i ++) {
+        FT_UInt index = FT_Get_Char_Index(self -> font -> face, self -> content[i]);
+        Char item = self -> chars[index];
+        
+        GLfloat matrix[16];
+        if (!i) pen -= item.pos.x;
+
+        Vec2 pos = {
+            pen + item.pos.x + item.size.x / 2,
+            self -> rect.shape.anchor.y + item.pos.y - (item.size.y + self -> base.y) / 2 - self -> descender
+        };
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, item.image);
+
+        newMatrix(matrix);
+        scaleMatrix(matrix, item.size);
+        posMatrix(matrix, pos);
+        scaleMatrix(matrix, scale);
+        rotMatrix(matrix, self -> rect.shape.angle);
+        posMatrix(matrix, self -> rect.shape.pos);
+        setUniform(matrix, self -> rect.shape.color);
+
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        pen += item.advance;
+    }
+
+    glBindVertexArray(0);
+    Py_RETURN_NONE;
+}
+
+static PyMethodDef TextMethods[] = {
+    {"draw", (PyCFunction) Text_draw, METH_NOARGS, "Draw the text on the screen"},
+    {NULL}
+};
+
+static int Text_init(Text *self, PyObject *args, PyObject *kwds) {
+    static char *kwlist[] = {"content", "x", "y", "size", "angle", "color", "font", NULL};
+
+    const char *name = pathAdd("fonts/default.ttf");
+    const char *content = "Text";
+    PyObject *color = NULL;
+
+    if (ShapeType.tp_init((PyObject *) self, NULL, NULL) < 0)
+        return -1;
+
+    self -> character.x = 50;
+
+    if (!PyArg_ParseTupleAndKeywords(
+        args, kwds, "|sddddNs", kwlist, &content,
+        &self -> rect.shape.pos.x, &self -> rect.shape.pos.y,
+        &self -> character.x, &self -> rect.shape.angle,
+        &color, &name)) return -1;
+
+    self -> character.y = self -> character.x;
+    self -> content = strdup(content);
+
+    if ((color && setColor(color, &self -> rect.shape.color) < 0) || !(self -> font = loadFont(name)))
+        return -1;
+
+    FT_Long chars = self -> font -> face -> num_glyphs;
+    self -> chars = malloc(chars * sizeof(Char));
+
+    for (unsigned int i = 0; i < chars; i ++)
+        self -> chars[i].loaded = 0;
+
+    return resetText(self);
+}
+
+static void Text_dealloc(Text *self) {
+    free(self -> chars);
+    free(self -> content);
+    Py_TYPE(self) -> tp_free((PyObject *) self);
+}
+
+static PyTypeObject TextType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "Text",
+    .tp_doc = "Class for drawing text",
+    .tp_basicsize = sizeof(Text),
+    .tp_itemsize = 0,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+    .tp_base = &RectangleType,
+    .tp_new = PyType_GenericNew,
+    .tp_init = (initproc) Text_init,
+    .tp_dealloc = (destructor) Text_dealloc,
+    .tp_getset = TextGetSetters,
+    .tp_methods = TextMethods
 };
 
 static PyObject *Module_random(PyObject *Py_UNUSED(self), PyObject *args) {
@@ -2285,6 +2536,15 @@ static int Module_exec(PyObject *self) {
         return -1;
     }
 
+    FT_Error status = FT_Init_FreeType(&library);
+
+    if (status) {
+        PyErr_SetString(error, FT_Error_String(status));
+
+        Py_DECREF(self);
+        return -1;
+    }
+
     #define ADD(name) if ( \
         PyModule_AddObject(self, name, object) < 0) { \
             Py_XDECREF(object); \
@@ -2309,7 +2569,10 @@ static int Module_exec(PyObject *self) {
 
     object = (PyObject *) &ImageType;
     ADD("Image");
-    
+
+    object = (PyObject *) &TextType;
+    ADD("Text");
+
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);    
     GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
     program = glCreateProgram();
@@ -2341,7 +2604,8 @@ static int Module_exec(PyObject *self) {
         "uniform int image;"
 
         "void main() {"
-        "    fragment = image == 1 ? texture(sampler, position) * color : color;"
+        "    fragment = image == 1 ? texture(sampler, position) * color :"
+        "        image == 2 ? color * vec4(1, 1, 1, texture(sampler, position).r) : color;"
         "}";
 
     glShaderSource(vertexShader, 1, &vertexSource, NULL);
@@ -2380,6 +2644,7 @@ static int Module_exec(PyObject *self) {
 
     glBindVertexArray(0);
     glDeleteBuffers(1, &buffer);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
     Py_ssize_t size;
     PyObject *file = PyObject_GetAttrString(self, "__file__");
@@ -2474,6 +2739,9 @@ PyMODINIT_FUNC PyInit_JoBase() {
         return NULL;
 
     if (PyType_Ready(&ImageType) < 0)
+        return NULL;
+
+    if (PyType_Ready(&TextType) < 0)
         return NULL;
 
     return PyModuleDef_Init(&Module);

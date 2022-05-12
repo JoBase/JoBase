@@ -20,7 +20,7 @@ jobs:
           - [macos-latest, MacOS, "*"]
           - [windows-latest, Win64, "*64"]
           - [windows-latest, Win32, "*32"]
-          - [ubuntu-latest, Musl, "*musllinux*"]
+          - [ubuntu-latest, Musllinux, "*musllinux*"]
           - [ubuntu-latest, Manylinux, "*manylinux*"]
 
     env:
