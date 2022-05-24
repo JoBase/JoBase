@@ -2,15 +2,24 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define _USE_MATH_DEFINES
 
-#define CHECK(value) if (checkValue(value)) return -1
+#define CHECK(i) if (!i) {PyErr_SetString(PyExc_TypeError, "Cannot delete attribute"); return -1;}
+#define ITER(t, i) for (t *this = i; this; this = this -> next)
+#define NEW(t, i) do {t *e = malloc(sizeof(t)); e -> next = i; i = e;} while (0)
+#define PARSE(e) wchar_t item; for (unsigned int i = 0; (item = e[i]); i ++)
+
+#define EXPAND(i) #i
+#define STR(i) EXPAND(i)
+
+#define SHAPE 0
+#define IMAGE 1
+#define TEXT 2
 
 #include <Python.h>
 #include <structmember.h>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <stb_image/stb_image.h>
-#include <ft2build.h>
-#include FT_FREETYPE_H
+#include <schrift.h>
 
 #ifdef _WIN32
 PyMODINIT_FUNC PyInit___init__;
@@ -37,25 +46,25 @@ typedef struct Vec4 {
 } Vec4;
 
 typedef struct Texture {
-    const char *name;
+    struct Texture *next;
+    char *name;
     Vec2 size;
     GLuint source;
-    struct Texture *next;
 } Texture;
 
 typedef struct Font {
-    char *name;
-    FT_Face face;
     struct Font *next;
+    char *name;
+    SFT sft;
 } Font;
 
 typedef struct Char {
-    unsigned char loaded;
-    unsigned int advance;
-    Vec2 size;
-    Vec2 pos;
-    Vec2 box;
+    struct Char *next;
     GLuint image;
+    Vec2 pos;
+    Vec2 size;
+    SFT_Glyph glyph;
+    double advance;
 } Char;
 
 typedef struct Vector {
@@ -131,12 +140,12 @@ typedef struct Image {
 
 typedef struct Text {
     Rectangle rect;
-    char *content;
-    int descender;
+    wchar_t *content;
     Char *chars;
     Font *font;
     Vec2 base;
     Vec2 character;
+    double descender;
 } Text;
 
 static Texture *textures;
@@ -151,23 +160,13 @@ static PyTypeObject VectorType;
 static PyTypeObject ShapeType;
 
 static char *path;
-static unsigned short length;
+static unsigned int length;
 static GLuint program;
 static GLuint mesh;
-static FT_Library library;
 
-static const char *pathAdd(const char *file) {
+static const char *constructFilepath(const char *file) {
     path[length] = 0;
     return strcat(path, file);
-}
-
-static int checkValue(PyObject *value) {
-    if (!value) {
-        PyErr_SetString(PyExc_TypeError, "Cannot delete attribute");
-        return 1;
-    }
-
-    return 0;
 }
 
 static void windowSizeCallback(GLFWwindow *Py_UNUSED(window), int width, int height) {
@@ -187,8 +186,7 @@ static void cursorPosCallback(GLFWwindow *Py_UNUSED(window), double x, double y)
 }
 
 static void cursorEnterCallback(GLFWwindow *Py_UNUSED(window), int entered) {
-    if (entered) cursor -> enter = 1;
-    else cursor -> leave = 1;
+    entered ? (cursor -> enter = 1) : (cursor -> leave = 1);
 }
 
 static void mouseButtonCallback(GLFWwindow *Py_UNUSED(window), int Py_UNUSED(button), int action, int Py_UNUSED(mods)) {
@@ -218,106 +216,106 @@ static void keyCallback(GLFWwindow *Py_UNUSED(window), int type, int Py_UNUSED(s
     }
 }
 
-static void memoryCleanup() {
-    while (textures) {
-        Texture *this = textures;
-        glDeleteTextures(1, &this -> source);
-
-        textures = this -> next;
-        free(this);
-    }
-
-    while (fonts) {
-        Font *this = fonts;
-        FT_Done_Face(this -> face);
-        free(this -> name);
-
-        fonts = this -> next;
-        free(this);
-    }
-
-    glDeleteProgram(program);
-    glDeleteVertexArrays(1, &mesh);
-
-    FT_Done_FreeType(library);
-    glfwTerminate();
-
-    Py_DECREF(path);
-    Py_DECREF(error);
-    Py_DECREF(window);
-    Py_DECREF(cursor);
-    Py_DECREF(key);
-    Py_DECREF(camera);
-}
-
-static void setParameters() {
+static void setTextureParameters() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 }
 
-static int resetText(Text *text) {
-    FT_Error error = FT_Set_Pixel_Sizes(
-        text -> font -> face, (FT_UInt) text -> character.x,
-        (FT_UInt) text -> character.y);
+static void setErrorFormat(PyObject *error, const char *format, ...) {
+    va_list args;
+    va_start(args, format);
 
-    if (error) {
-        PyErr_SetString(PyExc_RuntimeError, FT_Error_String(error));
+    int size = vsnprintf(NULL, 0, format, args);
+    char *buffer = malloc(size + 1);
+    va_end(args);
+
+    va_start(args, format);
+    vsprintf(buffer, format, args);
+    PyErr_SetString(error, buffer);
+
+    va_end(args);
+    free(buffer);
+}
+
+static Char *findMatchingChar(Text *text, SFT_Glyph glyph) {
+    ITER(Char, text -> chars)
+        if (this -> glyph == glyph)
+            return this;
+
+    return NULL;
+}
+
+static int findGlyphIndex(Text *text, wchar_t item, SFT_Glyph *glyph) {
+    if (sft_lookup(&text -> font -> sft, item, glyph) < 0) {
+        setErrorFormat(PyExc_UnicodeError, "Failed to find character: \"%lc\"", item);
         return -1;
     }
 
-    text -> descender = text -> font -> face -> size -> metrics.descender >> 6;
-    text -> base.y = text -> font -> face -> size -> metrics.height >> 6;
+    return 0;
+}
+
+static int updateTextContent(Text *text) {
     text -> base.x = 0;
 
-    for (unsigned int i = 0; text -> content[i]; i ++) {
-        FT_UInt index = FT_Get_Char_Index(text -> font -> face, text -> content[i]);
-        Char item = text -> chars[index];
+    PARSE(text -> content) {
+        SFT_Glyph glyph;
 
-        if (item.box.x != text -> character.x || item.box.y != text -> character.y) {
-            FT_Error error = FT_Load_Glyph(text -> font -> face, index, FT_LOAD_DEFAULT);
-            
-            if (error) {
-                PyErr_SetString(PyExc_RuntimeError, FT_Error_String(error));
-                return -1;
-            }
+        if (findGlyphIndex(text, item, &glyph) < 0)
+            return -1;
 
-            error = FT_Render_Glyph(text -> font -> face -> glyph, FT_RENDER_MODE_NORMAL);
+        #define END(t) if (text -> content[i + 1]) text -> base.x += t -> advance; \
+            else text -> base.x += t -> size.x + t -> pos.x;
 
-            if (error) {
-                PyErr_SetString(PyExc_RuntimeError, FT_Error_String(error));
-                return -1;
-            }
+        Char *this = findMatchingChar(text, glyph);
 
-            item.advance = text -> font -> face -> glyph -> metrics.horiAdvance >> 6;
-            item.size.x = text -> font -> face -> glyph -> metrics.width >> 6;
-            item.size.y = text -> font -> face -> glyph -> metrics.height >> 6;
-            item.pos.x = text -> font -> face -> glyph -> metrics.horiBearingX >> 6;
-            item.pos.y = text -> font -> face -> glyph -> metrics.horiBearingY >> 6;
-
-            if (item.loaded) glDeleteTextures(1, &item.image);
-            else item.loaded = 1;
-
-            glGenTextures(1, &item.image);
-            glBindTexture(GL_TEXTURE_2D, item.image);
-
-            glTexImage2D(
-                GL_TEXTURE_2D, 0, GL_RED, (GLsizei) item.size.x,
-                (GLsizei) item.size.y, 0, GL_RED, GL_UNSIGNED_BYTE,
-                text -> font -> face -> glyph -> bitmap.buffer);
-
-            setParameters();
-            glBindTexture(GL_TEXTURE_2D, 0);
-
-            text -> chars[index] = item;
+        if (this) {
+            END(this);
+            continue;
         }
 
-        if (!text -> content[i + 1]) text -> base.x += item.size.x / 2;
-        if (!i) text -> base.x += item.size.x / 2;
+        SFT_GMetrics metrics;
 
-        if (text -> content[i + 1])
-            text -> base.x += item.advance;
+        if (sft_gmetrics(&text -> font -> sft, glyph, &metrics) < 0) {
+            setErrorFormat(PyExc_UnicodeError, "Failed to find metrics for character: \"%lc\"", item);
+            return -1;
+        }
+
+        SFT_Image image = {
+            .width = (metrics.minWidth + 3) & ~3,
+            .height = metrics.minHeight,
+        };
+
+        image.pixels = malloc(image.width * image.height);
+
+        if (sft_render(&text -> font -> sft, glyph, image) < 0) {
+            setErrorFormat(PyExc_UnicodeError, "Failed to render character: \"%lc\"", item);
+            return -1;
+        }
+
+        NEW(Char, text -> chars);
+        text -> chars -> glyph = glyph;
+        text -> chars -> size.x = image.width;
+        text -> chars -> size.y = image.height;
+        text -> chars -> pos.x = metrics.leftSideBearing;
+        text -> chars -> pos.y = metrics.yOffset;
+        text -> chars -> advance = metrics.advanceWidth;
+
+        glGenTextures(1, &text -> chars -> image);
+        glBindTexture(GL_TEXTURE_2D, text -> chars -> image);
+
+        glTexImage2D(
+            GL_TEXTURE_2D, 0, GL_RED, image.width, image.height, 0, GL_RED,
+            GL_UNSIGNED_BYTE, image.pixels);
+
+        free(image.pixels);
+        setTextureParameters();
+
+        glBindTexture(GL_TEXTURE_2D, 0);
+        END(text -> chars);
+
+        #undef END
     }
 
     text -> rect.size.x = text -> base.x;
@@ -326,38 +324,66 @@ static int resetText(Text *text) {
     return 0;
 }
 
+static void deleteTextChars(Text *text) {
+    while (text -> chars) {
+        Char *this = text -> chars;
+        glDeleteTextures(1, &this -> image);
+
+        text -> chars = this -> next;
+        free(this);
+    }
+}
+
+static int resetTextSize(Text *text) {
+    text -> font -> sft.xScale = text -> character.x;
+    text -> font -> sft.yScale = text -> character.y;
+
+    SFT_LMetrics metrics;
+
+    if (sft_lmetrics(&text -> font -> sft, &metrics) < 0) {
+        setErrorFormat(error, "Failed to find metrics for font: \"%s\"", text -> font -> name);
+        return -1;
+    }
+
+    text -> base.y = metrics.ascender - metrics.descender;
+    text -> descender = metrics.descender;
+
+    deleteTextChars(text);
+    return updateTextContent(text);
+}
+
 static Font *loadFont(const char *name) {
-    for (Font *this = fonts; this; this = this -> next)
+    ITER(Font, fonts)
         if (!strcmp(this -> name, name))
             return this;
 
-    FT_Face face;
-    FT_Error error = FT_New_Face(library, name, 0, &face);
+    SFT sft = {
+        .flags = SFT_DOWNWARD_Y,
+        .font = sft_loadfile(name)
+    };
 
-    if (error) {
-        PyErr_SetString(PyExc_RuntimeError, FT_Error_String(error));
+    if (!sft.font) {
+        setErrorFormat(error, "Failed to load font: \"%s\"", name);
         return NULL;
     }
 
-    Font *font = malloc(sizeof(Font));
-    font -> name = strdup(name);
-    font -> face = face;
-    font -> next = fonts;
-    fonts = font;
+    NEW(Font, fonts);
+    fonts -> name = strdup(name);
+    fonts -> sft = sft;
 
-    return font;
+    return fonts;
 }
 
 static unsigned char collideLineLine(Vec2 p1, Vec2 p2, Vec2 p3, Vec2 p4) {
-    double value = (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
-    double u1 = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / value;
-    double u2 = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / value;
+    const double value = (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
+    const double u1 = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / value;
+    const double u2 = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / value;
 
     return u1 >= 0 && u1 <= 1 && u2 >= 0 && u2 <= 1;
 }
 
-static unsigned char collidePolyLine(Vec2 *poly, unsigned char size, Vec2 p1, Vec2 p2) {
-    for (unsigned char i = 0; i < size; i ++) {
+static unsigned char collidePolyLine(Vec2 *poly, unsigned int size, Vec2 p1, Vec2 p2) {
+    for (unsigned int i = 0; i < size; i ++) {
         Vec2 p3 = poly[i];
         Vec2 p4 = poly[i + 1 == size ? 0 : i + 1];
 
@@ -368,10 +394,10 @@ static unsigned char collidePolyLine(Vec2 *poly, unsigned char size, Vec2 p1, Ve
     return 0;
 }
 
-static unsigned char collidePolyPoint(Vec2 *poly, unsigned char size, Vec2 point) {
+static unsigned char collidePolyPoint(Vec2 *poly, unsigned int size, Vec2 point) {
     unsigned char hit = 0;
 
-    for (unsigned char i = 0; i < size; i ++) {
+    for (unsigned int i = 0; i < size; i ++) {
         Vec2 v1 = poly[i];
         Vec2 v2 = poly[i + 1 == size ? 0 : i + 1];
 
@@ -383,11 +409,11 @@ static unsigned char collidePolyPoint(Vec2 *poly, unsigned char size, Vec2 point
     return hit;
 }
 
-static unsigned char collidePolyPoly(Vec2 *p1, unsigned char s1, Vec2 *p2, unsigned char s2) {
+static unsigned char collidePolyPoly(Vec2 *p1, unsigned int s1, Vec2 *p2, unsigned int s2) {
     if (collidePolyPoint(p1, s1, p2[0]) || collidePolyPoint(p2, s2, p1[0]))
         return 1;
 
-    for (unsigned char i = 0; i < s1; i ++) {
+    for (unsigned int i = 0; i < s1; i ++) {
         Vec2 v1 = p1[i];
         Vec2 v2 = p1[i + 1 == s1 ? 0 : i + 1];
 
@@ -398,67 +424,67 @@ static unsigned char collidePolyPoly(Vec2 *p1, unsigned char s1, Vec2 *p2, unsig
     return 0;
 }
 
-static void posPoly(Vec2 *poly, unsigned char size, Vec2 pos) {
-    for (unsigned char i = 0; i < size; i ++) {
+static void posPoly(Vec2 *poly, unsigned int size, Vec2 pos) {
+    for (unsigned int i = 0; i < size; i ++) {
         poly[i].x += pos.x;
         poly[i].y += pos.y;
     }
 }
 
-static void scalePoly(Vec2 *poly, unsigned char size, Vec2 scale) {
-    for (unsigned char i = 0; i < size; i ++) {
+static void scalePoly(Vec2 *poly, unsigned int size, Vec2 scale) {
+    for (unsigned int i = 0; i < size; i ++) {
         poly[i].x *= scale.x;
         poly[i].y *= scale.y;
     }
 }
 
-static void rotPoly(Vec2 *poly, unsigned char size, double angle) {
-    double cosine = cos(angle * M_PI / 180);
-    double sine = sin(angle * M_PI / 180);
+static void rotPoly(Vec2 *poly, unsigned int size, double angle) {
+    const double cosine = cos(angle * M_PI / 180);
+    const double sine = sin(angle * M_PI / 180);
 
-    for (unsigned char i = 0; i < size; i ++) {
-        double x = poly[i].x;
-        double y = poly[i].y;
+    for (unsigned int i = 0; i < size; i ++) {
+        const double x = poly[i].x;
+        const double y = poly[i].y;
 
         poly[i].x = x * cosine - y * sine;
         poly[i].y = x * sine + y * cosine;
     }
 }
 
-static double getPolyLeft(Vec2 *poly, unsigned char size) {
+static double getPolyLeft(Vec2 *poly, unsigned int size) {
     double left = poly[0].x;
 
-    for (unsigned char i = 1; i < size; i ++)
+    for (unsigned int i = 1; i < size; i ++)
         if (poly[i].x < left)
             left = poly[i].x;
 
     return left;
 }
 
-static double getPolyTop(Vec2 *poly, unsigned char size) {
+static double getPolyTop(Vec2 *poly, unsigned int size) {
     double top = poly[0].y;
 
-    for (unsigned char i = 1; i < size; i ++)
+    for (unsigned int i = 1; i < size; i ++)
         if (poly[i].y > top)
             top = poly[i].y;
 
     return top;
 }
 
-static double getPolyRight(Vec2 *poly, unsigned char size) {
+static double getPolyRight(Vec2 *poly, unsigned int size) {
     double right = poly[0].x;
 
-    for (unsigned char i = 1; i < size; i ++)
+    for (unsigned int i = 1; i < size; i ++)
         if (poly[i].x > right)
             right = poly[i].x;
 
     return right;
 }
 
-static double getPolyBottom(Vec2 *poly, unsigned char size) {
+static double getPolyBottom(Vec2 *poly, unsigned int size) {
     double bottom = poly[0].y;
 
-    for (unsigned char i = 1; i < size; i ++)
+    for (unsigned int i = 1; i < size; i ++)
         if (poly[i].y < bottom)
             bottom = poly[i].y;
 
@@ -478,7 +504,7 @@ static void getRectanglePoly(Rectangle *rect, Vec2 *poly) {
         poly[i] = data[i];
 }
 
-static PyObject *checkShapesCollide(Vec2 *poly, unsigned char size, PyObject *shape) {
+static PyObject *checkShapesCollide(Vec2 *poly, unsigned int size, PyObject *shape) {
     Vec2 points[4];
 
     getRectanglePoly((Rectangle *) shape, points);
@@ -486,7 +512,7 @@ static PyObject *checkShapesCollide(Vec2 *poly, unsigned char size, PyObject *sh
 }
 
 static GLfloat switchValues(GLfloat *matrix, unsigned char i, unsigned char j) {
-    unsigned char value = 2 + (j - i);
+    const unsigned char value = 2 + (j - i);
 
     i += 4 + value;
     j += 4 - value;
@@ -728,8 +754,8 @@ static void mulMatrix(GLfloat *a, GLfloat *b) {
     GLfloat result[16];
 
     for (unsigned char i = 0; i < 16; i ++) {
-        unsigned char x = i - i / 4 * 4;
-        unsigned char y = i / 4 * 4;
+        const unsigned char x = i - i / 4 * 4;
+        const unsigned char y = i / 4 * 4;
 
         result[i] =
             a[y] * b[x] + a[y + 1] * b[x + 4] +
@@ -762,8 +788,8 @@ static void rotMatrix(GLfloat *matrix, double angle) {
     GLfloat base[16];
     newMatrix(base);
 
-    double sine = sin(angle * M_PI / 180);
-	double cosine = cos(angle * M_PI / 180);
+    const double sine = sin(angle * M_PI / 180);
+	const double cosine = cos(angle * M_PI / 180);
 
     base[0] = (GLfloat) cosine;
     base[1] = (GLfloat) sine;
@@ -950,6 +976,7 @@ static PyGetSetDef CursorGetSetters[] = {
     {"x", (getter) Cursor_getX, NULL, "The x position of the cursor", NULL},
     {"y", (getter) Cursor_getY, NULL, "The y position of the cursor", NULL},
     {"position", (getter) Cursor_getPos, NULL, "The position of the cursor", NULL},
+    {"pos", (getter) Cursor_getPos, NULL, "The position of the cursor", NULL},
     {"move", (getter) Cursor_getMove, NULL, "Becomes true when the cursor moves", NULL},
     {"enter", (getter) Cursor_getEnter, NULL, "Becomes true when the cursor enters the window", NULL},
     {"leave", (getter) Cursor_getLeave, NULL, "Becomes true when the cursor leaves the window", NULL},
@@ -1119,7 +1146,7 @@ static PyObject *Key_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject
         [GLFW_KEY_MENU] = {.key = "menu"}
     };
 
-    for (int i = 0; i <= GLFW_KEY_LAST; i ++)
+    for (unsigned short i = 0; i <= GLFW_KEY_LAST; i ++)
         self -> keys[i].key = data[i].key;
 
     Py_XINCREF(self);
@@ -1129,7 +1156,7 @@ static PyObject *Key_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject
 static PyObject *Key_getattro(Key *self, PyObject *attr) {
     const char *name = PyUnicode_AsUTF8(attr);
     
-    for (int i = 0; i <= GLFW_KEY_LAST; i ++) {
+    for (unsigned short i = 0; i <= GLFW_KEY_LAST; i ++) {
         Set set = self -> keys[i];
 
         if (set.key && !strcmp(set.key, name)) {
@@ -1228,16 +1255,14 @@ static PyObject *Camera_getPos(Camera *self, void *Py_UNUSED(closure)) {
 }
 
 static int Camera_setPos(Camera *self, PyObject *value, void *Py_UNUSED(closure)) {
-    if (setPos(value, &self -> pos) < 0)
-        return -1;
-
-    return 0;
+    return setPos(value, &self -> pos);
 }
 
 static PyGetSetDef CameraGetSetters[] = {
     {"x", (getter) Camera_getX, (setter) Camera_setX, "The x position of the camera", NULL},
     {"y", (getter) Camera_getY, (setter) Camera_setY, "The y position of the camera", NULL},
     {"position", (getter) Camera_getPos, (setter) Camera_setPos, "The position of the camera", NULL},
+    {"pos", (getter) Camera_getPos, (setter) Camera_setPos, "The position of the camera", NULL},
     {NULL}
 };
 
@@ -1521,7 +1546,7 @@ static int Window_init(Window *self, PyObject *args, PyObject *kwds) {
     self -> size.y = 480;
 
     if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|sddN", kwlist, &caption,
+        args, kwds, "|sddO", kwlist, &caption,
         &self -> size.x, &self -> size.y,
         &color)) return -1;
 
@@ -1676,10 +1701,7 @@ static PyObject *Shape_getScale(Shape *self, void *Py_UNUSED(closure)) {
 }
 
 static int Shape_setScale(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
-    if (setPos(value, &self -> scale) < 0)
-        return -1;
-
-    return 0;
+    return setPos(value, &self -> scale);
 }
 
 static PyObject *Shape_getAnchorX(Shape *self, void *Py_UNUSED(closure)) {
@@ -1736,10 +1758,7 @@ static PyObject *Shape_getAnchor(Shape *self, void *Py_UNUSED(closure)) {
 }
 
 static int Shape_setAnchor(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
-    if (setPos(value, &self -> anchor) < 0)
-        return -1;
-
-    return 0;
+    return setPos(value, &self -> anchor);
 }
 
 static PyObject *Shape_getAngle(Shape *self, void *Py_UNUSED(closure)) {
@@ -1841,16 +1860,14 @@ static PyObject *Shape_getColor(Shape *self, void *Py_UNUSED(closure)) {
 }
 
 static int Shape_setColor(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
-    if (setColor(value, &self -> color) < 0)
-        return -1;
-
-    return 0;
+    return setColor(value, &self -> color);
 }
 
 static PyGetSetDef ShapeGetSetters[] = {
     {"x", (getter) Shape_getX, (setter) Shape_setX, "The x position of the shape", NULL},
     {"y", (getter) Shape_getY, (setter) Shape_setY, "The y position of the shape", NULL},
     {"position", (getter) Shape_getPos, (setter) Shape_setPos, "The position of the shape", NULL},
+    {"pos", (getter) Shape_getPos, (setter) Shape_setPos, "The position of the shape", NULL},
     {"scale", (getter) Shape_getScale, (setter) Shape_setScale, "The scale of the shape", NULL},
     {"anchor", (getter) Shape_getAnchor, (setter) Shape_setAnchor, "The rotation origin of the shape", NULL},
     {"angle", (getter) Shape_getAngle, (setter) Shape_setAngle, "The angle of the shape", NULL},
@@ -1868,7 +1885,7 @@ static PyObject *Shape_lookAt(Shape *self, PyObject *args) {
     if (!PyArg_ParseTuple(args, "O!", &ShapeType, &other))
         return NULL;
 
-    double angle = atan2(other -> pos.y - self -> pos.y, other -> pos.x - self -> pos.x);
+    const double angle = atan2(other -> pos.y - self -> pos.y, other -> pos.x - self -> pos.x);
     self -> angle = angle * 180 / M_PI;
     
     Py_RETURN_NONE;
@@ -1876,13 +1893,13 @@ static PyObject *Shape_lookAt(Shape *self, PyObject *args) {
 
 static PyObject *Shape_moveToward(Shape *self, PyObject *args) {
     Shape *other;
-    double speed = 1;
+    const double speed = 1;
 
     if (!PyArg_ParseTuple(args, "O!|d", &ShapeType, &other, &speed))
         return NULL;
 
-    double x = other -> pos.x - self -> pos.x;
-    double y = other -> pos.y - self -> pos.y;
+    const double x = other -> pos.x - self -> pos.x;
+    const double y = other -> pos.y - self -> pos.y;
 
     if (hypot(x, y) < speed) {
         self -> pos.x += x;
@@ -1890,7 +1907,7 @@ static PyObject *Shape_moveToward(Shape *self, PyObject *args) {
     }
 
     else {
-        double angle = atan2(y, x);
+        const double angle = atan2(y, x);
         self -> pos.x += cos(angle) * speed;
         self -> pos.y += sin(angle) * speed;
     }
@@ -1989,10 +2006,7 @@ static PyObject *Rectangle_getSize(Rectangle *self, void *Py_UNUSED(closure)) {
 }
 
 static int Rectangle_setSize(Rectangle *self, PyObject *value, void *Py_UNUSED(closure)) {
-    if (setPos(value, &self -> size) < 0)
-        return -1;
-
-    return 0;
+    return setPos(value, &self -> size);
 }
 
 static PyObject *Rectangle_getLeft(Rectangle *self, void *Py_UNUSED(closure)) {
@@ -2004,7 +2018,7 @@ static PyObject *Rectangle_getLeft(Rectangle *self, void *Py_UNUSED(closure)) {
 
 static int Rectangle_setLeft(Rectangle *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value);
-    double result = PyFloat_AsDouble(value);
+    const double result = PyFloat_AsDouble(value);
 
     if (result < 0 && PyErr_Occurred())
         return -1;
@@ -2025,7 +2039,7 @@ static PyObject *Rectangle_getTop(Rectangle *self, void *Py_UNUSED(closure)) {
 
 static int Rectangle_setTop(Rectangle *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value);
-    double result = PyFloat_AsDouble(value);
+    const double result = PyFloat_AsDouble(value);
 
     if (result < 0 && PyErr_Occurred())
         return -1;
@@ -2046,7 +2060,7 @@ static PyObject *Rectangle_getRight(Rectangle *self, void *Py_UNUSED(closure)) {
 
 static int Rectangle_setRight(Rectangle *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value);
-    double result = PyFloat_AsDouble(value);
+    const double result = PyFloat_AsDouble(value);
 
     if (result < 0 && PyErr_Occurred())
         return -1;
@@ -2067,7 +2081,7 @@ static PyObject *Rectangle_getBottom(Rectangle *self, void *Py_UNUSED(closure)) 
 
 static int Rectangle_setBottom(Rectangle *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value);
-    double result = PyFloat_AsDouble(value);
+    const double result = PyFloat_AsDouble(value);
 
     if (result < 0 && PyErr_Occurred())
         return -1;
@@ -2091,7 +2105,7 @@ static PyGetSetDef RectangleGetSetters[] = {
 };
 
 static PyObject *Rectangle_draw(Rectangle *self, PyObject *Py_UNUSED(ignored)) {
-    glUniform1i(glGetUniformLocation(program, "image"), 0);
+    glUniform1i(glGetUniformLocation(program, "image"), SHAPE);
 
     drawRectangle(self);
     Py_RETURN_NONE;
@@ -2125,7 +2139,7 @@ static int Rectangle_init(Rectangle *self, PyObject *args, PyObject *kwds) {
     self -> size.y = 50;
 
     if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|dddddN", kwlist, &self -> shape.pos.x,
+        args, kwds, "|dddddO", kwlist, &self -> shape.pos.x,
         &self -> shape.pos.y, &self -> size.x, &self -> size.y,
         &self -> shape.angle, &color)) return -1;
 
@@ -2152,7 +2166,7 @@ static PyTypeObject RectangleType = {
 static PyObject *Image_draw(Image *self, PyObject *Py_UNUSED(ignored)) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, self -> texture -> source);
-    glUniform1i(glGetUniformLocation(program, "image"), 1);
+    glUniform1i(glGetUniformLocation(program, "image"), IMAGE);
 
     drawRectangle(&self -> rect);
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -2166,7 +2180,7 @@ static PyMethodDef ImageMethods[] = {
 
 static int Image_init(Image *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"name", "x", "y", "angle", "width", "height", "color", NULL};
-    const char *name = pathAdd("images/man.png");
+    const char *name = constructFilepath("images/man.png");
 
     PyObject *color = NULL;
     Vec2 size = {0};
@@ -2179,7 +2193,7 @@ static int Image_init(Image *self, PyObject *args, PyObject *kwds) {
     self -> rect.shape.color.z = 1;
 
     if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|sdddddN", kwlist, &name,
+        args, kwds, "|sdddddO", kwlist, &name,
         &self -> rect.shape.pos.x, &self -> rect.shape.pos.y,
         &self -> rect.shape.angle, &size.x,
         &size.y, &color)) return -1;
@@ -2187,7 +2201,7 @@ static int Image_init(Image *self, PyObject *args, PyObject *kwds) {
     if (color && setColor(color, &self -> rect.shape.color) < 0)
         return -1;
 
-    for (Texture *this = textures; this; this = this -> next)
+    ITER(Texture, textures)
         if (!strcmp(this -> name, name)) {
             self -> texture = this;
             self -> rect.size.x = size.x ? size.x : this -> size.x;
@@ -2199,27 +2213,25 @@ static int Image_init(Image *self, PyObject *args, PyObject *kwds) {
     stbi_uc *image = stbi_load(name, &width, &height, 0, STBI_rgb_alpha);
 
     if (!image) {
-        PyErr_SetString(PyExc_FileNotFoundError, "Failed to load the image");
+        setErrorFormat(PyExc_FileNotFoundError, "Failed to load image: \"%s\"", name);
         return -1;
     }
 
-    self -> texture = malloc(sizeof(Texture));
-    glGenTextures(1, &self -> texture -> source);
-    glBindTexture(GL_TEXTURE_2D, self -> texture -> source);
+    NEW(Texture, textures);
+    glGenTextures(1, &textures -> source);
+    glBindTexture(GL_TEXTURE_2D, textures -> source);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
 
-    setParameters();
+    setTextureParameters();
     stbi_image_free(image);
     glBindTexture(GL_TEXTURE_2D, 0);
 
     self -> rect.size.x = size.x ? size.x : width;
     self -> rect.size.y = size.y ? size.y : height;
-    self -> texture -> size.x = width;
-    self -> texture -> size.y = height;
-    self -> texture -> name = name;
-
-    self -> texture -> next = textures;
-    textures = self -> texture;
+    textures -> size.x = width;
+    textures -> size.y = height;
+    textures -> name = strdup(name);
+    self -> texture = textures;
 
     return 0;
 }
@@ -2238,19 +2250,18 @@ static PyTypeObject ImageType = {
 };
 
 static PyObject *Text_getContent(Text *self, void *Py_UNUSED(closure)) {
-    return PyUnicode_FromString(self -> content);
+    return PyUnicode_FromWideChar(self -> content, -1);
 }
 
 static int Text_setContent(Text *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value);
 
-    const char *content = PyUnicode_AsUTF8(value);
+    wchar_t *content = PyUnicode_AsWideCharString(value, NULL);
     if (!content) return -1;
 
     free(self -> content);
-    self -> content = strdup(content);
-
-    return resetText(self);
+    self -> content = wcsdup(content);
+    return updateTextContent(self);
 }
 
 static PyObject *Text_getFont(Text *self, void *Py_UNUSED(closure)) {
@@ -2260,23 +2271,12 @@ static PyObject *Text_getFont(Text *self, void *Py_UNUSED(closure)) {
 static int Text_setFont(Text *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value);
 
-    FT_Long chars = self -> font -> face -> num_glyphs;
     const char *name = PyUnicode_AsUTF8(value);
-
-    for (unsigned int i = 0; i < chars; i ++)
-        if (self -> chars[i].image)
-            glDeleteTextures(1, &self -> chars[i].image);
 
     if (!name || !(self -> font = loadFont(name)))
         return -1;
 
-    chars = self -> font -> face -> num_glyphs;
-    self -> chars = realloc(self -> chars, chars * sizeof(Char));
-
-    for (unsigned int i = 0; i < chars; i ++)
-        self -> chars[i].loaded = 0;
-
-    return resetText(self);
+    return resetTextSize(self);
 }
 
 static PyObject *Text_getCharWidth(Text *self, void *Py_UNUSED(closure)) {
@@ -2289,7 +2289,7 @@ static int Text_setCharWidth(Text *self, PyObject *value, void *Py_UNUSED(closur
     if ((self -> character.x = PyFloat_AsDouble(value)) < 0 && PyErr_Occurred())
         return -1;
 
-    return resetText(self);
+    return resetTextSize(self);
 }
 
 static PyObject *Text_getCharHeight(Text *self, void *Py_UNUSED(closure)) {
@@ -2302,7 +2302,7 @@ static int Text_setCharHeight(Text *self, PyObject *value, void *Py_UNUSED(closu
     if ((self -> character.y = PyFloat_AsDouble(value)) < 0 && PyErr_Occurred())
         return -1;
 
-    return resetText(self);
+    return resetTextSize(self);
 }
 
 static PyObject *Text_strChar(Text *self) {
@@ -2333,10 +2333,7 @@ static PyObject *Text_getChar(Text *self, void *Py_UNUSED(closure)) {
 }
 
 static int Text_setChar(Text *self, PyObject *value, void *Py_UNUSED(closure)) {
-    if (setPos(value, &self -> character) < 0)
-        return -1;
-
-    return 0;
+    return setPos(value, &self -> character);
 }
 
 static PyGetSetDef TextGetSetters[] = {
@@ -2354,35 +2351,40 @@ static PyObject *Text_draw(Text *self, PyObject *Py_UNUSED(ignored)) {
         self -> rect.shape.scale.y + self -> rect.size.y / self -> base.y - 1
     };
 
-    glUniform1i(glGetUniformLocation(program, "image"), 2);
+    glUniform1i(glGetUniformLocation(program, "image"), TEXT);
     glBindVertexArray(mesh);
 
-    for (unsigned int i = 0; self -> content[i]; i ++) {
-        FT_UInt index = FT_Get_Char_Index(self -> font -> face, self -> content[i]);
-        Char item = self -> chars[index];
+    PARSE(self -> content) {
+        SFT_Glyph glyph;
         
-        GLfloat matrix[16];
-        if (!i) pen -= item.pos.x;
+        if (findGlyphIndex(self, item, &glyph) < 0)
+            return NULL;
 
-        Vec2 pos = {
-            pen + item.pos.x + item.size.x / 2,
-            self -> rect.shape.anchor.y + item.pos.y - (item.size.y + self -> base.y) / 2 - self -> descender
+        Char *this = findMatchingChar(self, glyph);
+        if (!i) pen -= this -> pos.x;
+
+        const Vec2 pos = {
+            pen + this -> pos.x + this -> size.x / 2,
+            self -> rect.shape.anchor.y - this -> pos.y - (
+                this -> size.y + self -> base.y) / 2 - self -> descender
         };
 
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, item.image);
+        glBindTexture(GL_TEXTURE_2D, this -> image);
+
+        GLfloat matrix[16];
+        pen += this -> advance;
 
         newMatrix(matrix);
-        scaleMatrix(matrix, item.size);
+        scaleMatrix(matrix, this -> size);
         posMatrix(matrix, pos);
         scaleMatrix(matrix, scale);
         rotMatrix(matrix, self -> rect.shape.angle);
         posMatrix(matrix, self -> rect.shape.pos);
         setUniform(matrix, self -> rect.shape.color);
-
+        
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         glBindTexture(GL_TEXTURE_2D, 0);
-        pen += item.advance;
     }
 
     glBindVertexArray(0);
@@ -2397,8 +2399,8 @@ static PyMethodDef TextMethods[] = {
 static int Text_init(Text *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"content", "x", "y", "size", "angle", "color", "font", NULL};
 
-    const char *name = pathAdd("fonts/default.ttf");
-    const char *content = "Text";
+    const char *font = constructFilepath("fonts/default.ttf");
+    PyObject *content = NULL;
     PyObject *color = NULL;
 
     if (ShapeType.tp_init((PyObject *) self, NULL, NULL) < 0)
@@ -2407,28 +2409,31 @@ static int Text_init(Text *self, PyObject *args, PyObject *kwds) {
     self -> character.x = 50;
 
     if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|sddddNs", kwlist, &content,
+        args, kwds, "|UddddOs", kwlist, &content,
         &self -> rect.shape.pos.x, &self -> rect.shape.pos.y,
         &self -> character.x, &self -> rect.shape.angle,
-        &color, &name)) return -1;
+        &color, &font)) return -1;
 
     self -> character.y = self -> character.x;
-    self -> content = strdup(content);
+    self -> font = loadFont(font);
 
-    if ((color && setColor(color, &self -> rect.shape.color) < 0) || !(self -> font = loadFont(name)))
+    if (content) {
+        wchar_t *text = PyUnicode_AsWideCharString(content, NULL);
+        if (!text) return -1;
+
+        self -> content = wcsdup(text);
+    }
+
+    else self -> content = wcsdup(L"Text");
+
+    if (!self -> font || (color && setColor(color, &self -> rect.shape.color) < 0))
         return -1;
 
-    FT_Long chars = self -> font -> face -> num_glyphs;
-    self -> chars = malloc(chars * sizeof(Char));
-
-    for (unsigned int i = 0; i < chars; i ++)
-        self -> chars[i].loaded = 0;
-
-    return resetText(self);
+    return resetTextSize(self);
 }
 
 static void Text_dealloc(Text *self) {
-    free(self -> chars);
+    deleteTextChars(self);
     free(self -> content);
     Py_TYPE(self) -> tp_free((PyObject *) self);
 }
@@ -2474,9 +2479,7 @@ static PyObject *Module_run(PyObject *Py_UNUSED(self), PyObject *Py_UNUSED(ignor
         updateView();
 
         if (loop && !PyObject_CallObject(loop, NULL)) {
-            memoryCleanup();
             Py_DECREF(loop);
-
             return NULL;
         }
 
@@ -2500,9 +2503,7 @@ static PyObject *Module_run(PyObject *Py_UNUSED(self), PyObject *Py_UNUSED(ignor
         glfwPollEvents();
     }
 
-    memoryCleanup();
     Py_XDECREF(loop);
-
     Py_RETURN_NONE;
 }
 
@@ -2533,42 +2534,17 @@ static int Module_exec(PyObject *self) {
         return -1;
     }
 
-    FT_Error status = FT_Init_FreeType(&library);
+    #define ADD(e, i) object = e; if (PyModule_AddObject(self, i, object) < 0) { \
+        Py_XDECREF(object); Py_DECREF(self); return -1;}
 
-    if (status) {
-        PyErr_SetString(error, FT_Error_String(status));
+    ADD(PyObject_CallFunctionObjArgs((PyObject *) &CursorType, NULL), "cursor");
+    ADD(PyObject_CallFunctionObjArgs((PyObject *) &KeyType, NULL), "key");
+    ADD(PyObject_CallFunctionObjArgs((PyObject *) &CameraType, NULL), "camera");
+    ADD(PyObject_CallFunctionObjArgs((PyObject *) &WindowType, NULL), "window");
 
-        Py_DECREF(self);
-        return -1;
-    }
-
-    #define ADD(name) if ( \
-        PyModule_AddObject(self, name, object) < 0) { \
-            Py_XDECREF(object); \
-            Py_DECREF(self); \
-            return -1; \
-        }
-
-    object = PyObject_CallFunctionObjArgs((PyObject *) &CursorType, NULL);
-    ADD("cursor");
-
-    object = PyObject_CallFunctionObjArgs((PyObject *) &KeyType, NULL);
-    ADD("key");
-
-    object = PyObject_CallFunctionObjArgs((PyObject *) &CameraType, NULL);
-    ADD("camera");
-
-    object = PyObject_CallFunctionObjArgs((PyObject *) &WindowType, NULL);
-    ADD("window");
-
-    object = (PyObject *) &RectangleType;
-    ADD("Rectangle");
-
-    object = (PyObject *) &ImageType;
-    ADD("Image");
-
-    object = (PyObject *) &TextType;
-    ADD("Text");
+    ADD((PyObject *) &RectangleType, "Rectangle");
+    ADD((PyObject *) &ImageType, "Image");
+    ADD((PyObject *) &TextType, "Text");
 
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);    
     GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
@@ -2601,8 +2577,8 @@ static int Module_exec(PyObject *self) {
         "uniform int image;"
 
         "void main() {"
-        "    fragment = image == 1 ? texture(sampler, position) * color :"
-        "        image == 2 ? color * vec4(1, 1, 1, texture(sampler, position).r) : color;"
+        "    fragment = image == " STR(IMAGE) " ? texture(sampler, position) * color :"
+        "        image == " STR(TEXT) " ? color * vec4(1, 1, 1, texture(sampler, position).r) : color;"
         "}";
 
     glShaderSource(vertexShader, 1, &vertexSource, NULL);
@@ -2663,38 +2639,53 @@ static int Module_exec(PyObject *self) {
     length = size - strlen(last ? last : strrchr(path, 92)) + 1;
     path[length] = 0;
 
-    object = PyUnicode_FromString(pathAdd("images/man.png"));
-    ADD("MAN");
+    #define PATH(e, i) ADD(PyUnicode_FromString(constructFilepath(e)), i)
 
-    object = PyUnicode_FromString(pathAdd("images/coin.png"));
-    ADD("COIN");
-
-    object = PyUnicode_FromString(pathAdd("images/enemy.png"));
-    ADD("ENEMY");
-
-    object = PyUnicode_FromString(pathAdd("fonts/default.ttf"));
-    ADD("DEFAULT");
-
-    object = PyUnicode_FromString(pathAdd("fonts/code.ttf"));
-    ADD("CODE");
-
-    object = PyUnicode_FromString(pathAdd("fonts/pencil.ttf"));
-    ADD("PENCIL");
-
-    object = PyUnicode_FromString(pathAdd("fonts/serif.ttf"));
-    ADD("SERIF");
-
-    object = PyUnicode_FromString(pathAdd("fonts/handwriting.ttf"));
-    ADD("HANDWRITING");
-
-    object = PyUnicode_FromString(pathAdd("fonts/typewriter.ttf"));
-    ADD("TYPEWRITER");
-
-    object = PyUnicode_FromString(pathAdd("fonts/joined.ttf"));
-    ADD("JOINED");
+    PATH("images/man.png", "MAN");
+    PATH("images/coin.png", "COIN");
+    PATH("images/enemy.png", "ENEMY");
+    PATH("fonts/default.ttf", "DEFAULT");
+    PATH("fonts/code.ttf", "CODE");
+    PATH("fonts/pencil.ttf", "PENCIL");
+    PATH("fonts/serif.ttf", "SERIF");
+    PATH("fonts/handwriting.ttf", "HANDWRITING");
+    PATH("fonts/typewriter.ttf", "TYPEWRITER");
+    PATH("fonts/joined.ttf", "JOINED");
 
     #undef ADD
+    #undef PATH
     return 0;
+}
+
+static void Module_free() {
+    while (textures) {
+        Texture *this = textures;
+        glDeleteTextures(1, &this -> source);
+        free(this -> name);
+
+        textures = this -> next;
+        free(this);
+    }
+
+    while (fonts) {
+        Font *this = fonts;
+        sft_freefont(this -> sft.font);
+        free(this -> name);
+
+        fonts = this -> next;
+        free(this);
+    }
+
+    glDeleteProgram(program);
+    glDeleteVertexArrays(1, &mesh);
+    glfwTerminate();
+
+    Py_DECREF(path);
+    Py_DECREF(error);
+    Py_DECREF(window);
+    Py_DECREF(cursor);
+    Py_DECREF(key);
+    Py_DECREF(camera);
 }
 
 static PyModuleDef_Slot ModuleSlots[] = {
@@ -2706,6 +2697,7 @@ static struct PyModuleDef Module = {
     .m_base = PyModuleDef_HEAD_INIT,
     .m_name = "JoBase",
     .m_size = 0,
+    .m_free = Module_free,
     .m_methods = ModuleMethods,
     .m_slots = ModuleSlots
 };

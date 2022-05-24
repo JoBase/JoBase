@@ -24,7 +24,10 @@ jobs:
           - [ubuntu-latest, Manylinux, "*manylinux*"]
 
     env:
-      BASE: ${{matrix.plat[1] == 'Win64' && 'x64' || matrix.plat[1]}}
+      BUILD: |
+        git clone https://github.com/glfw/glfw.git
+        cmake -S glfw -B glfw/build
+        cmake --build glfw/build
 
     steps:
       - name: Checkout
@@ -37,22 +40,12 @@ jobs:
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_24
           CIBW_MANYLINUX_I686_IMAGE: manylinux_2_24
           CIBW_ARCHS_LINUX: x86_64 i686
+          CIBW_BEFORE_ALL_MACOS: ${{env.BUILD}}
 
           CIBW_BEFORE_ALL_WINDOWS: >
             git clone https://github.com/glfw/glfw.git &&
-            cmake -A %BASE% -S glfw -B glfw/build &&
-            cmake --build glfw/build --config Release &&
-            git clone https://gitlab.freedesktop.org/freetype/freetype.git &&
-            cmake -A %BASE% -S freetype -B freetype/build &&
-            cmake --build freetype/build --config Release
-
-          CIBW_BEFORE_ALL_MACOS: |
-            git clone https://github.com/glfw/glfw.git
-            cmake -S glfw -B glfw/build
-            cmake --build glfw/build
-            git clone https://gitlab.freedesktop.org/freetype/freetype.git
-            cmake -S freetype -B freetype/build
-            cmake --build freetype/build
+            cmake -A ${{matrix.plat[1] == 'Win64' && 'x64' || 'Win32'}} -S glfw -B glfw/build &&
+            cmake --build glfw/build --config Release
 
           CIBW_BEFORE_ALL_LINUX: |
             ${{matrix.plat[1] == 'Musllinux' && '
@@ -60,12 +53,7 @@ jobs:
               apk add libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libpng-dev' || '
               apt-get update
               apt-get install -y xorg-dev'}}
-            git clone https://github.com/glfw/glfw.git
-            cmake -S glfw -B glfw/build
-            cmake --build glfw/build
-            git clone https://gitlab.freedesktop.org/freetype/freetype.git
-            cmake -S freetype -B freetype/build -D BUILD_SHARED_LIBS=true
-            cmake --build freetype/build
+            ${{env.BUILD}}
 
       - name: Upload
         uses: actions/upload-artifact@v2
