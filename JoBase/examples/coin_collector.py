@@ -4,7 +4,7 @@ man = Image(MAN)
 coin = Image(COIN)
 enemy = Image(ENEMY)
 
-text = Text("Score: 0", size = 30)
+text = Text("Score: 0", font_size = 30)
 score = 0
 
 window.caption = "Coin Collector"

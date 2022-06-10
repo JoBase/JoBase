@@ -5,31 +5,31 @@ library_dirs = []
 extra_compile_args = []
 
 if sys.platform == "win32":
-    library_dirs = ["glfw/build/src/Release"]
+    library_dirs = ["glfw/build/src/Release", "freetype/build/Release"]
 
     libraries = [
         "glfw3", "opengl32", "kernel32", "user32", "gdi32",
         "winspool", "shell32", "ole32", "oleaut32", "uuid",
-        "comdlg32", "advapi32"
+        "comdlg32", "advapi32", "freetype"
     ]
 
 elif sys.platform == "darwin":
-    library_dirs = ["glfw/build/src"]
+    library_dirs = ["glfw/build/src", "freetype/build"]
     os.environ["LDFLAGS"] = "-framework OpenGL -framework IOKit -framework Cocoa"
-    libraries = ["glfw3"]
+    libraries = ["glfw3", "freetype"]
 
 elif sys.platform == "linux":
-    library_dirs = ["glfw/build/src"]
+    library_dirs = ["glfw/build/src", "freetype/build"]
     extra_compile_args = ["-Wextra", "-Wno-comment", "-Wfloat-conversion"]
 
     libraries = [
         "glfw3", "GL", "m", "X11", "pthread", "Xi",
-        "Xrandr", "dl", "rt", "png"
+        "Xrandr", "dl", "rt", "png", "freetype", "z"
     ]
 
 setuptools.setup(
     name = "JoBase",
-    version = "1.6",
+    version = "1.7",
     author = "Reuben Ford",
     author_email = "hello@jobase.org",
     description = "Fast Python Game Library",
@@ -45,7 +45,7 @@ setuptools.setup(
     keywords = [
         "fast", "beginner", "extension",
         "library", "opengl", "glfw",
-        "games", "c", "children", "truetype"
+        "games", "c", "children", "freetype"
     ],
 
     project_urls = {
@@ -61,9 +61,9 @@ setuptools.setup(
     
     ext_modules = [
         setuptools.Extension(
-            "JoBase.__init__", ["src/module.c", "src/glad.c", "src/schrift.c"],
+            "JoBase.__init__", ["src/module.c", "src/glad.c"],
+            include_dirs = ["include", "glfw/include", "freetype/include"],
             extra_compile_args = extra_compile_args,
             library_dirs = library_dirs,
-            include_dirs = ["include"],
             libraries = libraries)
     ])

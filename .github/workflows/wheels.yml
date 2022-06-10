@@ -24,10 +24,15 @@ jobs:
           - [ubuntu-latest, Manylinux, "*manylinux*"]
 
     env:
+      BASE: ${{matrix.plat[1] == 'Win64' && 'x64' || matrix.plat[1]}}
+
       BUILD: |
         git clone https://github.com/glfw/glfw.git
         cmake -S glfw -B glfw/build
         cmake --build glfw/build
+        git clone https://gitlab.freedesktop.org/freetype/freetype.git
+        cmake -S freetype -B freetype/build -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        cmake --build freetype/build
 
     steps:
       - name: Checkout
@@ -44,11 +49,14 @@ jobs:
 
           CIBW_BEFORE_ALL_WINDOWS: >
             git clone https://github.com/glfw/glfw.git &&
-            cmake -A ${{matrix.plat[1] == 'Win64' && 'x64' || 'Win32'}} -S glfw -B glfw/build &&
-            cmake --build glfw/build --config Release
+            cmake -A %BASE% -S glfw -B glfw/build &&
+            cmake --build glfw/build --config Release &&
+            git clone https://gitlab.freedesktop.org/freetype/freetype.git &&
+            cmake -A %BASE% -S freetype -B freetype/build &&
+            cmake --build freetype/build --config Release
 
           CIBW_BEFORE_ALL_LINUX: |
-            ${{matrix.plat[1] == 'Musllinux' && '
+            ${{env.BASE == 'Musllinux' && '
               apk update
               apk add libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libpng-dev' || '
               apt-get update
