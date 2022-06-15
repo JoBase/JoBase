@@ -7,9 +7,11 @@
 #define NEW(t, i) t *e = malloc(sizeof(t)); e -> next = i; i = e;
 #define PARSE(e) wchar_t item; for (uint i = 0; (item = e[i]); i ++)
 #define RECT(r) vec2 poly[4]; getRectPoly(r, poly);
-#define GET(t) t -> get(t -> parent)[i]
+#define GET(t, i) t -> get(t -> parent)[i]
 #define MIN(a, b) (a < b ? a : b)
 #define MAX(a, b) (a > b ? a : b)
+#define START ready = 0; glfwPollEvents();
+#define END glfwWaitEventsTimeout(0.1); ready = 1;
 
 #define EXPAND(i) #i
 #define STR(i) EXPAND(i)
@@ -27,6 +29,8 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <stb_image/stb_image.h>
+#include <chipmunk/chipmunk.h>
+#include <chipmunk/chipmunk_unsafe.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
@@ -111,7 +115,6 @@ typedef struct Key {
 typedef struct Camera {
     PyObject_HEAD
     vec2 pos;
-    vec2 view;
 } Camera;
 
 typedef struct Window {
@@ -128,7 +131,19 @@ typedef struct Shape {
     vec2 scale;
     vec2 anchor;
     vec4 color;
+    vec2 velocity;
+    double angularVelocity;
     double angle;
+    cpShape *shape;
+    cpBody *body;
+    int type;
+    double mass;
+    double elasticity;
+    double friction;
+    uchar rotate;
+    cpFloat (*getMoment)(struct Shape *);
+    void (*newShape)(struct Shape *);
+    void (*setShape)(struct Shape *);
 } Shape;
 
 typedef struct Rectangle {
@@ -151,6 +166,13 @@ typedef struct Text {
     double fontSize;
 } Text;
 
+typedef struct Physics {
+    PyObject_HEAD
+    cpSpace *space;
+    Shape **data;
+    uint length;
+} Physics;
+
 static Texture *textures;
 static Font *fonts;
 static Cursor *cursor;
@@ -163,6 +185,7 @@ static PyTypeObject ShapeType;
 static PyTypeObject CursorType;
 
 static char *path;
+static uchar ready;
 static uint length;
 static uint program;
 static uint mesh;
@@ -180,7 +203,7 @@ static void setTextureParameters() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 }
 
-static void setError(PyObject *error, const char *format, ...) {
+static void errorFormat(PyObject *error, const char *format, ...) {
     va_list args;
     va_start(args, format);
 
@@ -358,212 +381,51 @@ static vec getOtherPos(PyObject *other) {
     if (PyObject_IsInstance(other, (PyObject *) &ShapeType))
         return ((Shape *) other) -> pos;
 
-    setError(PyExc_TypeError, "must be Shape or cursor, not %s", Py_TYPE(other) -> tp_name);
+    errorFormat(PyExc_TypeError, "must be Shape or cursor, not %s", Py_TYPE(other) -> tp_name);
     return NULL;
 }
 
-static double checkMath(double a, double b, uchar type) {
-    switch (type) {
-        case ADD: return a + b;
-        case SUBTRACT: return a - b;
-        case MULTIPLY: return a * b;
-        default: return a / b;
-    }
-}
+static int moveToward(vec2 this, PyObject *args) {
+    PyObject *other;
+    double speed = 1;
 
-static PyObject *printVector(Vector *vector, uchar a, uchar b) {
-    char *buffer = malloc(14 * vector -> size + 1);
-    uchar count = 1;
-    buffer[0] = a;
+    if (!PyArg_ParseTuple(args, "O|d", &other, &speed))
+        return -1;
 
-    for (uchar i = 0; i < vector -> size; i ++) {
-        if (i) {
-            buffer[count ++] = 44;
-            buffer[count ++] = 32;
-        }
+    vec pos = getOtherPos(other);
+    if (!pos) return -1;
 
-        int length = sprintf(&buffer[count], "%g", GET(vector));
-        count += length;
+    const double x = pos[0] - this[0];
+    const double y = pos[1] - this[1];
+
+    if (hypot(x, y) < speed) {
+        this[0] += x;
+        this[1] += y;
     }
 
-    buffer[count] = b;
-    PyObject *result = PyUnicode_FromString(buffer);
-
-    return free(buffer), result;
-}
-
-static int setVector(PyObject *value, vec vector, uchar size) {
-    CHECK(value)
-
-    if (Py_TYPE(value) == &VectorType) {
-        Vector *object = (Vector *) value;
-
-        for (uchar i = 0; i < MIN(size, object -> size); i ++)
-            vector[i] = GET(object);
+    else {
+        const double angle = atan2(y, x);
+        this[0] += cos(angle) * speed;
+        this[1] += sin(angle) * speed;
     }
-
-    else if (PyTuple_Check(value) || PyList_Check(value)) {
-        Py_ssize_t length = PyList_Check(value) ? PyList_GET_SIZE(value) : PyTuple_GET_SIZE(value);
-
-        for (uchar i = 0; i < size; i ++)
-            if (i < length) {
-                PyObject *o = PyList_Check(value) ? PyList_GET_ITEM(value, i) : PyTuple_GET_ITEM(value, i);
-
-                if (!(vector[i] = PyFloat_AsDouble(o)) && PyErr_Occurred())
-                    return -1;
-            }
-    }
-
-    else return PyErr_SetString(PyExc_TypeError, "attribute must be a sequence of values"), -1;
+    
     return 0;
 }
 
-static Vector *newVector(PyObject *parent, method get, uchar size) {
-    Vector *array = (Vector *) PyObject_CallObject((PyObject *) &VectorType, NULL);
-    if (!array) return NULL;
+static int moveTowardSmooth(vec2 this, PyObject *args) {
+    PyObject *other;
+    double speed = 0.1;
 
-    array -> parent = parent;
-    array -> get = get;
-    array -> size = size;
+    if (!PyArg_ParseTuple(args, "O|d", &other, &speed))
+        return -1;
 
-    return Py_INCREF(parent), array;
-}
+    vec pos = getOtherPos(other);
+    if (!pos) return -1;
 
-static PyObject *binVector(Vector *self, PyObject *other, uchar type) {
-    if (PyNumber_Check(other)) {
-        PyObject *result = PyTuple_New(self -> size);
-
-        const double value = PyFloat_AsDouble(other);
-        if (value == -1 && PyErr_Occurred()) return NULL;
-
-        for (uchar i = 0; i < self -> size; i ++) {
-            PyObject *current = PyFloat_FromDouble(checkMath(GET(self), value, type));
-            if (!current) return NULL;
-
-            PyTuple_SET_ITEM(result, i, current);
-        }
-
-        return result;
-    }
-
-    if (Py_TYPE(other) == &VectorType) {
-        Vector *object = (Vector *) other;
-        PyObject *result = PyTuple_New(MAX(self -> size, object -> size));
-
-        for (uchar i = 0; i < MAX(self -> size, object -> size); i ++) {
-            PyObject *current = PyFloat_FromDouble(
-                i >= self -> size ? GET(object) :
-                i >= object -> size ? GET(self) :
-                checkMath(GET(self), GET(object), type));
-
-            if (!current) return NULL;
-            PyTuple_SET_ITEM(result, i, current);
-        }
-
-        return result;
-    }
-
-    setError(PyExc_TypeError, "must be Vector or number, not %s", Py_TYPE(other) -> tp_name);
-    return NULL;
-}
-
-static void newMatrix(mat matrix) {
-    for (uchar i = 0; i < 16; i ++)
-        matrix[i] = i % 5 ? 0 : 1;
-}
-
-static float switchMatrix(mat matrix, uchar i, uchar j) {
-    #define E(a, b) matrix[((j + b) % 4) * 4 + ((i + a) % 4)]
-    const uchar value = 2 + (j - i);
-
-    i += 4 + value;
-    j += 4 - value;
-
-    float final =
-        E(1, -1) * E(0, 0) * E(-1, 1) +
-        E(1, 1) * E(0, -1) * E(-1, 0) +
-        E(-1, -1) * E(1, 0) * E(0, 1) -
-        E(-1, -1) * E(0, 0) * E(1, 1) -
-        E(-1, 1) * E(0, -1) * E(1, 0) -
-        E(1, -1) * E(-1, 0) * E(0, 1);
-
-    return value % 2 ? final : -final;
-    #undef E
-}
-
-static void invMatrix(mat matrix) {
-    float value = 0;
-    mat result;
-
-    for (uchar i = 0; i < 4; i ++)
-        for (uchar j = 0; j < 4; j ++)
-            result[j * 4 + i] = switchMatrix(matrix, i, j);
-
-    for (uchar i = 0; i < 4; i ++)
-        value += matrix[i] * result[i * 4];
-
-    for (uchar i = 0; i < 16; i ++)
-        matrix[i] = result[i] * value;
-}
-
-static void mulMatrix(mat a, mat b) {
-    mat result;
-
-    for (uchar i = 0; i < 16; i ++) {
-        const uchar x = i - i / 4 * 4;
-        const uchar y = i / 4 * 4;
-
-        result[i] =
-            a[y] * b[x] + a[y + 1] * b[x + 4] +
-            a[y + 2] * b[x + 8] + a[y + 3] * b[x + 12];
-    }
-
-    for (uchar i = 0; i < 16; i ++)
-        a[i] = result[i];
-}
-
-static void posMatrix(mat matrix, vec2 pos) {
-    mat base;
-    newMatrix(base);
-
-    base[12] = (float) pos[0];
-    base[13] = (float) pos[1];
-    mulMatrix(matrix, base);
-}
-
-static void scaleMatrix(mat matrix, vec2 scale) {
-    mat base;
-    newMatrix(base);
-
-    base[0] = (float) scale[0];
-    base[5] = (float) scale[1];
-    mulMatrix(matrix, base);
-}
-
-static void rotMatrix(mat matrix, double angle) {
-    mat base;
-    newMatrix(base);
-
-    const float sine = sinf((float) (angle * M_PI / 180));
-	const float cosine = cosf((float) (angle * M_PI / 180));
-
-    base[0] = cosine;
-    base[1] = sine;
-    base[4] = -sine;
-    base[5] = cosine;
-    mulMatrix(matrix, base);
-}
-
-static void viewMatrix(mat matrix, vec2 view) {
-    vec size = getWindowSize();
-    mat base;
-
-    newMatrix(base);
-    base[0] = 2 / (float) size[0];
-    base[5] = 2 / (float) size[1];
-    base[10] = -2 / (float) (view[1] - view[0]);
-    base[14] = (float) ((-view[1] + view[0]) / (view[1] - view[0]));
-    mulMatrix(matrix, base);
+    this[0] += (pos[0] - this[0]) * speed;
+    this[1] += (pos[1] - this[1]) * speed;
+    
+    return 0;
 }
 
 static void setUniform(mat matrix, vec4 color) {
@@ -577,119 +439,44 @@ static void setUniform(mat matrix, vec4 color) {
 }
 
 static void drawRect(Rectangle *rect, uchar type) {
-    mat matrix;
+    const float sx = (float) (rect -> size[0] * rect -> shape.scale[0]);
+    const float sy = (float) (rect -> size[1] * rect -> shape.scale[1]);
+    const float ax = (float) rect -> shape.anchor[0];
+    const float ay = (float) rect -> shape.anchor[1];
+    const float px = (float) rect -> shape.pos[0];
+    const float py = (float) rect -> shape.pos[1];
+    const float s = (float) sin(rect -> shape.angle * M_PI / 180);
+	const float c = (float) cos(rect -> shape.angle * M_PI / 180);
 
-    vec2 size = {
-        rect -> size[0] * rect -> shape.scale[0],
-        rect -> size[1] * rect -> shape.scale[1]
+    mat matrix = {
+        sx * c, sx * s, 0, 0,
+        sy * -s, sy * c, 0, 0,
+        0, 0, 1, 0,
+        ax * c + ay * -s + px, ax * s + ay * c + py, 0, 1
     };
 
-    newMatrix(matrix);
-    scaleMatrix(matrix, size);
-    posMatrix(matrix, rect -> shape.anchor);
-    rotMatrix(matrix, rect -> shape.angle);
-    posMatrix(matrix, rect -> shape.pos);
     setUniform(matrix, rect -> shape.color);
-
     glBindVertexArray(mesh);
+
     glUniform1i(glGetUniformLocation(program, "image"), type);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindVertexArray(0);
 }
 
-static void clearColor() {
-    glClearColor(
-        (GLfloat) window -> color[0], (GLfloat) window -> color[1],
-        (GLfloat) window -> color[2], 1);
-}
-
-static int resetText(Text *text) {
-    if (FT_Set_Pixel_Sizes(text -> font -> face, (FT_UInt) text -> fontSize, 0))
-        return setError(PyExc_RuntimeError, "failed to set font size"), -1;
-
-    text -> descender = text -> font -> face -> size -> metrics.descender >> 6;
-    text -> base[1] = text -> font -> face -> size -> metrics.height >> 6;
-    text -> base[0] = 0;
-
-    PARSE(text -> content) {
-        FT_UInt index = FT_Get_Char_Index(text -> font -> face, item);
-        Char *glyph = &text -> chars[index];
-
-        if (glyph -> fontSize != (int) text -> fontSize) {
-            if (FT_Load_Glyph(text -> font -> face, index, FT_LOAD_DEFAULT))
-                return setError(PyExc_RuntimeError, "failed to load glyph: \"%lc\"", item), -1;
-
-            if (FT_Render_Glyph(text -> font -> face -> glyph, FT_RENDER_MODE_NORMAL))
-                return setError(PyExc_RuntimeError, "failed to render glyph: \"%lc\"", item), -1;
-
-            glyph -> advance = text -> font -> face -> glyph -> metrics.horiAdvance >> 6;
-            glyph -> size[0] = text -> font -> face -> glyph -> metrics.width >> 6;
-            glyph -> size[1] = text -> font -> face -> glyph -> metrics.height >> 6;
-            glyph -> pos[0] = text -> font -> face -> glyph -> metrics.horiBearingX >> 6;
-            glyph -> pos[1] = text -> font -> face -> glyph -> metrics.horiBearingY >> 6;
-            glyph -> loaded ? glDeleteTextures(1, &glyph -> source) : (glyph -> loaded = 1);
-
-            glGenTextures(1, &glyph -> source);
-            glBindTexture(GL_TEXTURE_2D, glyph -> source);
-
-            glTexImage2D(
-                GL_TEXTURE_2D, 0, GL_RED, glyph -> size[0], glyph -> size[1], 0, GL_RED,
-                GL_UNSIGNED_BYTE, text -> font -> face -> glyph -> bitmap.buffer);
-
-            setTextureParameters();
-            glBindTexture(GL_TEXTURE_2D, 0);
-        }
-
-        if (!i) text -> base[0] += glyph -> pos[0];
-        if (text -> content[i + 1]) text -> base[0] += glyph -> advance;
-        else text -> base[0] += glyph -> size[0] + glyph -> pos[0];
-    }
-
-    text -> rect.size[0] = text -> base[0];
-    text -> rect.size[1] = text -> base[1];
-
-    return 0;
-    #undef ERROR
-}
-
-static void allocateText(Text *text, Font *font) {
-    text -> chars = realloc(text -> chars, font -> face -> num_glyphs * sizeof(Char));
-    text -> font = font;
-
-    for (uint i = 0; i < font -> face -> num_glyphs; i ++)
-        text -> chars[i].loaded = 0;
-}
-
-static void deleteChars(Text *text) {
-    for (uint i = 0; i < text -> font -> face -> num_glyphs; i ++)
-        if (text -> chars[i].loaded)
-            glDeleteTextures(1, &text -> chars[i].source);
-}
-
-static int resetFont(Text *text, const char *name) {
-    FT_Face face;
-
-    ITER(Font, fonts)
-        if (!strcmp(this -> name, name))
-            return allocateText(text, this), 0;
-
-    if (FT_New_Face(library, name, 0, &face))
-        return setError(PyExc_FileNotFoundError, "failed to load font: \"%s\"", name), -1;
-
-    NEW(Font, fonts)
-    fonts -> name = strdup(name);
-    fonts -> face = face;
-
-    return allocateText(text, fonts), 0;
-}
-
 static int mainLoop() {
-    mat matrix;
+    vec size = getWindowSize();
 
-    newMatrix(matrix);
-    posMatrix(matrix, camera -> pos);
-    invMatrix(matrix);
-    viewMatrix(matrix, camera -> view);
+    const float sx = (float) size[0];
+    const float sy = (float) size[1];
+    const float px = (float) camera -> pos[0];
+    const float py = (float) camera -> pos[1];
+
+    mat matrix = {
+        2 / sx, 0, 0, 0,
+        0, 2 / sy, 0, 0,
+        0, 0, -2, 0,
+        -px * 2 / sx, -py * 2 / sy, -1, 1
+    };
     
     glUniformMatrix4fv(
         glGetUniformLocation(program, "camera"),
@@ -722,7 +509,7 @@ static int mainLoop() {
 }
 
 static void windowRefreshCallback(GLFWwindow *Py_UNUSED(window)) {
-    if (!PyErr_Occurred()) mainLoop();
+    if (ready && !PyErr_Occurred()) mainLoop();
 }
 
 static void windowSizeCallback(GLFWwindow *Py_UNUSED(window), int Py_UNUSED(width), int Py_UNUSED(height)) {
@@ -772,20 +559,147 @@ static void keyCallback(GLFWwindow *Py_UNUSED(window), int type, int Py_UNUSED(s
     }
 }
 
+static double vectorCheck(double a, double b, uchar type) {
+    switch (type) {
+        case ADD: return a + b;
+        case SUBTRACT: return a - b;
+        case MULTIPLY: return a * b;
+        default: return a / b;
+    }
+}
+
+static PyObject *vectorPrint(Vector *self, uchar a, uchar b) {
+    char *buffer = malloc(14 * self -> size + 1);
+    uchar count = 1;
+    buffer[0] = a;
+
+    for (uchar i = 0; i < self -> size; i ++) {
+        if (i) {
+            buffer[count ++] = 44;
+            buffer[count ++] = 32;
+        }
+
+        int length = sprintf(&buffer[count], "%g", GET(self, i));
+        count += length;
+    }
+
+    buffer[count] = b;
+    PyObject *result = PyUnicode_FromString(buffer);
+
+    return free(buffer), result;
+}
+
+static int vectorSet(PyObject *value, vec vector, uchar size) {
+    CHECK(value)
+
+    if (Py_TYPE(value) == &VectorType) {
+        Vector *object = (Vector *) value;
+
+        for (uchar i = 0; i < MIN(size, object -> size); i ++)
+            vector[i] = GET(object, i);
+    }
+
+    else if (PyNumber_Check(value)) {
+        const double number = PyFloat_AsDouble(value);
+        if (number == -1 && PyErr_Occurred()) return -1;
+
+        for (uchar i = 0; i < size; i ++)
+            vector[i] = number;
+    }
+
+    else if (PyTuple_Check(value) || PyList_Check(value)) {
+        Py_ssize_t length = PyList_Check(value) ? PyList_GET_SIZE(value) : PyTuple_GET_SIZE(value);
+
+        for (uchar i = 0; i < size; i ++)
+            if (i < length) {
+                PyObject *o = PyList_Check(value) ? PyList_GET_ITEM(value, i) : PyTuple_GET_ITEM(value, i);
+
+                if (!(vector[i] = PyFloat_AsDouble(o)) && PyErr_Occurred())
+                    return -1;
+            }
+    }
+
+    else return PyErr_SetString(PyExc_TypeError, "attribute must be a sequence of values"), -1;
+    return 0;
+}
+
+static Vector *vectorNew(PyObject *parent, method get, uchar size) {
+    Vector *array = (Vector *) PyObject_CallObject((PyObject *) &VectorType, NULL);
+    if (!array) return NULL;
+
+    array -> parent = parent;
+    array -> get = get;
+    array -> size = size;
+
+    return Py_INCREF(parent), array;
+}
+
+static PyObject *vectorNumber(Vector *self, PyObject *other, uchar type) {
+    if (PyNumber_Check(other)) {
+        PyObject *result = PyTuple_New(self -> size);
+
+        const double value = PyFloat_AsDouble(other);
+        if (value == -1 && PyErr_Occurred()) return NULL;
+
+        for (uchar i = 0; i < self -> size; i ++) {
+            PyObject *current = PyFloat_FromDouble(vectorCheck(GET(self, i), value, type));
+            if (!current) return NULL;
+
+            PyTuple_SET_ITEM(result, i, current);
+        }
+
+        return result;
+    }
+
+    if (Py_TYPE(other) == &VectorType) {
+        Vector *object = (Vector *) other;
+        PyObject *result = PyTuple_New(MAX(self -> size, object -> size));
+
+        for (uchar i = 0; i < MAX(self -> size, object -> size); i ++) {
+            PyObject *current = PyFloat_FromDouble(
+                i >= self -> size ? GET(object, i) :
+                i >= object -> size ? GET(self, i) :
+                vectorCheck(GET(self, i), GET(object, i), type));
+
+            if (!current) return NULL;
+            PyTuple_SET_ITEM(result, i, current);
+        }
+
+        return result;
+    }
+
+    errorFormat(PyExc_TypeError, "must be Vector or number, not %s", Py_TYPE(other) -> tp_name);
+    return NULL;
+}
+
+static Py_ssize_t Vector_len(Vector *self) {
+    return self -> size;
+}
+
+static PyObject *Vector_item(Vector *self, Py_ssize_t index) {
+    return index >= self -> size ? PyErr_SetString(
+        PyExc_IndexError, "index out of range"), NULL : PyFloat_FromDouble(GET(self, index));
+}
+
+static PySequenceMethods VectorSequenceMethods = {
+    .sq_length = (lenfunc) Vector_len,
+    .sq_item = (ssizeargfunc) Vector_item
+};
+
 static PyObject *Vector_add(Vector *self, PyObject *other) {
-    return binVector(self, other, ADD);
+    return vectorNumber(self, other, ADD);
 }
 
 static PyObject *Vector_subtract(Vector *self, PyObject *other) {
-    return binVector(self, other, SUBTRACT);
+    return vectorNumber(self, other, SUBTRACT);
 }
 
 static PyObject *Vector_multiply(Vector *self, PyObject *other) {
-    return binVector(self, other, MULTIPLY);
+    return vectorNumber(self, other, MULTIPLY);
 }
 
 static PyObject *Vector_trueDivide(Vector *self, PyObject *other) {
-    return binVector(self, other, DIVIDE);
+    return vectorNumber(self, other, DIVIDE);
 }
 
 static PyNumberMethods VectorNumberMethods = {
@@ -812,7 +726,7 @@ static PyObject *Vector_richcompare(Vector *self, PyObject *other, int op) {
         const double b = PyFloat_AsDouble(other);
 
         if (b == -1 && PyErr_Occurred()) return NULL;
-        for (uchar i = 0; i < self -> size; i ++) a *= GET(self);
+        for (uchar i = 0; i < self -> size; i ++) a *= GET(self, i);
 
         COMPARE
     }
@@ -824,7 +738,7 @@ static PyObject *Vector_richcompare(Vector *self, PyObject *other, int op) {
             uchar ne = 0;
 
             for (uchar i = 0; i < MIN(self -> size, object -> size); i ++)
-                if (GET(self) != GET(object)) {
+                if (GET(self, i) != GET(object, i)) {
                     if (op == Py_EQ) Py_RETURN_FALSE;
                     ne = 1;
                 }
@@ -836,23 +750,23 @@ static PyObject *Vector_richcompare(Vector *self, PyObject *other, int op) {
         }
 
         double a = 1, b = 1;
-        for (uchar i = 0; i < self -> size; i ++)  a *= GET(self);
-        for (uchar i = 0; i < object -> size; i ++) b *= GET(object);
+        for (uchar i = 0; i < self -> size; i ++)  a *= GET(self, i);
+        for (uchar i = 0; i < object -> size; i ++) b *= GET(object, i);
 
         COMPARE
     }
 
-    setError(PyExc_TypeError, "must be Vector or number, not %s", Py_TYPE(other) -> tp_name);
+    errorFormat(PyExc_TypeError, "must be Vector or number, not %s", Py_TYPE(other) -> tp_name);
     return NULL;
     #undef COMPARE
 }
 
 static PyObject *Vector_str(Vector *self) {
-    return printVector(self, 40, 41);
+    return vectorPrint(self, 40, 41);
 }
 
 static PyObject *Vector_repr(Vector *self) {
-    return printVector(self, 91, 93);
+    return vectorPrint(self, 91, 93);
 }
 
 static PyObject *Vector_getattro(Vector *self, PyObject *attr) {
@@ -861,7 +775,7 @@ static PyObject *Vector_getattro(Vector *self, PyObject *attr) {
 
     for (uchar i = 0; i < self -> size; i ++)
         if (!strcmp(name, self -> data[i].name))
-            return PyFloat_FromDouble(GET(self));
+            return PyFloat_FromDouble(GET(self, i));
 
     return PyObject_GenericGetAttr((PyObject *) self, attr);
 }
@@ -893,7 +807,8 @@ static PyTypeObject VectorType = {
     .tp_repr = (reprfunc) Vector_repr,
     .tp_getattro = (getattrofunc) Vector_getattro,
     .tp_setattro = (setattrofunc) Vector_setattro,
-    .tp_as_number = &VectorNumberMethods
+    .tp_as_number = &VectorNumberMethods,
+    .tp_as_sequence = &VectorSequenceMethods
 };
 
 static PyObject *Cursor_getX(Cursor *Py_UNUSED(self), void *Py_UNUSED(closure)) {
@@ -906,11 +821,9 @@ static int Cursor_setX(Cursor *Py_UNUSED(self), PyObject *value, void *Py_UNUSED
     const double x = PyFloat_AsDouble(value);
     if (x == -1 && PyErr_Occurred())return -1;
 
-    double y;
-    glfwGetCursorPos(window -> glfw, NULL, &y);
-    glfwSetCursorPos(window -> glfw, x + getWindowSize()[0] / 2, y);
-
-    return 0;
+    START
+    glfwSetCursorPos(window -> glfw, x + getWindowSize()[0] / 2, getCursorPos()[1]);
+    END return 0;
 }
 
 static PyObject *Cursor_getY(Cursor *Py_UNUSED(self), void *Py_UNUSED(closure)) {
@@ -923,15 +836,13 @@ static int Cursor_setY(Cursor *Py_UNUSED(self), PyObject *value, void *Py_UNUSED
     const double y = PyFloat_AsDouble(value);
     if (y == -1 && PyErr_Occurred()) return -1;
 
-    double x;
-    glfwGetCursorPos(window -> glfw, &x, NULL);
-    glfwSetCursorPos(window -> glfw, x, getWindowSize()[1] / 2 - y);
-
-    return 0;
+    START
+    glfwSetCursorPos(window -> glfw, getCursorPos()[0], getWindowSize()[1] / 2 - y);
+    END return 0;
 }
 
 static PyObject *Cursor_getPos(Cursor *self, void *Py_UNUSED(closure)) {
-    Vector *pos = newVector((PyObject *) self, (method) getCursorPos, 2);
+    Vector *pos = vectorNew((PyObject *) self, (method) getCursorPos, 2);
     pos -> data[0].name = "x";
     pos -> data[1].name = "y";
 
@@ -942,10 +853,12 @@ static int Cursor_setPos(Cursor *Py_UNUSED(self), PyObject *value, void *Py_UNUS
     vec pos = getCursorPos();
     vec size = getWindowSize();
 
-    if (setVector(value, pos, 2)) return -1;
-    glfwSetCursorPos(window -> glfw, pos[0] + size[0] / 2, size[1] / 2 - pos[1]);
+    if (vectorSet(value, pos, 2))
+        return -1;
 
-    return 0;
+    START
+    glfwSetCursorPos(window -> glfw, pos[0] + size[0] / 2, size[1] / 2 - pos[1]);
+    END return 0;
 }
 
 static PyObject *Cursor_getMove(Cursor *self, void *Py_UNUSED(closure)) {
@@ -1239,7 +1152,7 @@ static vec Camera_vecPos(Camera *self) {
 }
 
 static PyObject *Camera_getPos(Camera *self, void *Py_UNUSED(closure)) {
-    Vector *pos = newVector((PyObject *) self, (method) Camera_vecPos, 2);
+    Vector *pos = vectorNew((PyObject *) self, (method) Camera_vecPos, 2);
     pos -> data[0].set = (setter) Camera_setX;
     pos -> data[1].set = (setter) Camera_setY;
     pos -> data[0].name = "x";
@@ -1249,7 +1162,7 @@ static PyObject *Camera_getPos(Camera *self, void *Py_UNUSED(closure)) {
 }
 
 static int Camera_setPos(Camera *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return setVector(value, self -> pos, 2);
+    return vectorSet(value, self -> pos, 2);
 }
 
 static PyGetSetDef CameraGetSetters[] = {
@@ -1257,6 +1170,26 @@ static PyGetSetDef CameraGetSetters[] = {
     {"y", (getter) Camera_getY, (setter) Camera_setY, "y position of the camera", NULL},
     {"position", (getter) Camera_getPos, (setter) Camera_setPos, "position of the camera", NULL},
     {"pos", (getter) Camera_getPos, (setter) Camera_setPos, "position of the camera", NULL},
+    {NULL}
+};
+
+static PyObject *Camera_moveToward(Camera *self, PyObject *args) {
+    if (moveToward(self -> pos, args))
+        return NULL;
+
+    Py_RETURN_NONE;
+}
+
+static PyObject *Camera_moveTowardSmooth(Camera *self, PyObject *args) {
+    if (moveTowardSmooth(self -> pos, args))
+        return NULL;
+
+    Py_RETURN_NONE;
+}
+
+static PyMethodDef CameraMethods[] = {
+    {"move_toward", (PyCFunction) Camera_moveToward, METH_VARARGS, "move the camera toward another object"},
+    {"move_toward_smooth", (PyCFunction) Camera_moveTowardSmooth, METH_VARARGS, "move the camera smoothly toward another object"},
     {NULL}
 };
 
@@ -1272,8 +1205,6 @@ static int Camera_init(Camera *self, PyObject *args, PyObject *kwds) {
 
     self -> pos[0] = 0;
     self -> pos[1] = 0;
-    self -> view[0] = 0;
-    self -> view[1] = 1;
 
     return PyArg_ParseTupleAndKeywords(
         args, kwds, "|sddO", kwlist, &self -> pos[0],
@@ -1289,8 +1220,15 @@ static PyTypeObject CameraType = {
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_new = Camera_new,
     .tp_init = (initproc) Camera_init,
-    .tp_getset = CameraGetSetters
+    .tp_getset = CameraGetSetters,
+    .tp_methods = CameraMethods
 };
+
+static void windowClearColor() {
+    glClearColor(
+        (GLfloat) window -> color[0], (GLfloat) window -> color[1],
+        (GLfloat) window -> color[2], 1);
+}
 
 static PyObject *Window_getCaption(Window *self, void *Py_UNUSED(closure)) {
     return PyUnicode_FromString(self -> caption);
@@ -1315,10 +1253,8 @@ static PyObject *Window_getRed(Window *self, void *Py_UNUSED(closure)) {
 static int Window_setRed(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
-    if ((self -> color[0] = PyFloat_AsDouble(value)) == -1 && PyErr_Occurred())
-        return -1;
-
-    return clearColor(), 0;
+    self -> color[0] = PyFloat_AsDouble(value);
+    return self -> color[0] == -1 && PyErr_Occurred() ? -1 : windowClearColor(), 0;
 }
 
 static PyObject *Window_getGreen(Window *self, void *Py_UNUSED(closure)) {
@@ -1328,10 +1264,8 @@ static PyObject *Window_getGreen(Window *self, void *Py_UNUSED(closure)) {
 static int Window_setGreen(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
-    if ((self -> color[1] = PyFloat_AsDouble(value)) == -1 && PyErr_Occurred())
-        return -1;
-
-    return clearColor(), 0;
+    self -> color[1] = PyFloat_AsDouble(value);
+    return self -> color[1] == -1 && PyErr_Occurred() ? -1 : windowClearColor(), 0;
 }
 
 static PyObject *Window_getBlue(Window *self, void *Py_UNUSED(closure)) {
@@ -1341,10 +1275,8 @@ static PyObject *Window_getBlue(Window *self, void *Py_UNUSED(closure)) {
 static int Window_setBlue(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
-    if ((self -> color[2] = PyFloat_AsDouble(value)) == -1 && PyErr_Occurred())
-        return -1;
-
-    return clearColor(), 0;
+    self -> color[2] = PyFloat_AsDouble(value);
+    return self -> color[2] == -1 && PyErr_Occurred() ? -1 : windowClearColor(), 0;
 }
 
 static vec Window_vecColor(Window *self) {
@@ -1352,7 +1284,7 @@ static vec Window_vecColor(Window *self) {
 }
 
 static PyObject *Window_getColor(Window *self, void *Py_UNUSED(closure)) {
-    Vector *color = newVector((PyObject *) self, (method) Window_vecColor, 3);
+    Vector *color = vectorNew((PyObject *) self, (method) Window_vecColor, 3);
     color -> data[0].set = (setter) Window_setRed;
     color -> data[1].set = (setter) Window_setGreen;
     color -> data[2].set = (setter) Window_setBlue;
@@ -1364,10 +1296,7 @@ static PyObject *Window_getColor(Window *self, void *Py_UNUSED(closure)) {
 }
 
 static int Window_setColor(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
-    if (setVector(value, self -> color, 3))
-        return -1;
-
-    return clearColor(), 0;
+    return vectorSet(value, self -> color, 3) ? -1 : windowClearColor(), 0;
 }
 
 static PyObject *Window_getWidth(Window *Py_UNUSED(self), void *Py_UNUSED(closure)) {
@@ -1377,10 +1306,12 @@ static PyObject *Window_getWidth(Window *Py_UNUSED(self), void *Py_UNUSED(closur
 static int Window_setWidth(Window *Py_UNUSED(self), PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
-    const long width = PyLong_AsLong(value);
+    const int width = (int) PyFloat_AsDouble(value);
     if (width == -1 && PyErr_Occurred()) return -1;
 
-    return glfwSetWindowSize(window -> glfw, width, (int) getWindowSize()[1]), 0;
+    START
+    glfwSetWindowSize(window -> glfw, width, (int) getWindowSize()[1]);
+    END return 0;
 }
 
 static PyObject *Window_getHeight(Window *Py_UNUSED(self), void *Py_UNUSED(closure)) {
@@ -1390,14 +1321,16 @@ static PyObject *Window_getHeight(Window *Py_UNUSED(self), void *Py_UNUSED(closu
 static int Window_setHeight(Window *Py_UNUSED(self), PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
-    const long height = PyLong_AsLong(value);
+    const int height = (int) PyFloat_AsDouble(value);
     if (height == -1 && PyErr_Occurred()) return -1;
 
-    return glfwSetWindowSize(window -> glfw, (int) getWindowSize()[0], height), 0;
+    START
+    glfwSetWindowSize(window -> glfw, (int) getWindowSize()[0], height);
+    END return 0;
 }
 
 static PyObject *Window_getSize(Window *self, void *Py_UNUSED(closure)) {
-    Vector *size = newVector((PyObject *) self, (method) getWindowSize, 2);
+    Vector *size = vectorNew((PyObject *) self, (method) getWindowSize, 2);
     size -> data[0].name = "x";
     size -> data[1].name = "y";
 
@@ -1407,8 +1340,12 @@ static PyObject *Window_getSize(Window *self, void *Py_UNUSED(closure)) {
 static int Window_setSize(Window *Py_UNUSED(self), PyObject *value, void *Py_UNUSED(closure)) {
     vec size = getWindowSize();
 
-    if (setVector(value, size, 2)) return -1;
-    return glfwSetWindowSize(window -> glfw, (int) size[0], (int) size[1]), 0;
+    if (vectorSet(value, size, 2))
+        return -1;
+
+    START
+    glfwSetWindowSize(window -> glfw, (int) size[0], (int) size[1]);
+    END return 0;
 }
 
 static PyObject *Window_getTop(Window *Py_UNUSED(self), void *Py_UNUSED(closure)) {
@@ -1486,7 +1423,7 @@ static PyObject *Window_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObj
     Window *self = window = (Window *) type -> tp_alloc(type, 0);
 
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-    self -> glfw = glfwCreateWindow(1, 1, "", NULL, NULL);
+    self -> glfw = glfwCreateWindow(640, 480, "JoBase", NULL, NULL);
 
     if (!self -> glfw) {
         const char *buffer;
@@ -1517,8 +1454,8 @@ static PyObject *Window_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObj
 
 static int Window_init(Window *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"caption", "width", "height", "color", NULL};
-
     const char *caption = "JoBase";
+
     PyObject *color = NULL;
     int2 size = {640, 480};
 
@@ -1527,17 +1464,14 @@ static int Window_init(Window *self, PyObject *args, PyObject *kwds) {
     self -> color[2] = 1;
 
     if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|siiO", kwlist, &caption,
-        &size[0], &size[1], &color)) return -1;
+        args, kwds, "|siiO", kwlist, &caption,  &size[0], &size[1], &color) ||
+        (color && vectorSet(color, self -> color, 3))) return -1;
 
     self -> caption = strdup(caption);
-
-    if (color && setVector(color, self -> color, 3))
-        return -1;
-
     glfwSetWindowTitle(self -> glfw, self -> caption);
     glfwSetWindowSize(self -> glfw, size[0], size[1]);
-    return clearColor(), 0;
+
+    return windowClearColor(), 0;
 }
 
 static void Window_dealloc(Window *self) {
@@ -1559,6 +1493,26 @@ static PyTypeObject WindowType = {
     .tp_getset = WindowGetSetters
 };
 
+static void shapeSetPos(Shape *self) {
+    if (self -> body)
+        cpBodySetPosition(self -> body, cpv(self -> pos[0], self -> pos[1]));
+}
+
+static void shapeSetVelocity(Shape *self) {
+    if (self -> body)
+        cpBodySetVelocity(self -> body, cpv(self -> velocity[0], self -> velocity[1]));
+}
+
+static void shapeSetMoment(Shape *self) {
+    if (self -> body)
+        cpBodySetMoment(self -> body, self -> rotate ? self -> getMoment(self) : INFINITY);
+}
+
+static void shapeSetAngle(Shape *self) {
+    if (self -> body)
+        cpBodySetAngle(self -> body, self -> angle * M_PI / 180);
+}
+
 static PyObject *Shape_getX(Shape *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> pos[0]);
 }
@@ -1567,7 +1521,7 @@ static int Shape_setX(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> pos[0] = PyFloat_AsDouble(value);
-    return self -> pos[0] == -1 && PyErr_Occurred() ? -1 : 0;
+    return self -> pos[0] == -1 && PyErr_Occurred() ? -1 : shapeSetPos(self), 0;
 }
 
 static PyObject *Shape_getY(Shape *self, void *Py_UNUSED(closure)) {
@@ -1578,7 +1532,7 @@ static int Shape_setY(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> pos[1] = PyFloat_AsDouble(value);
-    return self -> pos[1] == -1 && PyErr_Occurred() ? -1 : 0;
+    return self -> pos[1] == -1 && PyErr_Occurred() ? -1 : shapeSetPos(self), 0;
 }
 
 static vec Shape_vecPos(Shape *self) {
@@ -1586,7 +1540,7 @@ static vec Shape_vecPos(Shape *self) {
 }
 
 static PyObject *Shape_getPos(Shape *self, void *Py_UNUSED(closure)) {
-    Vector *pos = newVector((PyObject *) self, (method) Shape_vecPos, 2);
+    Vector *pos = vectorNew((PyObject *) self, (method) Shape_vecPos, 2);
     pos -> data[0].set = (setter) Shape_setX;
     pos -> data[1].set = (setter) Shape_setY;
     pos -> data[0].name = "x";
@@ -1596,21 +1550,21 @@ static PyObject *Shape_getPos(Shape *self, void *Py_UNUSED(closure)) {
 }
 
 static int Shape_setPos(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return setVector(value, self -> pos, 2);
+    return vectorSet(value, self -> pos, 2) ? -1 : shapeSetPos(self), 0;
 }
 
 static int Shape_setScaleX(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> scale[0] = PyFloat_AsDouble(value);
-    return self -> scale[0] == -1 && PyErr_Occurred() ? -1 : 0;
+    return self -> scale[0] == -1 && PyErr_Occurred() ? -1 : self -> setShape(self), 0;
 }
 
 static int Shape_setScaleY(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> scale[1] = PyFloat_AsDouble(value);
-    return self -> scale[1] == -1 && PyErr_Occurred() ? -1 : 0;
+    return self -> scale[1] == -1 && PyErr_Occurred() ? -1 : self -> setShape(self), 0;
 }
 
 static vec Shape_vecScale(Shape *self) {
@@ -1618,7 +1572,7 @@ static vec Shape_vecScale(Shape *self) {
 }
 
 static PyObject *Shape_getScale(Shape *self, void *Py_UNUSED(closure)) {
-    Vector *scale = newVector((PyObject *) self, (method) Shape_vecScale, 2);
+    Vector *scale = vectorNew((PyObject *) self, (method) Shape_vecScale, 2);
     scale -> data[0].set = (setter) Shape_setScaleX;
     scale -> data[1].set = (setter) Shape_setScaleY;
     scale -> data[0].name = "x";
@@ -1628,7 +1582,7 @@ static PyObject *Shape_getScale(Shape *self, void *Py_UNUSED(closure)) {
 }
 
 static int Shape_setScale(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return setVector(value, self -> scale, 2);
+    return vectorSet(value, self -> scale, 2) ? -1 : self -> setShape(self), 0;
 }
 
 static int Shape_setAnchorX(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
@@ -1650,7 +1604,7 @@ static vec Shape_vecAnchor(Shape *self) {
 }
 
 static PyObject *Shape_getAnchor(Shape *self, void *Py_UNUSED(closure)) {
-    Vector *anchor = newVector((PyObject *) self, (method) Shape_vecAnchor, 2);
+    Vector *anchor = vectorNew((PyObject *) self, (method) Shape_vecAnchor, 2);
     anchor -> data[0].set = (setter) Shape_setAnchorX;
     anchor -> data[1].set = (setter) Shape_setAnchorY;
     anchor -> data[0].name = "x";
@@ -1660,7 +1614,7 @@ static PyObject *Shape_getAnchor(Shape *self, void *Py_UNUSED(closure)) {
 }
 
 static int Shape_setAnchor(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return setVector(value, self -> anchor, 2);
+    return vectorSet(value, self -> anchor, 2);
 }
 
 static PyObject *Shape_getAngle(Shape *self, void *Py_UNUSED(closure)) {
@@ -1671,7 +1625,7 @@ static int Shape_setAngle(Shape *self, PyObject *value, void *Py_UNUSED(closure)
     CHECK(value)
 
     self -> angle = PyFloat_AsDouble(value);
-    return self -> angle == -1 && PyErr_Occurred() ? -1 : 0;
+    return self -> angle == -1 && PyErr_Occurred() ? -1 : shapeSetAngle(self), 0;
 }
 
 static PyObject *Shape_getRed(Shape *self, void *Py_UNUSED(closure)) {
@@ -1723,7 +1677,7 @@ static vec Shape_vecColor(Shape *self) {
 }
 
 static PyObject *Shape_getColor(Shape *self, void *Py_UNUSED(closure)) {
-    Vector *color = newVector((PyObject *) self, (method) Shape_vecColor, 4);
+    Vector *color = vectorNew((PyObject *) self, (method) Shape_vecColor, 4);
     color -> data[1].set = (setter) Shape_setRed;
     color -> data[3].set = (setter) Shape_setGreen;
     color -> data[1].set = (setter) Shape_setBlue;
@@ -1737,7 +1691,140 @@ static PyObject *Shape_getColor(Shape *self, void *Py_UNUSED(closure)) {
 }
 
 static int Shape_setColor(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return setVector(value, self -> color, 4);
+    return vectorSet(value, self -> color, 4);
+}
+
+static PyObject *Shape_getType(Shape *self, void *Py_UNUSED(closure)) {
+    return PyLong_FromLong(self -> type);
+}
+
+static int Shape_setType(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+
+    if ((self -> type = PyLong_AsLong(value)) == -1 && PyErr_Occurred())
+        return -1;
+
+    if (self -> body)
+        cpBodySetType(self -> body, self -> type);
+
+    return 0;
+}
+
+static PyObject *Shape_getMass(Shape *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> mass);
+}
+
+static int Shape_setMass(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+
+    if ((self -> mass = PyFloat_AsDouble(value)) == -1 && PyErr_Occurred())
+        return -1;
+
+    if (self -> body)
+        cpBodySetMass(self -> body, self -> angle * M_PI / 180);
+
+    return shapeSetMoment(self), 0;
+}
+
+static PyObject *Shape_getElasticity(Shape *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> elasticity);
+}
+
+static int Shape_setElasticity(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+
+    if ((self -> elasticity = PyFloat_AsDouble(value)) == -1 && PyErr_Occurred())
+        return -1;
+
+    if (self -> shape)
+        cpShapeSetElasticity(self -> shape, self -> elasticity);
+        
+    return 0;
+}
+
+static PyObject *Shape_getFriction(Shape *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> friction);
+}
+
+static int Shape_setFriction(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+
+    if ((self -> friction = PyFloat_AsDouble(value)) == -1 && PyErr_Occurred())
+        return -1;
+
+    if (self -> shape)
+        cpShapeSetFriction(self -> shape, self -> friction);
+        
+    return 0;
+}
+
+static int Shape_setVelocityX(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+
+    self -> velocity[0] = PyFloat_AsDouble(value);
+    return self -> velocity[0] == -1 && PyErr_Occurred() ? -1 : shapeSetVelocity(self), 0;
+}
+
+static int Shape_setVelocityY(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+
+    self -> velocity[1] = PyFloat_AsDouble(value);
+    return self -> velocity[1] == -1 && PyErr_Occurred() ? -1 : shapeSetVelocity(self), 0;
+}
+
+static vec Shape_vecVelocity(Shape *self) {
+    return self -> velocity;
+}
+
+static PyObject *Shape_getVelocity(Shape *self, void *Py_UNUSED(closure)) {
+    Vector *speed = vectorNew((PyObject *) self, (method) Shape_vecVelocity, 2);
+    speed -> data[0].set = (setter) Shape_setVelocityX;
+    speed -> data[1].set = (setter) Shape_setVelocityY;
+    speed -> data[0].name = "x";
+    speed -> data[1].name = "y";
+
+    return (PyObject *) speed;
+}
+
+static int Shape_setVelocity(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+    return vectorSet(value, self -> velocity, 2) ? -1 : shapeSetVelocity(self), 0;
+}
+
+static PyObject *Shape_getAngularVelocity(Shape *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> angularVelocity);
+}
+
+static int Shape_setAngularVelocity(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+
+    if ((self -> angularVelocity = PyFloat_AsDouble(value)) == -1 && PyErr_Occurred())
+        return -1;
+
+    if (self -> body)
+        cpBodySetAngularVelocity(self -> body, self -> angularVelocity * M_PI / 180);
+
+    return 0;
+}
+
+static PyObject *Shape_getRotate(Shape *self, void *Py_UNUSED(closure)) {
+    return PyBool_FromLong(self -> rotate);
+}
+
+static int Shape_setRotate(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+
+    if (value == Py_True) {
+        self -> rotate = 1;
+        return shapeSetMoment(self), 0;
+    }
+
+    if (value == Py_False) {
+        self -> rotate = 0;
+        return shapeSetMoment(self), 0;
+    }
+
+    errorFormat(PyExc_TypeError, "must be bool, not %s", Py_TYPE(value) -> tp_name);
+    return -1;
 }
 
 static PyGetSetDef ShapeGetSetters[] = {
@@ -1753,6 +1840,15 @@ static PyGetSetDef ShapeGetSetters[] = {
     {"blue", (getter) Shape_getBlue, (setter) Shape_setBlue, "blue color of the shape", NULL},
     {"alpha", (getter) Shape_getAlpha, (setter) Shape_setAlpha, "opacity of the shape", NULL},
     {"color", (getter) Shape_getColor, (setter) Shape_setColor, "color of the shape", NULL},
+    {"type", (getter) Shape_getType, (setter) Shape_setType, "physics body of the shape", NULL},
+    {"mass", (getter) Shape_getMass, (setter) Shape_setMass, "weight of the shape", NULL},
+    {"elasticity", (getter) Shape_getElasticity, (setter) Shape_setElasticity, "bounciness of the shape", NULL},
+    {"friction", (getter) Shape_getFriction, (setter) Shape_setFriction, "roughness of the shape", NULL},
+    {"velocity", (getter) Shape_getVelocity, (setter) Shape_setVelocity, "physics speed of the shape", NULL},
+    {"speed", (getter) Shape_getVelocity, (setter) Shape_setVelocity, "physics speed of the shape", NULL},
+    {"angular_velocity", (getter) Shape_getAngularVelocity, (setter) Shape_setAngularVelocity, "physics rotation speed of the shape", NULL},
+    {"rotate_speed", (getter) Shape_getAngularVelocity, (setter) Shape_setAngularVelocity, "physics rotation speed of the shape", NULL},
+    {"rotate", (getter) Shape_getRotate, (setter) Shape_setRotate, "the shape is able to rotate in a physics engine", NULL},
     {NULL}
 };
 
@@ -1768,39 +1864,38 @@ static PyObject *Shape_lookAt(Shape *self, PyObject *args) {
     const double angle = atan2(pos[1] - self -> pos[1], pos[0] - self -> pos[0]);
     self -> angle = angle * 180 / M_PI;
     
+    shapeSetAngle(self);
     Py_RETURN_NONE;
 }
 
 static PyObject *Shape_moveToward(Shape *self, PyObject *args) {
-    PyObject *other;
-    const double speed = 1;
-
-    if (!PyArg_ParseTuple(args, "O|d", &other, &speed))
+    if (moveToward(self -> pos, args))
         return NULL;
 
-    vec pos = getOtherPos(other);
-    if (!pos) return NULL;
+    shapeSetAngle(self);
+    Py_RETURN_NONE;
+}
 
-    const double x = pos[0] - self -> pos[0];
-    const double y = pos[1] - self -> pos[1];
-
-    if (hypot(x, y) < speed) {
-        self -> pos[0] += x;
-        self -> pos[1] += y;
+static PyObject *Shape_applyImpulse(Shape *self, PyObject *args) {
+    if (!self -> body) {
+        PyErr_SetString(PyExc_AttributeError, "must be added to a physics engine");
+        return NULL;
     }
 
-    else {
-        const double angle = atan2(y, x);
-        self -> pos[0] += cos(angle) * speed;
-        self -> pos[1] += sin(angle) * speed;
-    }
-    
+    cpVect point = {0, 0};
+    cpVect impulse;
+
+    if (!PyArg_ParseTuple(args, "dd|dd", &impulse.x, &impulse.y, &point.x, &point.y))
+        return NULL;
+
+    cpBodyApplyImpulseAtLocalPoint(self -> body, impulse, point);
     Py_RETURN_NONE;
 }
 
 static PyMethodDef ShapeMethods[] = {
     {"look_at", (PyCFunction) Shape_lookAt, METH_VARARGS, "rotate the shape so that it looks at another object"},
     {"move_toward", (PyCFunction) Shape_moveToward, METH_VARARGS, "move the shape toward another object"},
+    {"apply_impulse", (PyCFunction) Shape_applyImpulse, METH_VARARGS, "apply an impulse to the shape physics"},
     {NULL}
 };
 
@@ -1819,6 +1914,18 @@ static int Shape_init(Shape *self, PyObject *Py_UNUSED(args), PyObject *Py_UNUSE
     self -> color[2] = 0;
     self -> color[3] = 1;
 
+    self -> velocity[0] = 0;
+    self -> velocity[1] = 0;
+
+    self -> angle = 0;
+    self -> angularVelocity = 0;
+
+    self -> type = CP_BODY_TYPE_DYNAMIC;
+    self -> mass = 1;
+    self -> elasticity = 0.5;
+    self -> friction = 0.5;
+    self -> rotate = 1;
+
     return 0;
 }
 
@@ -1835,6 +1942,33 @@ static PyTypeObject ShapeType = {
     .tp_getset = ShapeGetSetters
 };
 
+static void rectangleNewShape(Rectangle *self) {
+    self -> shape.shape = cpBoxShapeNew(
+        self -> shape.body, self -> size[0] * self -> shape.scale[0],
+        self -> size[1] * self -> shape.scale[1], 0);
+}
+
+static void rectangleSetShape(Rectangle *self) {
+    if (!self -> shape.shape) return;
+
+    const double x = self -> size[0] / 2;
+    const double y = self -> size[1] / 2;
+
+    cpTransform transform = cpTransformNew(
+        self -> shape.scale[0], 0, 0,
+        self -> shape.scale[1], 0, 0);
+
+    cpVect data[4] = {{-x, y}, {x, y}, {x, -y}, {-x, -y}};
+    cpPolyShapeSetVerts(self -> shape.shape, 4, data, transform);
+    shapeSetMoment((Shape *) self);
+}
+
+static cpFloat rectangleGetMoment(Rectangle *self) {
+    return cpMomentForBox(
+        self -> shape.mass, self -> size[0] * self -> shape.scale[0],
+        self -> size[1] * self -> shape.scale[1]);
+}
+
 static PyObject *Rectangle_getWidth(Rectangle *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> size[0]);
 }
@@ -1843,7 +1977,7 @@ static int Rectangle_setWidth(Rectangle *self, PyObject *value, void *Py_UNUSED(
     CHECK(value)
 
     self -> size[0] = PyFloat_AsDouble(value);
-    return self -> size[0] == -1 && PyErr_Occurred() ? -1 : 0;
+    return self -> size[0] == -1 && PyErr_Occurred() ? -1 : rectangleSetShape(self), 0;
 }
 
 static PyObject *Rectangle_getHeight(Rectangle *self, void *Py_UNUSED(closure)) {
@@ -1854,7 +1988,7 @@ static int Rectangle_setHeight(Rectangle *self, PyObject *value, void *Py_UNUSED
     CHECK(value)
 
     self -> size[1] = PyFloat_AsDouble(value);
-    return self -> size[1] == -1 && PyErr_Occurred() ? -1 : 0;
+    return self -> size[1] == -1 && PyErr_Occurred() ? -1 : rectangleSetShape(self), 0;
 }
 
 static vec Rectangle_vecSize(Rectangle *self) {
@@ -1862,7 +1996,7 @@ static vec Rectangle_vecSize(Rectangle *self) {
 }
 
 static PyObject *Rectangle_getSize(Rectangle *self, void *Py_UNUSED(closure)) {
-    Vector *size = newVector((PyObject *) self, (method) Rectangle_vecSize, 2);
+    Vector *size = vectorNew((PyObject *) self, (method) Rectangle_vecSize, 2);
     size -> data[0].set = (setter) Rectangle_setWidth;
     size -> data[1].set = (setter) Rectangle_setHeight;
     size -> data[0].name = "x";
@@ -1872,7 +2006,7 @@ static PyObject *Rectangle_getSize(Rectangle *self, void *Py_UNUSED(closure)) {
 }
 
 static int Rectangle_setSize(Rectangle *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return setVector(value, self -> size, 2);
+    return vectorSet(value, self -> size, 2) ? -1 : rectangleSetShape(self), 0;
 }
 
 static PyObject *Rectangle_getLeft(Rectangle *self, void *Py_UNUSED(closure)) {
@@ -1887,7 +2021,8 @@ static int Rectangle_setLeft(Rectangle *self, PyObject *value, void *Py_UNUSED(c
     if (result == -1 && PyErr_Occurred()) return -1;
 
     RECT(self)
-    return self -> shape.pos[0] += result - getPolyLeft(poly, 4), 0;
+    self -> shape.pos[0] += result - getPolyLeft(poly, 4);
+    return shapeSetPos(&self -> shape), 0;
 }
 
 static PyObject *Rectangle_getTop(Rectangle *self, void *Py_UNUSED(closure)) {
@@ -1902,7 +2037,8 @@ static int Rectangle_setTop(Rectangle *self, PyObject *value, void *Py_UNUSED(cl
     if (result == -1 && PyErr_Occurred()) return -1;
 
     RECT(self)
-    return self -> shape.pos[1] += result - getPolyTop(poly, 4), 0;
+    self -> shape.pos[1] += result - getPolyTop(poly, 4);
+    return shapeSetPos(&self -> shape), 0;
 }
 
 static PyObject *Rectangle_getRight(Rectangle *self, void *Py_UNUSED(closure)) {
@@ -1917,7 +2053,8 @@ static int Rectangle_setRight(Rectangle *self, PyObject *value, void *Py_UNUSED(
     if (result == -1 && PyErr_Occurred()) return -1;
 
     RECT(self)
-    return self -> shape.pos[0] += result - getPolyRight(poly, 4), 0;
+    self -> shape.pos[0] += result - getPolyRight(poly, 4);
+    return shapeSetPos(&self -> shape), 0;
 }
 
 static PyObject *Rectangle_getBottom(Rectangle *self, void *Py_UNUSED(closure)) {
@@ -1932,7 +2069,8 @@ static int Rectangle_setBottom(Rectangle *self, PyObject *value, void *Py_UNUSED
     if (result == -1 && PyErr_Occurred()) return -1;
 
     RECT(self)
-    return self -> shape.pos[1] += result - getPolyBottom(poly, 4), 0;
+    self -> shape.pos[1] += result - getPolyBottom(poly, 4);
+    return shapeSetPos(&self -> shape), 0;
 }
 
 static PyGetSetDef RectangleGetSetters[] = {
@@ -1967,6 +2105,16 @@ static PyMethodDef RectangleMethods[] = {
     {NULL}
 };
 
+static PyObject *Rectangle_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
+    Rectangle *self = (Rectangle *) type -> tp_alloc(type, 0);
+
+    self -> shape.newShape = (void *)(Shape *) rectangleNewShape;
+    self -> shape.setShape = (void *)(Shape *) rectangleSetShape;
+    self -> shape.getMoment = (cpFloat (*)(Shape *)) rectangleGetMoment;
+
+    return (PyObject *) self;
+}
+
 static int Rectangle_init(Rectangle *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"x", "y", "width", "height", "angle", "color", NULL};
     PyObject *color = NULL;
@@ -1980,7 +2128,7 @@ static int Rectangle_init(Rectangle *self, PyObject *args, PyObject *kwds) {
     return !PyArg_ParseTupleAndKeywords(
         args, kwds, "|dddddO", kwlist, &self -> shape.pos[0],
         &self -> shape.pos[1], &self -> size[0], &self -> size[1],
-        &self -> shape.angle, &color) || (color && setVector(
+        &self -> shape.angle, &color) || (color && vectorSet(
             color, self -> shape.color, 4)) ? -1 : 0;
 }
 
@@ -1992,7 +2140,7 @@ static PyTypeObject RectangleType = {
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_base = &ShapeType,
-    .tp_new = PyType_GenericNew,
+    .tp_new = Rectangle_new,
     .tp_init = (initproc) Rectangle_init,
     .tp_methods = RectangleMethods,
     .tp_getset = RectangleGetSetters
@@ -2029,7 +2177,7 @@ static int Image_init(Image *self, PyObject *args, PyObject *kwds) {
     if (!PyArg_ParseTupleAndKeywords(
         args, kwds, "|sdddddO", kwlist, &name, &self -> rect.shape.pos[0],
         &self -> rect.shape.pos[1], &self -> rect.shape.angle,
-        &size[0], &size[1], &color) || (color && setVector(
+        &size[0], &size[1], &color) || (color && vectorSet(
             color, self -> rect.shape.color, 4))) return -1;
 
     ITER(Texture, textures)
@@ -2042,7 +2190,7 @@ static int Image_init(Image *self, PyObject *args, PyObject *kwds) {
 
     int width, height;
     uchar *image = stbi_load(name, &width, &height, 0, STBI_rgb_alpha);
-    if (!image) return setError(PyExc_FileNotFoundError, "failed to load image: \"%s\"", name), -1;
+    if (!image) return errorFormat(PyExc_FileNotFoundError, "failed to load image: \"%s\"", name), -1;
 
     NEW(Texture, textures)
     glGenTextures(1, &textures -> source);
@@ -2076,6 +2224,86 @@ static PyTypeObject ImageType = {
     .tp_methods = ImageMethods
 };
 
+static int textReset(Text *text) {
+    if (FT_Set_Pixel_Sizes(text -> font -> face, (FT_UInt) text -> fontSize, 0))
+        return errorFormat(PyExc_RuntimeError, "failed to set font size"), -1;
+
+    text -> descender = text -> font -> face -> size -> metrics.descender >> 6;
+    text -> base[1] = text -> font -> face -> size -> metrics.height >> 6;
+    text -> base[0] = 0;
+
+    PARSE(text -> content) {
+        FT_UInt index = FT_Get_Char_Index(text -> font -> face, item);
+        Char *glyph = &text -> chars[index];
+
+        if (glyph -> fontSize != (int) text -> fontSize) {
+            if (FT_Load_Glyph(text -> font -> face, index, FT_LOAD_DEFAULT))
+                return errorFormat(PyExc_RuntimeError, "failed to load glyph: \"%lc\"", item), -1;
+
+            if (FT_Render_Glyph(text -> font -> face -> glyph, FT_RENDER_MODE_NORMAL))
+                return errorFormat(PyExc_RuntimeError, "failed to render glyph: \"%lc\"", item), -1;
+
+            glyph -> advance = text -> font -> face -> glyph -> metrics.horiAdvance >> 6;
+            glyph -> size[0] = text -> font -> face -> glyph -> metrics.width >> 6;
+            glyph -> size[1] = text -> font -> face -> glyph -> metrics.height >> 6;
+            glyph -> pos[0] = text -> font -> face -> glyph -> metrics.horiBearingX >> 6;
+            glyph -> pos[1] = text -> font -> face -> glyph -> metrics.horiBearingY >> 6;
+            glyph -> loaded ? glDeleteTextures(1, &glyph -> source) : (glyph -> loaded = 1);
+
+            glGenTextures(1, &glyph -> source);
+            glBindTexture(GL_TEXTURE_2D, glyph -> source);
+
+            glTexImage2D(
+                GL_TEXTURE_2D, 0, GL_RED, glyph -> size[0], glyph -> size[1], 0, GL_RED,
+                GL_UNSIGNED_BYTE, text -> font -> face -> glyph -> bitmap.buffer);
+
+            setTextureParameters();
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
+
+        if (!i) text -> base[0] += glyph -> pos[0];
+        if (text -> content[i + 1]) text -> base[0] += glyph -> advance;
+        else text -> base[0] += glyph -> size[0] + glyph -> pos[0];
+    }
+
+    text -> rect.size[0] = text -> base[0];
+    text -> rect.size[1] = text -> base[1];
+
+    return 0;
+    #undef ERROR
+}
+
+static void textAllocate(Text *text, Font *font) {
+    text -> chars = realloc(text -> chars, font -> face -> num_glyphs * sizeof(Char));
+    text -> font = font;
+
+    for (uint i = 0; i < font -> face -> num_glyphs; i ++)
+        text -> chars[i].loaded = 0;
+}
+
+static void textDelete(Text *text) {
+    for (uint i = 0; i < text -> font -> face -> num_glyphs; i ++)
+        if (text -> chars[i].loaded)
+            glDeleteTextures(1, &text -> chars[i].source);
+}
+
+static int textResetFont(Text *text, const char *name) {
+    FT_Face face;
+
+    ITER(Font, fonts)
+        if (!strcmp(this -> name, name))
+            return textAllocate(text, this), 0;
+
+    if (FT_New_Face(library, name, 0, &face))
+        return errorFormat(PyExc_FileNotFoundError, "failed to load font: \"%s\"", name), -1;
+
+    NEW(Font, fonts)
+    fonts -> name = strdup(name);
+    fonts -> face = face;
+
+    return textAllocate(text, fonts), 0;
+}
+
 static PyObject *Text_getContent(Text *self, void *Py_UNUSED(closure)) {
     return PyUnicode_FromWideChar(self -> content, -1);
 }
@@ -2087,7 +2315,7 @@ static int Text_setContent(Text *self, PyObject *value, void *Py_UNUSED(closure)
     if (!content) return -1;
 
     free(self -> content);
-    return self -> content = wcsdup(content), resetText(self);
+    return self -> content = wcsdup(content), textReset(self);
 }
 
 static PyObject *Text_getFont(Text *self, void *Py_UNUSED(closure)) {
@@ -2096,10 +2324,10 @@ static PyObject *Text_getFont(Text *self, void *Py_UNUSED(closure)) {
 
 static int Text_setFont(Text *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
-    deleteChars(self);
+    textDelete(self);
 
     const char *name = PyUnicode_AsUTF8(value);
-    return !name || resetFont(self, name) ? -1 : resetText(self);
+    return !name || textResetFont(self, name) ? -1 : textReset(self);
 }
 
 static PyObject *Text_getFontSize(Text *self, void *Py_UNUSED(closure)) {
@@ -2110,7 +2338,7 @@ static int Text_setFontSize(Text *self, PyObject *value, void *Py_UNUSED(closure
     CHECK(value)
 
     self -> fontSize = PyFloat_AsDouble(value);
-    return self -> fontSize == -1 && PyErr_Occurred() ? -1 : resetText(self);
+    return self -> fontSize == -1 && PyErr_Occurred() ? -1 : textReset(self);
 }
 
 static PyGetSetDef TextGetSetters[] = {
@@ -2123,41 +2351,42 @@ static PyGetSetDef TextGetSetters[] = {
 static PyObject *Text_draw(Text *self, PyObject *Py_UNUSED(ignored)) {
     double pen = self -> rect.shape.anchor[0] - self -> base[0] / 2;
 
-    vec2 scale = {
-        self -> rect.shape.scale[0] + self -> rect.size[0] / self -> base[0] - 1,
-        self -> rect.shape.scale[1] + self -> rect.size[1] / self -> base[1] - 1
-    };
+    const float sx = (float) (self -> rect.shape.scale[0] + self -> rect.size[0] / self -> base[0]) - 1;
+    const float sy = (float) (self -> rect.shape.scale[1] + self -> rect.size[1] / self -> base[1]) - 1;
+    const float s = (float) sin(self -> rect.shape.angle * M_PI / 180);
+	const float c = (float) cos(self -> rect.shape.angle * M_PI / 180);
+    const float px = (float) self -> rect.shape.pos[0];
+    const float py = (float) self -> rect.shape.pos[1];
 
     glUniform1i(glGetUniformLocation(program, "image"), TEXT);
     glBindVertexArray(mesh);
 
     PARSE(self -> content) {
         Char glyph = self -> chars[FT_Get_Char_Index(self -> font -> face, item)];
-        vec2 size = {glyph.size[0], glyph.size[1]};
-
-        mat matrix;
         if (!i) pen -= glyph.pos[0];
 
-        vec2 pos = {
-            pen + glyph.pos[0] + glyph.size[0] / 2,
-            self -> rect.shape.anchor[1] + glyph.pos[1] - (
-                glyph.size[1] + self -> base[1]) / 2 - self -> descender
-        };
+        const float ix = (float) glyph.size[0];
+        const float iy = (float) glyph.size[1];
+
+        const float ax = (float) (pen + glyph.pos[0] + glyph.size[0] / 2);
+        const float ay = (float) (self -> rect.shape.anchor[1] + glyph.pos[1] - (
+            glyph.size[1] + self -> base[1]) / 2 - self -> descender);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, glyph.source);
 
-        newMatrix(matrix);
-        scaleMatrix(matrix, size);
-        posMatrix(matrix, pos);
-        scaleMatrix(matrix, scale);
-        rotMatrix(matrix, self -> rect.shape.angle);
-        posMatrix(matrix, self -> rect.shape.pos);
+        mat matrix = {
+            ix * sx * c, ix * sx * s, 0, 0,
+            iy * sy * -s, iy * sy * c, 0, 0,
+            0, 0, 1, 0,
+            ax * sx * c + ay * sy * -s + px, ax * sx * s + ay * sy * c + py, 0, 1
+        };
+
         setUniform(matrix, self -> rect.shape.color);
+        pen += glyph.advance;
 
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         glBindTexture(GL_TEXTURE_2D, 0);
-        pen += glyph.advance;
     }
 
     glBindVertexArray(0);
@@ -2184,7 +2413,7 @@ static int Text_init(Text *self, PyObject *args, PyObject *kwds) {
     if (!PyArg_ParseTupleAndKeywords(
         args, kwds, "|UddddOs", kwlist, &content, &self -> rect.shape.pos[0],
         &self -> rect.shape.pos[1], &self -> fontSize, &self -> rect.shape.angle,
-        &color, &font) || resetFont(self, font) || (color && setVector(
+        &color, &font) || textResetFont(self, font) || (color && vectorSet(
             color, self -> rect.shape.color, 4))) return -1;
 
     if (content) {
@@ -2195,11 +2424,11 @@ static int Text_init(Text *self, PyObject *args, PyObject *kwds) {
     }
 
     else self -> content = wcsdup(L"Text");
-    return resetText(self);
+    return textReset(self);
 }
 
 static void Text_dealloc(Text *self) {
-    if (self -> font) deleteChars(self);
+    if (self -> font) textDelete(self);
 
     free(self -> chars);
     free(self -> content);
@@ -2219,6 +2448,211 @@ static PyTypeObject TextType = {
     .tp_dealloc = (destructor) Text_dealloc,
     .tp_getset = TextGetSetters,
     .tp_methods = TextMethods
+};
+
+static Py_ssize_t Physics_len(Physics *self) {
+    return self -> length;
+}
+
+static PyObject *Physics_item(Physics *self, Py_ssize_t index) {
+    if (index >= self -> length)
+        return PyErr_SetString(PyExc_IndexError, "index out of range"), NULL;
+
+    return Py_INCREF(self -> data[index]), (PyObject *) self -> data[index];
+}
+
+static PySequenceMethods PhysicsSequenceMethods = {
+    .sq_length = (lenfunc) Physics_len,
+    .sq_item = (ssizeargfunc) Physics_item
+};
+
+static int Physics_setGravityX(Physics *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+
+    const double x = PyFloat_AsDouble(value);
+    if (x == -1) return -1;
+
+    cpSpaceSetGravity(self -> space, cpv(x, cpSpaceGetGravity(self -> space).y));
+    return 0;
+}
+
+static int Physics_setGravityY(Physics *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+
+    const double y = PyFloat_AsDouble(value);
+    if (y == -1) return -1;
+
+    cpSpaceSetGravity(self -> space, cpv(cpSpaceGetGravity(self -> space).x, y));
+    return 0;
+}
+
+static vec Physics_vecGravity(Physics *self) {
+    static vec2 gravity;
+    cpVect vector = cpSpaceGetGravity(self -> space);
+
+    gravity[0] = vector.x;
+    gravity[1] = vector.y;
+    return gravity;
+}
+
+static PyObject *Physics_getGravity(Physics *self, void *Py_UNUSED(closure)) {
+    Vector *gravity = vectorNew((PyObject *) self, (method) Physics_vecGravity, 2);
+    gravity -> data[0].set = (setter) Physics_setGravityX;
+    gravity -> data[1].set = (setter) Physics_setGravityY;
+    gravity -> data[0].name = "x";
+    gravity -> data[1].name = "y";
+
+    return (PyObject *) gravity;
+}
+
+static int Physics_setGravity(Physics *self, PyObject *value, void *Py_UNUSED(closure)) {
+    vec gravity = Physics_vecGravity(self);
+
+    return vectorSet(value, gravity, 2) ? -1 : cpSpaceSetGravity(
+        self -> space, cpv(gravity[0], gravity[1])), 0;
+}
+
+static PyGetSetDef PhysicsGetSetters[] = {
+    {"gravity", (getter) Physics_getGravity, (setter) Physics_setGravity, "the gravity of the physics engine", NULL},
+    {NULL}
+};
+
+static PyObject *Physics_add(Physics *self, PyObject *args) {
+    Shape *shape;
+
+    if (!PyArg_ParseTuple(args, "O!", &ShapeType, &shape))
+        return NULL;
+
+    if (shape -> shape) {
+        PyErr_SetString(PyExc_ValueError, "already added to a physics engine");
+        return NULL;
+    }
+
+    if (shape -> type == CP_BODY_TYPE_DYNAMIC)
+        shape -> body = cpBodyNew(
+            shape -> mass, shape -> rotate ? shape -> getMoment(shape) : INFINITY);
+
+    else if (shape -> type == CP_BODY_TYPE_STATIC)
+        shape -> body = cpBodyNewStatic();
+
+    cpBodySetAngle(shape -> body, shape -> angle * M_PI / 180);
+    cpBodySetPosition(shape -> body, cpv(shape -> pos[0], shape -> pos[1]));
+    cpBodySetVelocity(shape -> body, cpv(shape -> velocity[0], shape -> velocity[1]));
+    cpBodySetAngularVelocity(shape -> body, shape -> angularVelocity * M_PI / 180);
+
+    shape -> newShape(shape);
+    cpShapeSetElasticity(shape -> shape, shape -> elasticity);
+    cpShapeSetFriction(shape -> shape, shape -> friction);
+
+    cpSpaceAddBody(self -> space, shape -> body);
+    cpSpaceAddShape(self -> space, shape -> shape);
+
+    self -> data = realloc(self -> data, sizeof(Shape *) * (self -> length + 1));
+    self -> data[self -> length] = shape;
+    self -> length ++;
+
+    Py_INCREF(shape);
+    Py_RETURN_NONE;
+}
+
+static PyObject *Physics_remove(Physics *self, PyObject *args) {
+    Shape *other;
+
+    if (!PyArg_ParseTuple(args, "O!", &ShapeType, &other))
+        return NULL;
+
+    for (uint i = 0; i < self -> length; i ++)
+        if (self -> data[i] == other) {
+            cpSpaceRemoveBody(self -> space, self -> data[i] -> body);
+            cpSpaceRemoveShape(self -> space, self -> data[i] -> shape);
+            cpBodyFree(self -> data[i] -> body);
+            cpShapeFree(self -> data[i] -> shape);
+
+            self -> data[i] -> body = NULL;
+            self -> data[i] -> shape = NULL;
+            self -> length --;
+
+            for (uint j = i; j < self -> length; j ++)
+                self -> data[j] = self -> data[j + 1];
+
+            self -> data = realloc(self -> data, sizeof(Shape *) * self -> length);
+            Py_RETURN_NONE;
+        }
+
+    PyErr_SetString(PyExc_ValueError, "can't remove because it doesn't exist in physics engine");
+    return NULL;
+}
+
+static PyObject *Physics_update(Physics *self, PyObject *Py_UNUSED(ignored)) {
+    cpSpaceStep(self -> space, 1. / 60);
+
+    for (uint i = 0; i < self -> length; i ++) {
+        cpVect pos = cpBodyGetPosition(self -> data[i] -> body);
+        cpVect velocity = cpBodyGetVelocity(self -> data[i] -> body);
+        cpFloat angle = cpBodyGetAngle(self -> data[i] -> body);
+        cpFloat angularVelocity = cpBodyGetAngularVelocity(self -> data[i] -> body);
+
+        self -> data[i] -> pos[0] = pos.x;
+        self -> data[i] -> pos[1] = pos.y;
+        self -> data[i] -> velocity[0] = velocity.x;
+        self -> data[i] -> velocity[1] = velocity.y;
+        self -> data[i] -> angle = angle * 180 / M_PI;
+        self -> data[i] -> angularVelocity = angularVelocity * 180 / M_PI;
+    }
+    
+    Py_RETURN_NONE;
+}
+
+static PyMethodDef PhysicsMethods[] = {
+    {"add", (PyCFunction) Physics_add, METH_VARARGS, "add an object to the physics engine"},
+    {"remove", (PyCFunction) Physics_remove, METH_VARARGS, "remove an object from the physics engine"},
+    {"update", (PyCFunction) Physics_update, METH_NOARGS, "update the physics step"},
+    {NULL}
+};
+
+static int Physics_init(Physics *self, PyObject *args, PyObject *kwds) {
+    static char *kwlist[] = {"gravity_x", "gravity_y", NULL};
+    cpVect vector = {0, -500};
+
+    if (!PyArg_ParseTupleAndKeywords(
+        args, kwds, "|dd", kwlist, &vector.x, &vector.y))
+            return -1;
+
+    self -> space = cpSpaceNew();
+    self -> data = malloc(0);
+    self -> length = 0;
+
+    cpSpaceSetGravity(self -> space, vector);
+    return 0;
+}
+
+static void Physics_dealloc(Physics *self) {
+    for (uint i = 0; i < self -> length; i ++) {
+        cpBodyFree(self -> data[i] -> body);
+        cpShapeFree(self -> data[i] -> shape);
+
+        self -> data[i] -> body = NULL;
+        self -> data[i] -> shape = NULL;
+    }
+
+    free(self -> data);
+    cpSpaceFree(self -> space);
+    Py_TYPE(self) -> tp_free((PyObject *) self);
+}
+
+static PyTypeObject PhysicsType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "Physics",
+    .tp_doc = "the physics engine",
+    .tp_basicsize = sizeof(Physics),
+    .tp_itemsize = 0,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+    .tp_new = PyType_GenericNew,
+    .tp_init = (initproc) Physics_init,
+    .tp_dealloc = (destructor) Physics_dealloc,
+    .tp_getset = PhysicsGetSetters,
+    .tp_methods = PhysicsMethods,
+    .tp_as_sequence = &PhysicsSequenceMethods
 };
 
 static PyObject *Module_random(PyObject *Py_UNUSED(self), PyObject *args) {
@@ -2283,6 +2717,11 @@ static int Module_exec(PyObject *self) {
     BUILD((PyObject *) &RectangleType, "Rectangle");
     BUILD((PyObject *) &ImageType, "Image");
     BUILD((PyObject *) &TextType, "Text");
+    BUILD((PyObject *) &PhysicsType, "Physics");
+
+    BUILD(PyLong_FromLong(CP_BODY_TYPE_DYNAMIC), "DYNAMIC");
+    BUILD(PyLong_FromLong(CP_BODY_TYPE_STATIC), "STATIC");
+    BUILD(PyLong_FromLong(CP_BODY_TYPE_KINEMATIC), "KINEMATIC");
 
     uint vertexShader = glCreateShader(GL_VERTEX_SHADER);    
     uint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
@@ -2460,6 +2899,7 @@ PyMODINIT_FUNC PyInit_JoBase() {
     READY(RectangleType);
     READY(ImageType);
     READY(TextType);
+    READY(PhysicsType);
 
     return PyModuleDef_Init(&Module);
     #undef READY

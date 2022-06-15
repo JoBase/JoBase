@@ -5,31 +5,34 @@ library_dirs = []
 extra_compile_args = []
 
 if sys.platform == "win32":
-    library_dirs = ["glfw/build/src/Release", "freetype/build/Release"]
+    library_dirs = [
+        "glfw/build/src/Release", "freetype/build/Release",
+        "Chipmunk2D/build/src/Release"
+    ]
 
     libraries = [
         "glfw3", "opengl32", "kernel32", "user32", "gdi32",
         "winspool", "shell32", "ole32", "oleaut32", "uuid",
-        "comdlg32", "advapi32", "freetype"
+        "comdlg32", "advapi32", "freetype", "chipmunk"
     ]
 
 elif sys.platform == "darwin":
-    library_dirs = ["glfw/build/src", "freetype/build"]
+    library_dirs = ["glfw/build/src", "freetype/build", "Chipmunk2D/build/src"]
     os.environ["LDFLAGS"] = "-framework OpenGL -framework IOKit -framework Cocoa"
-    libraries = ["glfw3", "freetype"]
+    libraries = ["glfw3", "freetype", "chipmunk"]
 
 elif sys.platform == "linux":
-    library_dirs = ["glfw/build/src", "freetype/build"]
+    library_dirs = ["glfw/build/src", "freetype/build", "Chipmunk2D/build/src"]
     extra_compile_args = ["-Wextra", "-Wno-comment", "-Wfloat-conversion"]
 
     libraries = [
-        "glfw3", "GL", "m", "X11", "pthread", "Xi",
-        "Xrandr", "dl", "rt", "png", "freetype", "z"
+        "glfw3", "GL", "m", "X11", "pthread", "Xi", "Xrandr",
+        "dl", "rt", "png", "freetype", "z", "chipmunk"
     ]
 
 setuptools.setup(
     name = "JoBase",
-    version = "1.7",
+    version = "1.8",
     author = "Reuben Ford",
     author_email = "hello@jobase.org",
     description = "Fast Python Game Library",
@@ -62,7 +65,12 @@ setuptools.setup(
     ext_modules = [
         setuptools.Extension(
             "JoBase.__init__", ["src/module.c", "src/glad.c"],
-            include_dirs = ["include", "glfw/include", "freetype/include"],
+
+            include_dirs = [
+                "include", "glfw/include",
+                "freetype/include", "Chipmunk2D/include"
+            ],
+
             extra_compile_args = extra_compile_args,
             library_dirs = library_dirs,
             libraries = libraries)

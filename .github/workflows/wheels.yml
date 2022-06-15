@@ -28,11 +28,14 @@ jobs:
 
       BUILD: |
         git clone https://github.com/glfw/glfw.git
-        cmake -S glfw -B glfw/build
+        cmake -S glfw -B glfw/build -DGLFW_BUILD_DOCS=OFF -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF
         cmake --build glfw/build
         git clone https://gitlab.freedesktop.org/freetype/freetype.git
         cmake -S freetype -B freetype/build -DCMAKE_POSITION_INDEPENDENT_CODE=ON
         cmake --build freetype/build
+        git clone https://github.com/slembcke/Chipmunk2D.git
+        cmake -S Chipmunk2D -B Chipmunk2D/build -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_SHARED=OFF -DBUILD_DEMOS=OFF
+        cmake --build Chipmunk2D/build
 
     steps:
       - name: Checkout
@@ -49,11 +52,14 @@ jobs:
 
           CIBW_BEFORE_ALL_WINDOWS: >
             git clone https://github.com/glfw/glfw.git &&
-            cmake -A %BASE% -S glfw -B glfw/build &&
+            cmake -A %BASE% -S glfw -B glfw/build -DGLFW_BUILD_DOCS=OFF -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF &&
             cmake --build glfw/build --config Release &&
             git clone https://gitlab.freedesktop.org/freetype/freetype.git &&
-            cmake -A %BASE% -S freetype -B freetype/build &&
-            cmake --build freetype/build --config Release
+            cmake -A %BASE% -S freetype -B freetype/build -DCMAKE_POSITION_INDEPENDENT_CODE=ON &&
+            cmake --build freetype/build --config Release &&
+            git clone https://github.com/slembcke/Chipmunk2D.git &&
+            cmake -A %BASE% -S Chipmunk2D -B Chipmunk2D/build -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_SHARED=OFF -DBUILD_DEMOS=OFF &&
+            cmake --build Chipmunk2D/build --config Release
 
           CIBW_BEFORE_ALL_LINUX: |
             ${{env.BASE == 'Musllinux' && '
