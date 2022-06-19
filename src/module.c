@@ -3,15 +3,15 @@
 #define _USE_MATH_DEFINES
 
 #define CHECK(i) if (!i) {return PyErr_SetString(PyExc_AttributeError, "can't delete attribute"), -1;}
+#define OBJECT(o) return errorFormat(PyExc_TypeError, "must be Shape or cursor, not %s", Py_TYPE(o) -> tp_name), NULL;
 #define ITER(t, i) for (t *this = i; this; this = this -> next)
 #define NEW(t, i) t *e = malloc(sizeof(t)); e -> next = i; i = e;
 #define PARSE(e) wchar_t item; for (uint i = 0; (item = e[i]); i ++)
-#define RECT(r) vec2 poly[4]; getRectPoly(r, poly);
 #define GET(t, i) t -> get(t -> parent)[i]
 #define MIN(a, b) (a < b ? a : b)
 #define MAX(a, b) (a > b ? a : b)
 #define START ready = 0; glfwPollEvents();
-#define END glfwWaitEventsTimeout(0.1); ready = 1;
+#define END glfwWaitEventsTimeout(.1); ready = 1;
 
 #define EXPAND(i) #i
 #define STR(i) EXPAND(i)
@@ -23,6 +23,9 @@
 #define SUBTRACT 4
 #define MULTIPLY 5
 #define DIVIDE 6
+
+#define STATIC CP_BODY_TYPE_STATIC
+#define DYNAMIC CP_BODY_TYPE_DYNAMIC
 
 #include <Python.h>
 #include <structmember.h>
@@ -144,6 +147,10 @@ typedef struct Shape {
     cpFloat (*getMoment)(struct Shape *);
     void (*newShape)(struct Shape *);
     void (*setShape)(struct Shape *);
+    double (*getTop)(struct Shape *);
+    double (*getBottom)(struct Shape *);
+    double (*getLeft)(struct Shape *);
+    double (*getRight)(struct Shape *);
 } Shape;
 
 typedef struct Rectangle {
@@ -166,6 +173,13 @@ typedef struct Text {
     double fontSize;
 } Text;
 
+typedef struct Circle {
+    Shape shape;
+    double radius;
+    uint vao;
+    uint vbo;
+} Circle;
+
 typedef struct Physics {
     PyObject_HEAD
     cpSpace *space;
@@ -183,6 +197,8 @@ static Window *window;
 static PyTypeObject VectorType;
 static PyTypeObject ShapeType;
 static PyTypeObject CursorType;
+static PyTypeObject RectangleType;
+static PyTypeObject CircleType;
 
 static char *path;
 static uchar ready;
@@ -219,12 +235,117 @@ static void errorFormat(PyObject *error, const char *format, ...) {
     free(buffer);
 }
 
+static vec getWindowSize() {
+    static vec2 size;
+    int width, height;
+
+    glfwGetWindowSize(window -> glfw, &width, &height);
+    size[0] = width;
+    size[1] = height;
+
+    return size;
+}
+
+static vec getCursorPos() {
+    static vec2 pos;
+    glfwGetCursorPos(window -> glfw, &pos[0], &pos[1]);
+
+    vec size = getWindowSize();
+    pos[0] -= size[0] / 2;
+    pos[1] = size[1] / 2 - pos[1];
+
+    return pos;
+}
+
+static vec getOtherPos(PyObject *other) {
+    if (Py_TYPE(other) == &CursorType)
+        return getCursorPos();
+
+    if (PyObject_IsInstance(other, (PyObject *) &ShapeType))
+        return ((Shape *) other) -> pos;
+
+    OBJECT(other)
+}
+
+static int moveToward(vec2 this, PyObject *args) {
+    PyObject *other;
+    double speed = 1;
+
+    if (!PyArg_ParseTuple(args, "O|d", &other, &speed))
+        return -1;
+
+    vec pos = getOtherPos(other);
+    if (!pos) return -1;
+
+    const double x = pos[0] - this[0];
+    const double y = pos[1] - this[1];
+
+    if (hypot(x, y) < speed) {
+        this[0] += x;
+        this[1] += y;
+    }
+
+    else {
+        const double angle = atan2(y, x);
+        this[0] += cos(angle) * speed;
+        this[1] += sin(angle) * speed;
+    }
+    
+    return 0;
+}
+
+static int moveTowardSmooth(vec2 this, PyObject *args) {
+    PyObject *other;
+    double speed = .1;
+
+    if (!PyArg_ParseTuple(args, "O|d", &other, &speed))
+        return -1;
+
+    vec pos = getOtherPos(other);
+    if (!pos) return -1;
+
+    this[0] += (pos[0] - this[0]) * speed;
+    this[1] += (pos[1] - this[1]) * speed;
+    
+    return 0;
+}
+
+static uchar collideCircleCircle(vec2 p1, double r1, vec2 p2, double r2) {
+    return hypot(p2[0] - p1[0], p2[1] - p1[1]) < r1 + r2;
+}
+
+static uchar collideCirclePoint(vec2 pos, double radius, vec2 point) {
+    return hypot(point[0] - pos[0], point[1] - pos[1]) < radius;
+}
+
+static uchar collideLinePoint(vec2 p1, vec2 p2, vec2 point) {
+    const double d1 = hypot(point[0] - p1[0], point[1] - p1[1]);
+    const double d2 = hypot(point[0] - p2[0], point[1] - p2[1]);
+    const double length = hypot(p1[0] - p2[0], p1[1] - p2[1]);
+
+    return d1 + d2 >= length - .1 && d1 + d2 <= length + .1;
+}
+
 static uchar collideLineLine(vec2 p1, vec2 p2, vec2 p3, vec2 p4) {
     const double value = (p4[1] - p3[1]) * (p2[0] - p1[0]) - (p4[0] - p3[0]) * (p2[1] - p1[1]);
     const double u1 = ((p4[0] - p3[0]) * (p1[1] - p3[1]) - (p4[1] - p3[1]) * (p1[0] - p3[0])) / value;
     const double u2 = ((p2[0] - p1[0]) * (p1[1] - p3[1]) - (p2[1] - p1[1]) * (p1[0] - p3[0])) / value;
 
     return u1 >= 0 && u1 <= 1 && u2 >= 0 && u2 <= 1;
+}
+
+static uchar collideLineCircle(vec2 p1, vec2 p2, vec2 pos, double radius) {
+    if (collideCirclePoint(pos, radius, p1) || collideCirclePoint(pos, radius, p2))
+        return 1;
+
+    const double length = hypot(p1[0] - p2[0], p1[1] - p2[1]);
+    const double dot = ((pos[0] - p1[0]) * (p2[0] - p1[0]) + (pos[1] - p1[1]) * (p2[1] - p1[1])) / pow(length, 2);
+    vec2 point = {p1[0] + dot * (p2[0] - p1[0]), p1[1] + dot * (p2[1] - p1[1])};
+
+    if (!collideLinePoint(p1, p2, point))
+        return 0;
+
+    return hypot(point[0] - pos[0], point[1] - pos[1]) <= radius;
 }
 
 static uchar collidePolyLine(poly poly, uint size, vec2 p1, vec2 p2) {
@@ -261,21 +382,15 @@ static uchar collidePolyPoly(poly p1, uint s1, poly p2, uint s2) {
     return 0;
 }
 
-static void posPoly(poly poly, uint size, vec2 pos) {
-    for (uint i = 0; i < size; i ++) {
-        poly[i][0] += pos[0];
-        poly[i][1] += pos[1];
-    }
+static uchar collidePolyCircle(poly poly, uint size, vec2 pos, double radius) {
+    for (uint i = 0; i < size; i ++)
+        if (collideLineCircle(poly[i], poly[i + 1 == size ? 0 : i + 1], pos, radius))
+            return 1;
+    
+    return 0;
 }
 
-static void scalePoly(poly poly, uint size, vec2 scale) {
-    for (uint i = 0; i < size; i ++) {
-        poly[i][0] *= scale[0];
-        poly[i][1] *= scale[1];
-    }
-}
-
-static void rotPoly(poly poly, uint size, double angle) {
+static void rotPoly(poly poly, uint size, double angle, vec2 pos) {
     const double cosine = cos(angle * M_PI / 180);
     const double sine = sin(angle * M_PI / 180);
 
@@ -283,8 +398,8 @@ static void rotPoly(poly poly, uint size, double angle) {
         const double x = poly[i][0];
         const double y = poly[i][1];
 
-        poly[i][0] = x * cosine - y * sine;
-        poly[i][1] = x * sine + y * cosine;
+        poly[i][0] = x * cosine - y * sine + pos[0];
+        poly[i][1] = x * sine + y * cosine + pos[1];
     }
 }
 
@@ -328,104 +443,25 @@ static double getPolyBottom(poly poly, uint size) {
     return bottom;
 }
 
-static void getRectPoly(Rectangle *rect, poly poly) {
-    double data[][2] = {{-.5, .5}, {.5, .5}, {.5, -.5}, {-.5, -.5}};
+static void getRectPoly(Rectangle *self, poly poly) {
+    const double px = self -> shape.anchor[0] + self -> size[0] * self -> shape.scale[0] / 2;
+    const double py = self -> shape.anchor[1] + self -> size[1] * self -> shape.scale[1] / 2;
 
-    vec2 size = {
-        rect -> size[0] * rect -> shape.scale[0],
-        rect -> size[1] * rect -> shape.scale[1]
-    };
-    
-    scalePoly(data, 4, size);
-    posPoly(data, 4, rect -> shape.anchor);
-    rotPoly(data, 4, rect -> shape.angle);
-    posPoly(data, 4, rect -> shape.pos);
+    poly[0][0] = poly[3][0] = -px;
+    poly[0][1] = poly[1][1] = py;
+    poly[1][0] = poly[2][0] = px;
+    poly[2][1] = poly[3][1] = -py;
 
-    for (uchar i = 0; i < 4; i ++) {
-        poly[i][0] = data[i][0];
-        poly[i][1] = data[i][1];
-    }
+    rotPoly(poly, 4, self -> shape.angle, self -> shape.pos);
 }
 
-static PyObject *checkShapesCollide(poly points, uint size, PyObject *shape) {
-    RECT((Rectangle *) shape);
-    return PyBool_FromLong(collidePolyPoly(points, size, poly, 4));
-}
-
-static vec getWindowSize() {
-    static vec2 size;
-    int width, height;
-
-    glfwGetWindowSize(window -> glfw, &width, &height);
-    size[0] = width;
-    size[1] = height;
-
-    return size;
-}
-
-static vec getCursorPos() {
+static vec getShapeCenter(Shape *shape) {
+    const double angle = shape -> angle * M_PI / 180;
     static vec2 pos;
-    glfwGetCursorPos(window -> glfw, &pos[0], &pos[1]);
 
-    vec size = getWindowSize();
-    pos[0] -= size[0] / 2;
-    pos[1] = size[1] / 2 - pos[1];
-
+    pos[0] = shape -> pos[0] + shape -> anchor[0] * cos(angle) - shape -> anchor[1] * sin(angle);
+    pos[1] = shape -> pos[1] + shape -> anchor[1] * cos(angle) + shape -> anchor[0] * sin(angle);
     return pos;
-}
-
-static vec getOtherPos(PyObject *other) {
-    if (Py_TYPE(other) == &CursorType)
-        return getCursorPos();
-
-    if (PyObject_IsInstance(other, (PyObject *) &ShapeType))
-        return ((Shape *) other) -> pos;
-
-    errorFormat(PyExc_TypeError, "must be Shape or cursor, not %s", Py_TYPE(other) -> tp_name);
-    return NULL;
-}
-
-static int moveToward(vec2 this, PyObject *args) {
-    PyObject *other;
-    double speed = 1;
-
-    if (!PyArg_ParseTuple(args, "O|d", &other, &speed))
-        return -1;
-
-    vec pos = getOtherPos(other);
-    if (!pos) return -1;
-
-    const double x = pos[0] - this[0];
-    const double y = pos[1] - this[1];
-
-    if (hypot(x, y) < speed) {
-        this[0] += x;
-        this[1] += y;
-    }
-
-    else {
-        const double angle = atan2(y, x);
-        this[0] += cos(angle) * speed;
-        this[1] += sin(angle) * speed;
-    }
-    
-    return 0;
-}
-
-static int moveTowardSmooth(vec2 this, PyObject *args) {
-    PyObject *other;
-    double speed = 0.1;
-
-    if (!PyArg_ParseTuple(args, "O|d", &other, &speed))
-        return -1;
-
-    vec pos = getOtherPos(other);
-    if (!pos) return -1;
-
-    this[0] += (pos[0] - this[0]) * speed;
-    this[1] += (pos[1] - this[1]) * speed;
-    
-    return 0;
 }
 
 static void setUniform(mat matrix, vec4 color) {
@@ -436,31 +472,6 @@ static void setUniform(mat matrix, vec4 color) {
     glUniform4f(
         glGetUniformLocation(program, "color"), (GLfloat) color[0],
         (GLfloat) color[1], (GLfloat) color[2], (GLfloat) color[3]);
-}
-
-static void drawRect(Rectangle *rect, uchar type) {
-    const float sx = (float) (rect -> size[0] * rect -> shape.scale[0]);
-    const float sy = (float) (rect -> size[1] * rect -> shape.scale[1]);
-    const float ax = (float) rect -> shape.anchor[0];
-    const float ay = (float) rect -> shape.anchor[1];
-    const float px = (float) rect -> shape.pos[0];
-    const float py = (float) rect -> shape.pos[1];
-    const float s = (float) sin(rect -> shape.angle * M_PI / 180);
-	const float c = (float) cos(rect -> shape.angle * M_PI / 180);
-
-    mat matrix = {
-        sx * c, sx * s, 0, 0,
-        sy * -s, sy * c, 0, 0,
-        0, 0, 1, 0,
-        ax * c + ay * -s + px, ax * s + ay * c + py, 0, 1
-    };
-
-    setUniform(matrix, rect -> shape.color);
-    glBindVertexArray(mesh);
-
-    glUniform1i(glGetUniformLocation(program, "image"), type);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    glBindVertexArray(0);
 }
 
 static int mainLoop() {
@@ -557,6 +568,86 @@ static void keyCallback(GLFWwindow *Py_UNUSED(window), int type, int Py_UNUSED(s
         key -> repeat = 1;
         key -> keys[type].repeat = 1;
     }
+}
+
+static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
+    #define BOOL(i) PyBool_FromLong(i);
+    #define RECT(r) PyObject_IsInstance(r, (PyObject *) &RectangleType)
+
+    if (RECT(self)) {
+        vec2 rect[4];
+        getRectPoly((Rectangle *) self, rect);
+
+        if (RECT(other)) {
+            vec2 other[4];
+
+            getRectPoly((Rectangle *) other, other);
+            return BOOL(collidePolyPoly(rect, 4, other, 4));
+        }
+
+        if (Py_TYPE(other) == &CircleType) {
+            Circle *circle = (Circle *) other;
+
+            return BOOL(collidePolyCircle(
+                rect, 4, getShapeCenter((Shape *) circle),
+                circle -> radius * circle -> shape.scale[0]));
+        }
+
+        if (other == (PyObject *) cursor) return BOOL(collidePolyPoint(
+            rect, 4, getCursorPos()));
+
+        OBJECT(other)
+    }
+
+    if (Py_TYPE(self) == &CircleType) {
+        Circle *circle = (Circle *) self;
+        const double size = circle -> radius * circle -> shape.scale[0];
+        vec pos = getShapeCenter((Shape *) circle);
+
+        if (RECT(other)) {
+            vec2 rect[4];
+
+            getRectPoly((Rectangle *) other, rect);
+            return BOOL(collidePolyCircle(rect, 4, pos, size));
+        }
+
+        if (Py_TYPE(other) == &CircleType) {
+            Circle *other = (Circle *) other;
+
+            return BOOL(collideCircleCircle(
+                pos, size, getShapeCenter((Shape *) other),
+                other -> radius * other -> shape.scale[0]));
+        }
+
+        if (other == (PyObject *) cursor) return BOOL(collideCirclePoint(
+            pos, size, getCursorPos()));
+
+        OBJECT(other)
+    }
+
+    if (self == (PyObject *) cursor) {
+        if (RECT(other)) {
+            vec2 rect[4];
+
+            getRectPoly((Rectangle *) other, rect);
+            return BOOL(collidePolyPoint(rect, 4, getCursorPos()));
+        }
+
+        if (Py_TYPE(other) == &CircleType) {
+            Circle *circle = (Circle *) other;
+
+            return BOOL(collideCirclePoint(
+                getShapeCenter((Shape *) circle), circle -> radius * circle -> shape.scale[0],
+                getCursorPos()));
+        }
+
+        if (other == (PyObject *) cursor)
+            Py_RETURN_TRUE;
+
+        OBJECT(other)
+    }
+
+    OBJECT(self)
 }
 
 static double vectorCheck(double a, double b, uchar type) {
@@ -899,6 +990,11 @@ static PyGetSetDef CursorGetSetters[] = {
     {NULL}
 };
 
+static PyMethodDef CursorMethods[] = {
+    {"collides_with", (PyCFunction) Object_collidesWith, METH_O, "check if the cursor collides with another object"},
+    {NULL}
+};
+
 static PyObject *Cursor_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
     Cursor *self = cursor = (Cursor *) type -> tp_alloc(type, 0);
 
@@ -914,7 +1010,8 @@ static PyTypeObject CursorType = {
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_new = Cursor_new,
-    .tp_getset = CursorGetSetters
+    .tp_getset = CursorGetSetters,
+    .tp_methods = CursorMethods
 };
 
 static PyObject *Key_getPress(Key *self, void *Py_UNUSED(closure)) {
@@ -1462,6 +1559,7 @@ static int Window_init(Window *self, PyObject *args, PyObject *kwds) {
     self -> color[0] = 1;
     self -> color[1] = 1;
     self -> color[2] = 1;
+    self -> resize = 1;
 
     if (!PyArg_ParseTupleAndKeywords(
         args, kwds, "|siiO", kwlist, &caption,  &size[0], &size[1], &color) ||
@@ -1504,13 +1602,38 @@ static void shapeSetVelocity(Shape *self) {
 }
 
 static void shapeSetMoment(Shape *self) {
-    if (self -> body)
+    if (self -> body && self -> type == DYNAMIC)
         cpBodySetMoment(self -> body, self -> rotate ? self -> getMoment(self) : INFINITY);
 }
 
 static void shapeSetAngle(Shape *self) {
     if (self -> body)
         cpBodySetAngle(self -> body, self -> angle * M_PI / 180);
+}
+
+static void shapeDraw(Shape *self, vec2 size, uint vao, uint mode, uchar type, uint count) {
+    const float sx = (float) (size[0] * self -> scale[0]);
+    const float sy = (float) (size[1] * self -> scale[1]);
+    const float ax = (float) self -> anchor[0];
+    const float ay = (float) self -> anchor[1];
+    const float px = (float) self -> pos[0];
+    const float py = (float) self -> pos[1];
+    const float s = (float) sin(self -> angle * M_PI / 180);
+	const float c = (float) cos(self -> angle * M_PI / 180);
+
+    mat matrix = {
+        sx * c, sx * s, 0, 0,
+        sy * -s, sy * c, 0, 0,
+        0, 0, 1, 0,
+        ax * c + ay * -s + px, ax * s + ay * c + py, 0, 1
+    };
+
+    setUniform(matrix, self -> color);
+    glBindVertexArray(vao);
+
+    glUniform1i(glGetUniformLocation(program, "image"), type);
+    glDrawArrays(mode, 0, count);
+    glBindVertexArray(0);
 }
 
 static PyObject *Shape_getX(Shape *self, void *Py_UNUSED(closure)) {
@@ -1694,6 +1817,62 @@ static int Shape_setColor(Shape *self, PyObject *value, void *Py_UNUSED(closure)
     return vectorSet(value, self -> color, 4);
 }
 
+static PyObject *Shape_getLeft(Shape *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> getLeft(self));
+}
+
+static int Shape_setLeft(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+    
+    const double result = PyFloat_AsDouble(value);
+    if (result == -1 && PyErr_Occurred()) return -1;
+
+    self -> pos[0] += result - self -> getLeft(self);
+    return shapeSetPos(self), 0;
+}
+
+static PyObject *Shape_getTop(Shape *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> getTop(self));
+}
+
+static int Shape_setTop(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+    
+    const double result = PyFloat_AsDouble(value);
+    if (result == -1 && PyErr_Occurred()) return -1;
+
+    self -> pos[1] += result - self -> getTop(self);
+    return shapeSetPos(self), 0;
+}
+
+static PyObject *Shape_getRight(Shape *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> getRight(self));
+}
+
+static int Shape_setRight(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+    
+    const double result = PyFloat_AsDouble(value);
+    if (result == -1 && PyErr_Occurred()) return -1;
+
+    self -> pos[0] += result - self -> getRight(self);
+    return shapeSetPos(self), 0;
+}
+
+static PyObject *Shape_getBottom(Shape *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> getBottom(self));
+}
+
+static int Shape_setBottom(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+    
+    const double result = PyFloat_AsDouble(value);
+    if (result == -1 && PyErr_Occurred()) return -1;
+
+    self -> pos[1] += result - self -> getBottom(self);
+    return shapeSetPos(self), 0;
+}
+
 static PyObject *Shape_getType(Shape *self, void *Py_UNUSED(closure)) {
     return PyLong_FromLong(self -> type);
 }
@@ -1704,10 +1883,15 @@ static int Shape_setType(Shape *self, PyObject *value, void *Py_UNUSED(closure))
     if ((self -> type = PyLong_AsLong(value)) == -1 && PyErr_Occurred())
         return -1;
 
+    if (self -> type != DYNAMIC && self -> type != STATIC) {
+        PyErr_SetString(PyExc_ValueError, "type must be DYNAMIC or STATIC");
+        return -1;
+    }
+
     if (self -> body)
         cpBodySetType(self -> body, self -> type);
 
-    return 0;
+    return shapeSetMoment(self), 0;
 }
 
 static PyObject *Shape_getMass(Shape *self, void *Py_UNUSED(closure)) {
@@ -1721,7 +1905,7 @@ static int Shape_setMass(Shape *self, PyObject *value, void *Py_UNUSED(closure))
         return -1;
 
     if (self -> body)
-        cpBodySetMass(self -> body, self -> angle * M_PI / 180);
+        cpBodySetMass(self -> body, self -> mass);
 
     return shapeSetMoment(self), 0;
 }
@@ -1840,6 +2024,10 @@ static PyGetSetDef ShapeGetSetters[] = {
     {"blue", (getter) Shape_getBlue, (setter) Shape_setBlue, "blue color of the shape", NULL},
     {"alpha", (getter) Shape_getAlpha, (setter) Shape_setAlpha, "opacity of the shape", NULL},
     {"color", (getter) Shape_getColor, (setter) Shape_setColor, "color of the shape", NULL},
+    {"left", (getter) Shape_getLeft, (setter) Shape_setLeft, "left position of the shape", NULL},
+    {"top", (getter) Shape_getTop, (setter) Shape_setTop, "top position of the shape", NULL},
+    {"right", (getter) Shape_getRight, (setter) Shape_setRight, "right position of the shape", NULL},
+    {"bottom", (getter) Shape_getBottom, (setter) Shape_setBottom, "bottom position of the shape", NULL},
     {"type", (getter) Shape_getType, (setter) Shape_setType, "physics body of the shape", NULL},
     {"mass", (getter) Shape_getMass, (setter) Shape_setMass, "weight of the shape", NULL},
     {"elasticity", (getter) Shape_getElasticity, (setter) Shape_setElasticity, "bounciness of the shape", NULL},
@@ -1852,12 +2040,7 @@ static PyGetSetDef ShapeGetSetters[] = {
     {NULL}
 };
 
-static PyObject *Shape_lookAt(Shape *self, PyObject *args) {
-    PyObject *other;
-
-    if (!PyArg_ParseTuple(args, "O", &other))
-        return NULL;
-
+static PyObject *Shape_lookAt(Shape *self, PyObject *other) {
     vec pos = getOtherPos(other);
     if (!pos) return NULL;
 
@@ -1893,7 +2076,8 @@ static PyObject *Shape_applyImpulse(Shape *self, PyObject *args) {
 }
 
 static PyMethodDef ShapeMethods[] = {
-    {"look_at", (PyCFunction) Shape_lookAt, METH_VARARGS, "rotate the shape so that it looks at another object"},
+    {"collides_with", (PyCFunction) Object_collidesWith, METH_O, "check if the shape collides with another object"},
+    {"look_at", (PyCFunction) Shape_lookAt, METH_O, "rotate the shape so that it looks at another object"},
     {"move_toward", (PyCFunction) Shape_moveToward, METH_VARARGS, "move the shape toward another object"},
     {"apply_impulse", (PyCFunction) Shape_applyImpulse, METH_VARARGS, "apply an impulse to the shape physics"},
     {NULL}
@@ -1920,10 +2104,10 @@ static int Shape_init(Shape *self, PyObject *Py_UNUSED(args), PyObject *Py_UNUSE
     self -> angle = 0;
     self -> angularVelocity = 0;
 
-    self -> type = CP_BODY_TYPE_DYNAMIC;
+    self -> type = DYNAMIC;
     self -> mass = 1;
-    self -> elasticity = 0.5;
-    self -> friction = 0.5;
+    self -> elasticity = .5;
+    self -> friction = .5;
     self -> rotate = 1;
 
     return 0;
@@ -1941,6 +2125,10 @@ static PyTypeObject ShapeType = {
     .tp_methods = ShapeMethods,
     .tp_getset = ShapeGetSetters
 };
+
+static void rectangleDraw(Rectangle *self, uchar type) {
+    shapeDraw((Shape *) self, self -> size, mesh, GL_TRIANGLE_STRIP, type, 4);
+}
 
 static void rectangleNewShape(Rectangle *self) {
     self -> shape.shape = cpBoxShapeNew(
@@ -1967,6 +2155,26 @@ static cpFloat rectangleGetMoment(Rectangle *self) {
     return cpMomentForBox(
         self -> shape.mass, self -> size[0] * self -> shape.scale[0],
         self -> size[1] * self -> shape.scale[1]);
+}
+
+static double rectangleGetTop(Rectangle *self) {
+    vec2 poly[4];
+    return getRectPoly(self, poly), getPolyTop(poly, 4);
+}
+
+static double rectangleGetBottom(Rectangle *self) {
+    vec2 poly[4];
+    return getRectPoly(self, poly), getPolyBottom(poly, 4);
+}
+
+static double rectangleGetLeft(Rectangle *self) {
+    vec2 poly[4];
+    return getRectPoly(self, poly), getPolyLeft(poly, 4);
+}
+
+static double rectangleGetRight(Rectangle *self) {
+    vec2 poly[4];
+    return getRectPoly(self, poly), getPolyRight(poly, 4);
 }
 
 static PyObject *Rectangle_getWidth(Rectangle *self, void *Py_UNUSED(closure)) {
@@ -2009,99 +2217,20 @@ static int Rectangle_setSize(Rectangle *self, PyObject *value, void *Py_UNUSED(c
     return vectorSet(value, self -> size, 2) ? -1 : rectangleSetShape(self), 0;
 }
 
-static PyObject *Rectangle_getLeft(Rectangle *self, void *Py_UNUSED(closure)) {
-    RECT(self)
-    return PyFloat_FromDouble(getPolyLeft(poly, 4));
-}
-
-static int Rectangle_setLeft(Rectangle *self, PyObject *value, void *Py_UNUSED(closure)) {
-    CHECK(value)
-    
-    const double result = PyFloat_AsDouble(value);
-    if (result == -1 && PyErr_Occurred()) return -1;
-
-    RECT(self)
-    self -> shape.pos[0] += result - getPolyLeft(poly, 4);
-    return shapeSetPos(&self -> shape), 0;
-}
-
-static PyObject *Rectangle_getTop(Rectangle *self, void *Py_UNUSED(closure)) {
-    RECT(self)
-    return PyFloat_FromDouble(getPolyTop(poly, 4));
-}
-
-static int Rectangle_setTop(Rectangle *self, PyObject *value, void *Py_UNUSED(closure)) {
-    CHECK(value)
-
-    const double result = PyFloat_AsDouble(value);
-    if (result == -1 && PyErr_Occurred()) return -1;
-
-    RECT(self)
-    self -> shape.pos[1] += result - getPolyTop(poly, 4);
-    return shapeSetPos(&self -> shape), 0;
-}
-
-static PyObject *Rectangle_getRight(Rectangle *self, void *Py_UNUSED(closure)) {
-    RECT(self)
-    return PyFloat_FromDouble(getPolyRight(poly, 4));
-}
-
-static int Rectangle_setRight(Rectangle *self, PyObject *value, void *Py_UNUSED(closure)) {
-    CHECK(value)
-
-    const double result = PyFloat_AsDouble(value);
-    if (result == -1 && PyErr_Occurred()) return -1;
-
-    RECT(self)
-    self -> shape.pos[0] += result - getPolyRight(poly, 4);
-    return shapeSetPos(&self -> shape), 0;
-}
-
-static PyObject *Rectangle_getBottom(Rectangle *self, void *Py_UNUSED(closure)) {
-    RECT(self)
-    return PyFloat_FromDouble(getPolyBottom(poly, 4));
-}
-
-static int Rectangle_setBottom(Rectangle *self, PyObject *value, void *Py_UNUSED(closure)) {
-    CHECK(value)
-
-    const double result = PyFloat_AsDouble(value);
-    if (result == -1 && PyErr_Occurred()) return -1;
-
-    RECT(self)
-    self -> shape.pos[1] += result - getPolyBottom(poly, 4);
-    return shapeSetPos(&self -> shape), 0;
-}
-
 static PyGetSetDef RectangleGetSetters[] = {
     {"width", (getter) Rectangle_getWidth, (setter) Rectangle_setWidth, "width of the rectangle", NULL},
     {"height", (getter) Rectangle_getHeight, (setter) Rectangle_setHeight, "height of the rectangle", NULL},
     {"size", (getter) Rectangle_getSize, (setter) Rectangle_setSize, "dimentions of the rectangle", NULL},
-    {"left", (getter) Rectangle_getLeft, (setter) Rectangle_setLeft, "left position of the rectangle", NULL},
-    {"top", (getter) Rectangle_getTop, (setter) Rectangle_setTop, "top position of the rectangle", NULL},
-    {"right", (getter) Rectangle_getRight, (setter) Rectangle_setRight, "right position of the rectangle", NULL},
-    {"bottom", (getter) Rectangle_getBottom, (setter) Rectangle_setBottom, "bottom position of the rectangle", NULL},
     {NULL}
 };
 
 static PyObject *Rectangle_draw(Rectangle *self, PyObject *Py_UNUSED(ignored)) {
-    drawRect(self, SHAPE);
+    rectangleDraw(self, SHAPE);
     Py_RETURN_NONE;
-}
-
-static PyObject *Rectangle_collidesWith(Rectangle *self, PyObject *args) {
-    PyObject *shape;
-
-    if (!PyArg_ParseTuple(args, "O", &shape))
-        return NULL;
-
-    RECT(self)
-    return checkShapesCollide(poly, 4, shape);
 }
 
 static PyMethodDef RectangleMethods[] = {
     {"draw", (PyCFunction) Rectangle_draw, METH_NOARGS, "draw the rectangle on the screen"},
-    {"collides_with", (PyCFunction) Rectangle_collidesWith, METH_VARARGS, "check collision with the rectangle and the other object"},
     {NULL}
 };
 
@@ -2111,6 +2240,10 @@ static PyObject *Rectangle_new(PyTypeObject *type, PyObject *Py_UNUSED(args), Py
     self -> shape.newShape = (void *)(Shape *) rectangleNewShape;
     self -> shape.setShape = (void *)(Shape *) rectangleSetShape;
     self -> shape.getMoment = (cpFloat (*)(Shape *)) rectangleGetMoment;
+    self -> shape.getTop = (double (*)(Shape *)) rectangleGetTop;
+    self -> shape.getBottom = (double (*)(Shape *)) rectangleGetBottom;
+    self -> shape.getLeft = (double (*)(Shape *)) rectangleGetLeft;
+    self -> shape.getRight = (double (*)(Shape *)) rectangleGetRight;
 
     return (PyObject *) self;
 }
@@ -2150,7 +2283,7 @@ static PyObject *Image_draw(Image *self, PyObject *Py_UNUSED(ignored)) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, self -> texture -> source);
 
-    drawRect(&self -> rect, IMAGE);
+    rectangleDraw(&self -> rect, IMAGE);
     glBindTexture(GL_TEXTURE_2D, 0);
     Py_RETURN_NONE;
 }
@@ -2219,7 +2352,7 @@ static PyTypeObject ImageType = {
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_base = &RectangleType,
-    .tp_new = PyType_GenericNew,
+    .tp_new = Rectangle_new,
     .tp_init = (initproc) Image_init,
     .tp_methods = ImageMethods
 };
@@ -2443,11 +2576,174 @@ static PyTypeObject TextType = {
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_base = &RectangleType,
-    .tp_new = PyType_GenericNew,
+    .tp_new = Rectangle_new,
     .tp_init = (initproc) Text_init,
     .tp_dealloc = (destructor) Text_dealloc,
     .tp_getset = TextGetSetters,
     .tp_methods = TextMethods
+};
+
+static uint circleGetVertices(Circle *self) {
+    return (int) (sqrt(fabs(self -> radius * self -> shape.scale[0])) * 4) + 4;
+}
+
+static void circleSetData(Circle *self) {
+    uint vertices = circleGetVertices(self) - 2;
+    uint size = circleGetVertices(self) * 8;
+
+    float *data = malloc(size);
+    data[0] = 0;
+    data[1] = 0;
+
+    for (uint i = 0; i <= vertices; i ++) {
+        const float angle = (float) M_PI * 2 * i / vertices;
+
+        data[i * 2 + 2] = cosf(angle) / 2;
+        data[i * 2 + 3] = sinf(angle) / 2;
+    }
+
+    glBindVertexArray(self -> vao);
+    glBufferData(GL_ARRAY_BUFFER, size, data, GL_DYNAMIC_DRAW);
+    glBindVertexArray(0);
+}
+
+static void circleNewShape(Circle *self) {
+    self -> shape.shape = cpCircleShapeNew(
+        self -> shape.body, self -> radius * self -> shape.scale[0], cpv(0, 0));
+}
+
+static void circleSetShape(Circle *self) {
+    const double average = (self -> shape.scale[0] + self -> shape.scale[1]) / 2;
+    self -> shape.scale[0] = average;
+    self -> shape.scale[1] = average;
+    circleSetData(self);
+
+    if (self -> shape.shape) {
+        cpCircleShapeSetRadius(self -> shape.shape, self -> radius * average);
+        shapeSetMoment((Shape *) self);
+    }
+}
+
+static cpFloat circleGetMoment(Circle *self) {
+    return cpMomentForCircle(
+        self -> shape.mass, 0, self -> radius * self -> shape.scale[0], cpv(0, 0));
+}
+
+static double circleGetTop(Circle *self) {
+    return getShapeCenter((Shape *) self)[1] + self -> radius * self -> shape.scale[0];
+}
+
+static double circleGetBottom(Circle *self) {
+    return getShapeCenter((Shape *) self)[1] - self -> radius * self -> shape.scale[0];
+}
+
+static double circleGetLeft(Circle *self) {
+    return getShapeCenter((Shape *) self)[0] - self -> radius * self -> shape.scale[0];
+}
+
+static double circleGetRight(Circle *self) {
+    return getShapeCenter((Shape *) self)[0] + self -> radius * self -> shape.scale[0];
+}
+
+static PyObject *Circle_getDiameter(Circle *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> radius * 2);
+}
+
+static int Circle_setDiameter(Circle *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+
+    const double diameter = PyFloat_AsDouble(value);
+    if (diameter == -1 && PyErr_Occurred()) return -1;
+
+    self -> radius = diameter / 2;
+    return circleSetData(self), 0;
+}
+
+static PyObject *Circle_getRadius(Circle *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> radius);
+}
+
+static int Circle_setRadius(Circle *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+
+    self -> radius = PyFloat_AsDouble(value);
+    return self -> radius == -1 && PyErr_Occurred() ? -1 : circleSetData(self), 0;
+}
+
+static PyGetSetDef CircleGetSetters[] = {
+    {"diameter", (getter) Circle_getDiameter, (setter) Circle_setDiameter, "diameter of the circle", NULL},
+    {"radius", (getter) Circle_getRadius, (setter) Circle_setRadius, "radius of the circle", NULL},
+    {NULL}
+};
+
+static PyObject *Circle_draw(Circle *self, PyObject *Py_UNUSED(ignored)) {
+    vec2 size = {self -> radius * 2, self -> radius * 2};
+    shapeDraw((Shape *) self, size, self -> vao, GL_TRIANGLE_FAN, SHAPE, circleGetVertices(self));
+    
+    Py_RETURN_NONE;
+}
+
+static PyMethodDef CircleMethods[] = {
+    {"draw", (PyCFunction) Circle_draw, METH_NOARGS, "draw the circle on the screen"},
+    {NULL}
+};
+
+static PyObject *Circle_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
+    Circle *self = (Circle *) type -> tp_alloc(type, 0);
+
+    self -> shape.newShape = (void *)(Shape *) circleNewShape;
+    self -> shape.setShape = (void *)(Shape *) circleSetShape;
+    self -> shape.getMoment = (cpFloat (*)(Shape *)) circleGetMoment;
+    self -> shape.getTop = (double (*)(Shape *)) circleGetTop;
+    self -> shape.getBottom = (double (*)(Shape *)) circleGetBottom;
+    self -> shape.getLeft = (double (*)(Shape *)) circleGetLeft;
+    self -> shape.getRight = (double (*)(Shape *)) circleGetRight;
+
+    glGenVertexArrays(1, &self -> vao);
+    glBindVertexArray(self -> vao);
+    glGenBuffers(1, &self -> vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, self -> vbo);
+
+    glVertexAttribPointer(
+        glGetAttribLocation(program, "vertex"),
+        2, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+
+    return (PyObject *) self;
+}
+
+static int Circle_init(Circle *self, PyObject *args, PyObject *kwds) {
+    static char *kwlist[] = {"x", "y", "diameter", "color", NULL};
+
+    double diameter = 50;
+    PyObject *color = NULL;
+
+    if (ShapeType.tp_init((PyObject *) self, NULL, NULL))
+        return -1;
+
+    if (!PyArg_ParseTupleAndKeywords(
+        args, kwds, "|dddO", kwlist, &self -> shape.pos[0],
+        &self -> shape.pos[1], &diameter, &color) || (color && vectorSet(
+            color, self -> shape.color, 4))) return -1;
+
+    self -> radius = diameter / 2;
+    return circleSetData(self), 0;
+}
+
+static PyTypeObject CircleType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "Circle",
+    .tp_doc = "draw circles on the screen",
+    .tp_basicsize = sizeof(Circle),
+    .tp_itemsize = 0,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+    .tp_base = &ShapeType,
+    .tp_new = Circle_new,
+    .tp_init = (initproc) Circle_init,
+    .tp_methods = CircleMethods,
+    .tp_getset = CircleGetSetters
 };
 
 static Py_ssize_t Physics_len(Physics *self) {
@@ -2528,12 +2824,12 @@ static PyObject *Physics_add(Physics *self, PyObject *args) {
         return NULL;
     }
 
-    if (shape -> type == CP_BODY_TYPE_DYNAMIC)
+    if (shape -> type == DYNAMIC)
         shape -> body = cpBodyNew(
             shape -> mass, shape -> rotate ? shape -> getMoment(shape) : INFINITY);
 
-    else if (shape -> type == CP_BODY_TYPE_STATIC)
-        shape -> body = cpBodyNewStatic();
+    else if (shape -> type == STATIC)
+        shape -> body = cpBodyNewKinematic();
 
     cpBodySetAngle(shape -> body, shape -> angle * M_PI / 180);
     cpBodySetPosition(shape -> body, cpv(shape -> pos[0], shape -> pos[1]));
@@ -2656,22 +2952,26 @@ static PyTypeObject PhysicsType = {
 };
 
 static PyObject *Module_random(PyObject *Py_UNUSED(self), PyObject *args) {
-    double rangeX, rangeY;
+    double x, y;
 
-    if (!PyArg_ParseTuple(args, "dd", &rangeX, &rangeY))
+    return PyArg_ParseTuple(args, "dd", &x, &y) ? PyFloat_FromDouble(
+        rand() / (RAND_MAX / fabs(y - x)) + (y < x ? y : x)) : NULL;
+}
+
+static PyObject *Module_randint(PyObject *Py_UNUSED(self), PyObject *args) {
+    int x, y;
+
+    if (!PyArg_ParseTuple(args, "ii", &x, &y))
         return NULL;
 
-    const double section = RAND_MAX / fabs(rangeY - rangeX);
-    return PyFloat_FromDouble(rand() / section + (rangeY < rangeX ? rangeY : rangeX));
+    return PyLong_FromLong(rand() / (RAND_MAX / abs(y - x + 1)) + (y < x ? y : x));
 }
 
 static PyObject *Module_run(PyObject *Py_UNUSED(self), PyObject *Py_UNUSED(ignored)) {
     PyObject *module = PyDict_GetItemString(PySys_GetObject("modules"), "__main__");
 
-    if (module && PyObject_HasAttrString(module, "loop")) {
-        loop = PyObject_GetAttrString(module, "loop");
-        if (!loop) return NULL;
-    }
+    if (PyObject_HasAttrString(module, "loop") && !(loop = PyObject_GetAttrString(module, "loop")))
+        return NULL;
 
     glfwShowWindow(window -> glfw);
 
@@ -2680,12 +2980,12 @@ static PyObject *Module_run(PyObject *Py_UNUSED(self), PyObject *Py_UNUSED(ignor
         glfwPollEvents();
     }
 
-    Py_XDECREF(loop);
     Py_RETURN_NONE;
 }
 
 static PyMethodDef ModuleMethods[] = {
     {"random", Module_random, METH_VARARGS, "find a random number between two numbers"},
+    {"randint", Module_randint, METH_VARARGS, "find a random integer between two integers"},
     {"run", Module_run, METH_NOARGS, "activate the main game loop"},
     {NULL}
 };
@@ -2706,22 +3006,81 @@ static int Module_exec(PyObject *self) {
         return-1;
     }
 
-    #define BUILD(e, i) if (PyModule_AddObject(self, i, e)) { \
-        Py_XDECREF(e); Py_DECREF(self); return -1;}
+    Py_ssize_t size;
+    PyObject *file = PyObject_GetAttrString(self, "__file__");
 
-    BUILD(PyObject_CallFunctionObjArgs((PyObject *) &CursorType, NULL), "cursor");
-    BUILD(PyObject_CallFunctionObjArgs((PyObject *) &KeyType, NULL), "key");
-    BUILD(PyObject_CallFunctionObjArgs((PyObject *) &CameraType, NULL), "camera");
-    BUILD(PyObject_CallFunctionObjArgs((PyObject *) &WindowType, NULL), "window");
+    if (!file) {
+        Py_DECREF(self);
+        return -1;
+    }
 
-    BUILD((PyObject *) &RectangleType, "Rectangle");
-    BUILD((PyObject *) &ImageType, "Image");
-    BUILD((PyObject *) &TextType, "Text");
-    BUILD((PyObject *) &PhysicsType, "Physics");
+    path = (char *) PyUnicode_AsUTF8AndSize(file, &size);
+    Py_DECREF(file);
 
-    BUILD(PyLong_FromLong(CP_BODY_TYPE_DYNAMIC), "DYNAMIC");
-    BUILD(PyLong_FromLong(CP_BODY_TYPE_STATIC), "STATIC");
-    BUILD(PyLong_FromLong(CP_BODY_TYPE_KINEMATIC), "KINEMATIC");
+    if (!path) {
+        Py_DECREF(self);
+        return -1;
+    }
+
+    char *last = strrchr(path, 47);
+    length = size - strlen(last ? last : strrchr(path, 92)) + 1;
+    path[length] = 0;
+
+    #define BUILD(e, i) if (PyModule_AddObject(self, i, e)) {Py_XDECREF(e); Py_DECREF(self); return -1;}
+    #define COLOR(n, r, g, b) BUILD(PyTuple_Pack(3, PyFloat_FromDouble(r), PyFloat_FromDouble(g), PyFloat_FromDouble(b)), n)
+    #define PATH(e, i) BUILD(PyUnicode_FromString(constructFilepath(e)), i)
+
+    BUILD(PyObject_CallFunctionObjArgs((PyObject *) &CursorType, NULL), "cursor")
+    BUILD(PyObject_CallFunctionObjArgs((PyObject *) &KeyType, NULL), "key")
+    BUILD(PyObject_CallFunctionObjArgs((PyObject *) &CameraType, NULL), "camera")
+    BUILD(PyObject_CallFunctionObjArgs((PyObject *) &WindowType, NULL), "window")
+
+    BUILD((PyObject *) &RectangleType, "Rectangle")
+    BUILD((PyObject *) &ImageType, "Image")
+    BUILD((PyObject *) &TextType, "Text")
+    BUILD((PyObject *) &CircleType, "Circle")
+    BUILD((PyObject *) &PhysicsType, "Physics")
+
+    BUILD(PyLong_FromLong(DYNAMIC), "DYNAMIC")
+    BUILD(PyLong_FromLong(STATIC), "STATIC")
+
+    PATH("images/man.png", "MAN")
+    PATH("images/coin.png", "COIN")
+    PATH("images/enemy.png", "ENEMY")
+    PATH("fonts/default.ttf", "DEFAULT")
+    PATH("fonts/code.ttf", "CODE")
+    PATH("fonts/pencil.ttf", "PENCIL")
+    PATH("fonts/serif.ttf", "SERIF")
+    PATH("fonts/handwriting.ttf", "HANDWRITING")
+    PATH("fonts/typewriter.ttf", "TYPEWRITER")
+    PATH("fonts/joined.ttf", "JOINED")
+
+    COLOR("WHITE", 1, 1, 1)
+    COLOR("BLACK", 0, 0, 0)
+    COLOR("GRAY", .5, .5, .5)
+    COLOR("BROWN", .6, .2, .2)
+    COLOR("TAN", .8, .7, .6)
+    COLOR("RED", 1, 0, 0)
+    COLOR("DARK_RED", .6, 0, 0)
+    COLOR("SALMON", 1, .5, .5)
+    COLOR("ORANGE", 1, .5, 0)
+    COLOR("GOLD", 1, .8, 0)
+    COLOR("YELLOW", 1, 1, 0)
+    COLOR("OLIVE", .5, .5, 0)
+    COLOR("LIME", 0, 1, 0)
+    COLOR("DARK_GREEN", 0, .4, 0)
+    COLOR("GREEN", 0, .5, 0)
+    COLOR("AQUA", 0, 1, 1)
+    COLOR("BLUE", 0, 0, 1)
+    COLOR("AZURE", .9, 1, 1)
+    COLOR("NAVY", 0, 0, .5)
+    COLOR("PURPLE", .5, 0, .5)
+    COLOR("PINK", 1, .75, .8)
+    COLOR("MAGENTA", 1, 0, 1)
+
+    #undef PATH
+    #undef COLOR
+    #undef BUILD
 
     uint vertexShader = glCreateShader(GL_VERTEX_SHADER);    
     uint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
@@ -2800,42 +3159,7 @@ static int Module_exec(PyObject *self) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
-    Py_ssize_t size;
-    PyObject *file = PyObject_GetAttrString(self, "__file__");
-
-    if (!file) {
-        Py_DECREF(self);
-        return -1;
-    }
-
-    path = (char *) PyUnicode_AsUTF8AndSize(file, &size);
-    Py_DECREF(file);
-
-    if (!path) {
-        Py_DECREF(self);
-        return -1;
-    }
-
-    char *last = strrchr(path, 47);
-    length = size - strlen(last ? last : strrchr(path, 92)) + 1;
-    path[length] = 0;
-
-    #define PATH(e, i) BUILD(PyUnicode_FromString(constructFilepath(e)), i)
-
-    PATH("images/man.png", "MAN");
-    PATH("images/coin.png", "COIN");
-    PATH("images/enemy.png", "ENEMY");
-    PATH("fonts/default.ttf", "DEFAULT");
-    PATH("fonts/code.ttf", "CODE");
-    PATH("fonts/pencil.ttf", "PENCIL");
-    PATH("fonts/serif.ttf", "SERIF");
-    PATH("fonts/handwriting.ttf", "HANDWRITING");
-    PATH("fonts/typewriter.ttf", "TYPEWRITER");
-    PATH("fonts/joined.ttf", "JOINED");
-
     return 0;
-    #undef BUILD
-    #undef PATH
 }
 
 static void Module_free() {
@@ -2863,6 +3187,7 @@ static void Module_free() {
     FT_Done_FreeType(library);
     glfwTerminate();
 
+    Py_XDECREF(loop);
     Py_DECREF(path);
     Py_DECREF(window);
     Py_DECREF(cursor);
@@ -2890,16 +3215,17 @@ PyMODINIT_FUNC PyInit_JoBase() {
     printf("Welcome to JoBase\n");
     srand(time(NULL));
 
-    READY(VectorType);
-    READY(CursorType);
-    READY(KeyType);
-    READY(CameraType);
-    READY(WindowType);
-    READY(ShapeType);
-    READY(RectangleType);
-    READY(ImageType);
-    READY(TextType);
-    READY(PhysicsType);
+    READY(VectorType)
+    READY(CursorType)
+    READY(KeyType)
+    READY(CameraType)
+    READY(WindowType)
+    READY(ShapeType)
+    READY(RectangleType)
+    READY(ImageType)
+    READY(TextType)
+    READY(CircleType)
+    READY(PhysicsType)
 
     return PyModuleDef_Init(&Module);
     #undef READY

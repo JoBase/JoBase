@@ -1,12 +1,13 @@
 name: Build JoBase
 
 on:
-  workflow_dispatch:
-    inputs:
-      upload:
-        description: Upload to PyPI
-        required: true
-        type: boolean
+  push
+  # workflow_dispatch:
+  #   inputs:
+  #     upload:
+  #       description: Upload to PyPI
+  #       required: true
+  #       type: boolean
 
 jobs:
   wheels:
@@ -17,10 +18,10 @@ jobs:
       fail-fast: false
       matrix:
         plat:
-          - [macos-latest, MacOS, "*"]
-          - [windows-latest, Win64, "*64"]
-          - [windows-latest, Win32, "*32"]
-          - [ubuntu-latest, Musllinux, "*musllinux*"]
+          #- [macos-latest, MacOS, "*"]
+          - [windows-latest, Win64, "cp310-win_amd64"]
+          #- [windows-latest, Win32, "*32"]
+          #- [ubuntu-latest, Musllinux, "*musllinux*"]
           - [ubuntu-latest, Manylinux, "*manylinux*"]
 
     env:
@@ -55,10 +56,10 @@ jobs:
             cmake -A %BASE% -S glfw -B glfw/build -DGLFW_BUILD_DOCS=OFF -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF &&
             cmake --build glfw/build --config Release &&
             git clone https://gitlab.freedesktop.org/freetype/freetype.git &&
-            cmake -A %BASE% -S freetype -B freetype/build -DCMAKE_POSITION_INDEPENDENT_CODE=ON &&
+            cmake -A %BASE% -S freetype -B freetype/build &&
             cmake --build freetype/build --config Release &&
             git clone https://github.com/slembcke/Chipmunk2D.git &&
-            cmake -A %BASE% -S Chipmunk2D -B Chipmunk2D/build -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_SHARED=OFF -DBUILD_DEMOS=OFF &&
+            cmake -A %BASE% -S Chipmunk2D -B Chipmunk2D/build -DBUILD_SHARED=OFF -DBUILD_DEMOS=OFF &&
             cmake --build Chipmunk2D/build --config Release
 
           CIBW_BEFORE_ALL_LINUX: |
