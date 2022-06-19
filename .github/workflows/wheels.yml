@@ -1,13 +1,12 @@
 name: Build JoBase
 
 on:
-  push
-  # workflow_dispatch:
-  #   inputs:
-  #     upload:
-  #       description: Upload to PyPI
-  #       required: true
-  #       type: boolean
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: Upload to PyPI
+        required: true
+        type: boolean
 
 jobs:
   wheels:
@@ -18,10 +17,10 @@ jobs:
       fail-fast: false
       matrix:
         plat:
-          #- [macos-latest, MacOS, "*"]
-          - [windows-latest, Win64, "cp310-win_amd64"]
-          #- [windows-latest, Win32, "*32"]
-          #- [ubuntu-latest, Musllinux, "*musllinux*"]
+          - [macos-latest, MacOS, "*"]
+          - [windows-latest, Win64, "*64"]
+          - [windows-latest, Win32, "*32"]
+          - [ubuntu-latest, Musllinux, "*musllinux*"]
           - [ubuntu-latest, Manylinux, "*manylinux*"]
 
     env:
