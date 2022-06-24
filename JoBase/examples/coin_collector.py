@@ -26,20 +26,20 @@ def loop():
     enemy.move_toward(coin, 1.5)
 
     if man.collides_with(coin):
-        coin.x = random(window.left, window.right)
-        coin.y = random(window.bottom, window.top)
+        coin.x = random(camera.left, camera.right)
+        coin.y = random(camera.bottom, camera.top)
 
         score += 1
         text.content = "Score: " + str(score)
 
     if enemy.collides_with(coin):
-        coin.x = random(window.left, window.right)
-        coin.y = random(window.bottom, window.top)
+        coin.x = random(camera.left, camera.right)
+        coin.y = random(camera.bottom, camera.top)
 
         score -= 1
         text.content = "Score: " + str(score)
 
-    text.bottom = window.bottom
-    text.left = window.left + 5
+    text.bottom = camera.bottom
+    text.left = camera.left + 5
 
 run()

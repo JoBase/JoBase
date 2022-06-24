@@ -3,7 +3,6 @@
 #define _USE_MATH_DEFINES
 
 #define CHECK(i) if (!i) {return PyErr_SetString(PyExc_AttributeError, "can't delete attribute"), -1;}
-#define OBJECT(o) return errorFormat(PyExc_TypeError, "must be Shape or cursor, not %s", Py_TYPE(o) -> tp_name), NULL;
 #define ITER(t, i) for (t *this = i; this; this = this -> next)
 #define NEW(t, i) t *e = malloc(sizeof(t)); e -> next = i; i = e;
 #define PARSE(e) wchar_t item; for (uint i = 0; (item = e[i]); i ++)
@@ -52,6 +51,7 @@ typedef float mat[16];
 typedef uint uint2[2];
 typedef int int2[2];
 typedef vec2 poly[];
+typedef vec2 tri[3];
 typedef vec (*method)(PyObject *);
 
 typedef struct Set {
@@ -128,7 +128,7 @@ typedef struct Window {
     uchar resize;
 } Window;
 
-typedef struct Shape {
+typedef struct Base {
     PyObject_HEAD
     vec2 pos;
     vec2 scale;
@@ -144,17 +144,17 @@ typedef struct Shape {
     double elasticity;
     double friction;
     uchar rotate;
-    cpFloat (*getMoment)(struct Shape *);
-    void (*newShape)(struct Shape *);
-    void (*setShape)(struct Shape *);
-    double (*getTop)(struct Shape *);
-    double (*getBottom)(struct Shape *);
-    double (*getLeft)(struct Shape *);
-    double (*getRight)(struct Shape *);
-} Shape;
+    cpFloat (*getMoment)(struct Base *);
+    void (*newShape)(struct Base *);
+    void (*setBase)(struct Base *);
+    double (*getTop)(struct Base *);
+    double (*getBottom)(struct Base *);
+    double (*getLeft)(struct Base *);
+    double (*getRight)(struct Base *);
+} Base;
 
 typedef struct Rectangle {
-    Shape shape;
+    Base base;
     vec2 size;
 } Rectangle;
 
@@ -174,16 +174,27 @@ typedef struct Text {
 } Text;
 
 typedef struct Circle {
-    Shape shape;
+    Base base;
     double radius;
     uint vao;
     uint vbo;
 } Circle;
 
+typedef struct Shape {
+    Base base;
+    vec2 *points;
+    uint *indices;
+    uint vertex;
+    uint index;
+    uint vao;
+    uint vbo;
+    uint ibo;
+} Shape;
+
 typedef struct Physics {
     PyObject_HEAD
     cpSpace *space;
-    Shape **data;
+    Base **data;
     uint length;
 } Physics;
 
@@ -195,10 +206,11 @@ static Camera *camera;
 static Window *window;
 
 static PyTypeObject VectorType;
-static PyTypeObject ShapeType;
+static PyTypeObject BaseType;
 static PyTypeObject CursorType;
 static PyTypeObject RectangleType;
 static PyTypeObject CircleType;
+static PyTypeObject ShapeType;
 
 static char *path;
 static uchar ready;
@@ -257,25 +269,49 @@ static vec getCursorPos() {
     return pos;
 }
 
-static vec getOtherPos(PyObject *other) {
-    if (Py_TYPE(other) == &CursorType)
-        return getCursorPos();
+static int getOtherPos(PyObject *other, vec2 pos) {
+    if (Py_TYPE(other) == &CursorType) {
+        vec value = getCursorPos();
 
-    if (PyObject_IsInstance(other, (PyObject *) &ShapeType))
-        return ((Shape *) other) -> pos;
+        pos[0] = value[0];
+        pos[1] = value[1];
+    }
 
-    OBJECT(other)
+    else if (PyObject_IsInstance(other, (PyObject *) &BaseType)) {
+        pos[0] = ((Base *) other) -> pos[0];
+        pos[1] = ((Base *) other) -> pos[1];
+    }
+
+    else if (PySequence_Check(other)) {
+        PyObject *sequence = PySequence_Fast(other, NULL);
+        Py_DECREF(sequence);
+
+        if (PySequence_Fast_GET_SIZE(sequence) < 2) {
+            PyErr_SetString(PyExc_ValueError, "sequence must contain 2 values");
+            return -1;
+        }
+
+        for (uchar i = 0; i < 2; i ++) {
+            pos[i] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(sequence, i));
+            if (pos[i] == -1 && PyErr_Occurred()) return -1;
+        }
+    }
+
+    else {
+        errorFormat(PyExc_TypeError, "must be Base, cursor or sequence not %s", Py_TYPE(other) -> tp_name);
+        return -1;
+    }
+
+    return 0;
 }
 
 static int moveToward(vec2 this, PyObject *args) {
     PyObject *other;
     double speed = 1;
+    vec2 pos;
 
-    if (!PyArg_ParseTuple(args, "O|d", &other, &speed))
+    if (!PyArg_ParseTuple(args, "O|d", &other, &speed) || getOtherPos(other, pos))
         return -1;
-
-    vec pos = getOtherPos(other);
-    if (!pos) return -1;
 
     const double x = pos[0] - this[0];
     const double y = pos[1] - this[1];
@@ -294,20 +330,96 @@ static int moveToward(vec2 this, PyObject *args) {
     return 0;
 }
 
-static int moveTowardSmooth(vec2 this, PyObject *args) {
+static int moveSmooth(vec2 this, PyObject *args) {
     PyObject *other;
     double speed = .1;
+    vec2 pos;
 
-    if (!PyArg_ParseTuple(args, "O|d", &other, &speed))
+    if (!PyArg_ParseTuple(args, "O|d", &other, &speed) || getOtherPos(other, pos))
         return -1;
-
-    vec pos = getOtherPos(other);
-    if (!pos) return -1;
 
     this[0] += (pos[0] - this[0]) * speed;
     this[1] += (pos[1] - this[1]) * speed;
     
     return 0;
+}
+
+static uchar triangulatePositive(poly poly, uint size) {
+    double result = 0;
+
+    for (uint p = size - 1, q = 0; q < size; p = q ++)
+        result += poly[p][0] * poly[q][1] - poly[q][0] * poly[p][1];
+
+    return result / 2 > 0;
+}
+
+static uchar triangulateInside(vec2 a, vec2 b, vec2 c, vec2 p) {
+    const double ab = (c[0] - b[0]) * (p[1] - b[1]) - (c[1] - b[1]) * (p[0] - b[0]);
+    const double ca = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+    const double bc = (a[0] - c[0]) * (p[1] - c[1]) - (a[1] - c[1]) * (p[0] - c[0]);
+
+    return ab >= 0 && ca >= 0 && bc >= 0;
+}
+
+static uchar triangulateSnip(poly poly, uint u, uint v, uint w, uint next, uint *verts) {
+    vec a = poly[verts[u]];
+    vec b = poly[verts[v]];
+    vec c = poly[verts[w]];
+
+    if (DBL_EPSILON > (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
+        return 0;
+
+    for (uint i = 0; i < next; i ++) {
+        if (i == u || i == v || i == w) continue;
+        if (triangulateInside(a, b, c, poly[verts[i]])) return 0;
+    }
+
+    return 1;
+}
+
+static int triangulatePoly(poly poly, uint size, uint **indices, uint *index) {
+    uint *verts = malloc(size * 4);
+    uint *data = *indices;
+    uint count = size * 2;
+    uint next = size;
+    *index = 0;
+
+    if (triangulatePositive(poly, size))
+        for (uint i = 0; i < size; i ++)
+            verts[i] = i;
+
+    else for (uint i = 0; i < size; i ++)
+        verts[i] = (size - 1) - i;
+
+    for (uint v = next - 1; next > 2;) {
+        if (count -- <= 0) {
+            PyErr_SetString(PyExc_ValueError, "failed to understand shape - probably because the edges overlap");
+            free(verts);
+            return -1;
+        }
+
+        uint u = next > v ? v : 0;
+        v = next > u + 1 ? u + 1 : 0;
+        uint w = next > v + 1 ? v + 1 : 0;
+
+        if (triangulateSnip(poly, u, v, w, next, verts)) {
+            data = realloc(data, (*index + 1) * 12);
+            data[*index] = verts[u];
+            data[*index + 1] = verts[v];
+            data[*index + 2] = verts[w];
+
+            *index += 3;
+            *indices = data;
+
+            for (uint s = v, t = v + 1; t < next; s ++, t ++)
+                verts[s] = verts[t];
+
+            next --;
+            count = next * 2;
+        }
+    }
+
+    return free(verts), 0;
 }
 
 static uchar collideCircleCircle(vec2 p1, double r1, vec2 p2, double r2) {
@@ -444,23 +556,35 @@ static double getPolyBottom(poly poly, uint size) {
 }
 
 static void getRectPoly(Rectangle *self, poly poly) {
-    const double px = self -> shape.anchor[0] + self -> size[0] * self -> shape.scale[0] / 2;
-    const double py = self -> shape.anchor[1] + self -> size[1] * self -> shape.scale[1] / 2;
+    const double px = self -> base.anchor[0] + self -> size[0] * self -> base.scale[0] / 2;
+    const double py = self -> base.anchor[1] + self -> size[1] * self -> base.scale[1] / 2;
 
     poly[0][0] = poly[3][0] = -px;
     poly[0][1] = poly[1][1] = py;
     poly[1][0] = poly[2][0] = px;
     poly[2][1] = poly[3][1] = -py;
 
-    rotPoly(poly, 4, self -> shape.angle, self -> shape.pos);
+    rotPoly(poly, 4, self -> base.angle, self -> base.pos);
 }
 
-static vec getShapeCenter(Shape *shape) {
-    const double angle = shape -> angle * M_PI / 180;
+static vec2 *getShapePoly(Shape *self) {
+    vec2 *poly = malloc(self -> vertex * 16);
+
+    for (uint i = 0; i < self -> vertex; i ++) {
+        poly[i][0] = self -> points[i][0] + self -> base.anchor[0];
+        poly[i][1] = self -> points[i][1] + self -> base.anchor[1];
+    }
+
+    rotPoly(poly, self -> vertex, self -> base.angle, self -> base.pos);
+    return poly;
+}
+
+static vec getBaseCenter(Base *base) {
+    const double angle = base -> angle * M_PI / 180;
     static vec2 pos;
 
-    pos[0] = shape -> pos[0] + shape -> anchor[0] * cos(angle) - shape -> anchor[1] * sin(angle);
-    pos[1] = shape -> pos[1] + shape -> anchor[1] * cos(angle) + shape -> anchor[0] * sin(angle);
+    pos[0] = base -> pos[0] + base -> anchor[0] * cos(angle) - base -> anchor[1] * sin(angle);
+    pos[1] = base -> pos[1] + base -> anchor[1] * cos(angle) + base -> anchor[0] * sin(angle);
     return pos;
 }
 
@@ -573,24 +697,33 @@ static void keyCallback(GLFWwindow *Py_UNUSED(window), int type, int Py_UNUSED(s
 static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
     #define BOOL(i) PyBool_FromLong(i);
     #define RECT(r) PyObject_IsInstance(r, (PyObject *) &RectangleType)
+    #define OBJECT(o) return errorFormat(PyExc_TypeError, "must be Base or cursor, not %s", Py_TYPE(o) -> tp_name), NULL;
 
     if (RECT(self)) {
         vec2 rect[4];
         getRectPoly((Rectangle *) self, rect);
 
         if (RECT(other)) {
-            vec2 other[4];
+            vec2 poly[4];
 
-            getRectPoly((Rectangle *) other, other);
-            return BOOL(collidePolyPoly(rect, 4, other, 4));
+            getRectPoly((Rectangle *) other, poly);
+            return BOOL(collidePolyPoly(rect, 4, poly, 4));
         }
 
         if (Py_TYPE(other) == &CircleType) {
             Circle *circle = (Circle *) other;
 
             return BOOL(collidePolyCircle(
-                rect, 4, getShapeCenter((Shape *) circle),
-                circle -> radius * circle -> shape.scale[0]));
+                rect, 4, getBaseCenter((Base *) circle),
+                circle -> radius * circle -> base.scale[0]));
+        }
+
+        if (Py_TYPE(other) == &ShapeType) {
+            Shape *shape = (Shape *) other;
+            vec2 *poly = getShapePoly(shape);
+
+            PyObject *value = BOOL(collidePolyPoly(rect, 4, poly, shape -> vertex));
+            return free(poly), value;
         }
 
         if (other == (PyObject *) cursor) return BOOL(collidePolyPoint(
@@ -601,8 +734,8 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
 
     if (Py_TYPE(self) == &CircleType) {
         Circle *circle = (Circle *) self;
-        const double size = circle -> radius * circle -> shape.scale[0];
-        vec pos = getShapeCenter((Shape *) circle);
+        const double size = circle -> radius * circle -> base.scale[0];
+        vec pos = getBaseCenter((Base *) circle);
 
         if (RECT(other)) {
             vec2 rect[4];
@@ -615,13 +748,60 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
             Circle *other = (Circle *) other;
 
             return BOOL(collideCircleCircle(
-                pos, size, getShapeCenter((Shape *) other),
-                other -> radius * other -> shape.scale[0]));
+                pos, size, getBaseCenter((Base *) other),
+                other -> radius * other -> base.scale[0]));
+        }
+
+        if (Py_TYPE(other) == &ShapeType) {
+            Shape *shape = (Shape *) other;
+            vec2 *poly = getShapePoly(shape);
+
+            PyObject *value = BOOL(collidePolyCircle(poly, shape -> vertex, pos, size));
+            return free(poly), value;
         }
 
         if (other == (PyObject *) cursor) return BOOL(collideCirclePoint(
             pos, size, getCursorPos()));
 
+        OBJECT(other)
+    }
+
+    if (Py_TYPE(self) == &ShapeType) {
+        Shape *shape = (Shape *) self;
+        vec2 *poly = getShapePoly(shape);
+
+        if (RECT(other)) {
+            vec2 rect[4];
+            getRectPoly((Rectangle *) other, rect);
+
+            PyObject *value = BOOL(collidePolyPoly(poly, shape -> vertex, rect, 4));
+            return free(poly), value;
+        }
+
+        if (Py_TYPE(other) == &CircleType) {
+            Circle *circle = (Circle *) other;
+
+            PyObject *value = BOOL(collidePolyCircle(
+                poly, shape -> vertex, getBaseCenter((Base *) circle),
+                circle -> radius * circle -> base.scale[0]));
+
+            return free(poly), value;
+        }
+
+        if (Py_TYPE(other) == &ShapeType) {
+            Shape *other = (Shape *) other;
+            vec2 *mesh = getShapePoly(other);
+
+            PyObject *value = BOOL(collidePolyPoly(poly, shape -> vertex, mesh, other -> vertex));
+            return free(poly), free(mesh), value;
+        }
+
+        if (other == (PyObject *) cursor) {
+            PyObject *value = BOOL(collidePolyPoint(poly, shape -> vertex, getCursorPos()));
+            return free(poly), value;
+        }
+
+        free(poly);
         OBJECT(other)
     }
 
@@ -637,8 +817,16 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
             Circle *circle = (Circle *) other;
 
             return BOOL(collideCirclePoint(
-                getShapeCenter((Shape *) circle), circle -> radius * circle -> shape.scale[0],
+                getBaseCenter((Base *) circle), circle -> radius * circle -> base.scale[0],
                 getCursorPos()));
+        }
+
+        if (Py_TYPE(other) == &ShapeType) {
+            Shape *shape = (Shape *) other;
+            vec2 *poly = getShapePoly(shape);
+
+            PyObject *value = BOOL(collidePolyPoint(poly, shape -> vertex, getCursorPos()));
+            return free(poly), value;
         }
 
         if (other == (PyObject *) cursor)
@@ -648,6 +836,9 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
     }
 
     OBJECT(self)
+    #undef BOOL
+    #undef RECT
+    #undef OBJECT
 }
 
 static double vectorCheck(double a, double b, uchar type) {
@@ -698,19 +889,17 @@ static int vectorSet(PyObject *value, vec vector, uchar size) {
             vector[i] = number;
     }
 
-    else if (PyTuple_Check(value) || PyList_Check(value)) {
-        Py_ssize_t length = PyList_Check(value) ? PyList_GET_SIZE(value) : PyTuple_GET_SIZE(value);
+    else if (PySequence_Check(value)) {
+        Py_ssize_t length = PySequence_Fast_GET_SIZE(value);
 
         for (uchar i = 0; i < size; i ++)
             if (i < length) {
-                PyObject *o = PyList_Check(value) ? PyList_GET_ITEM(value, i) : PyTuple_GET_ITEM(value, i);
-
-                if (!(vector[i] = PyFloat_AsDouble(o)) && PyErr_Occurred())
-                    return -1;
+                vector[i] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(value, i));
+                if (vector[i] == -1 && PyErr_Occurred()) return -1;
             }
     }
 
-    else return PyErr_SetString(PyExc_TypeError, "attribute must be a sequence of values"), -1;
+    else return PyErr_SetString(PyExc_TypeError, "attribute must be a sequence"), -1;
     return 0;
 }
 
@@ -878,7 +1067,7 @@ static int Vector_setattro(Vector *self, PyObject *attr, PyObject *value) {
     if (!name) return -1;
     
     for (uchar i = 0; i < 4; i ++)
-        if (self -> data[i].set && !strcmp(name, self -> data[i].name))
+        if (!strcmp(name, self -> data[i].name))
             return self -> data[i].set(self -> parent, value, NULL);
 
     return PyObject_GenericSetAttr((PyObject *) self, attr, value);
@@ -1262,11 +1451,31 @@ static int Camera_setPos(Camera *self, PyObject *value, void *Py_UNUSED(closure)
     return vectorSet(value, self -> pos, 2);
 }
 
+static PyObject *Camera_getTop(Camera *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> pos[1] + getWindowSize()[1] / 2);
+}
+
+static PyObject *Camera_getBottom(Camera *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> pos[1] - getWindowSize()[1] / 2);
+}
+
+static PyObject *Camera_getLeft(Camera *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> pos[0] - getWindowSize()[0] / 2);
+}
+
+static PyObject *Camera_getRight(Camera *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> pos[0] + getWindowSize()[0] / 2);
+}
+
 static PyGetSetDef CameraGetSetters[] = {
     {"x", (getter) Camera_getX, (setter) Camera_setX, "x position of the camera", NULL},
     {"y", (getter) Camera_getY, (setter) Camera_setY, "y position of the camera", NULL},
     {"position", (getter) Camera_getPos, (setter) Camera_setPos, "position of the camera", NULL},
     {"pos", (getter) Camera_getPos, (setter) Camera_setPos, "position of the camera", NULL},
+    {"top", (getter) Camera_getTop, NULL, "top position of the camera", NULL},
+    {"bottom", (getter) Camera_getBottom, NULL, "bottom position of the camera", NULL},
+    {"left", (getter) Camera_getLeft, NULL, "left position of the camera", NULL},
+    {"right", (getter) Camera_getRight, NULL, "right position of the camera", NULL},
     {NULL}
 };
 
@@ -1277,8 +1486,8 @@ static PyObject *Camera_moveToward(Camera *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
-static PyObject *Camera_moveTowardSmooth(Camera *self, PyObject *args) {
-    if (moveTowardSmooth(self -> pos, args))
+static PyObject *Camera_moveSmooth(Camera *self, PyObject *args) {
+    if (moveSmooth(self -> pos, args))
         return NULL;
 
     Py_RETURN_NONE;
@@ -1286,7 +1495,7 @@ static PyObject *Camera_moveTowardSmooth(Camera *self, PyObject *args) {
 
 static PyMethodDef CameraMethods[] = {
     {"move_toward", (PyCFunction) Camera_moveToward, METH_VARARGS, "move the camera toward another object"},
-    {"move_toward_smooth", (PyCFunction) Camera_moveTowardSmooth, METH_VARARGS, "move the camera smoothly toward another object"},
+    {"move_smooth", (PyCFunction) Camera_moveSmooth, METH_VARARGS, "move the camera smoothly toward another object"},
     {NULL}
 };
 
@@ -1445,22 +1654,6 @@ static int Window_setSize(Window *Py_UNUSED(self), PyObject *value, void *Py_UNU
     END return 0;
 }
 
-static PyObject *Window_getTop(Window *Py_UNUSED(self), void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(getWindowSize()[1] / 2);
-}
-
-static PyObject *Window_getBottom(Window *Py_UNUSED(self), void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(getWindowSize()[1] / -2);
-}
-
-static PyObject *Window_getLeft(Window *Py_UNUSED(self), void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(getWindowSize()[0] / -2);
-}
-
-static PyObject *Window_getRight(Window *Py_UNUSED(self), void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(getWindowSize()[0] / 2);
-}
-
 static PyObject *Window_getResize(Window *self, void *Py_UNUSED(closure)) {
     return PyBool_FromLong(self -> resize);
 }
@@ -1474,10 +1667,6 @@ static PyGetSetDef WindowGetSetters[] = {
     {"width", (getter) Window_getWidth, (setter) Window_setWidth, "width of the window", NULL},
     {"height", (getter) Window_getHeight, (setter) Window_setHeight, "height of the window", NULL},
     {"size", (getter) Window_getSize, (setter) Window_setSize, "dimensions of the window", NULL},
-    {"top", (getter) Window_getTop, NULL, "top of the window", NULL},
-    {"bottom", (getter) Window_getBottom, NULL, "bottom of the window", NULL},
-    {"left", (getter) Window_getLeft, NULL, "left of the window", NULL},
-    {"right", (getter) Window_getRight, NULL, "right of the window", NULL},
     {"resize", (getter) Window_getResize, NULL, "the window is resized", NULL},
     {NULL}
 };
@@ -1591,27 +1780,27 @@ static PyTypeObject WindowType = {
     .tp_getset = WindowGetSetters
 };
 
-static void shapeSetPos(Shape *self) {
+static void baseSetPos(Base *self) {
     if (self -> body)
         cpBodySetPosition(self -> body, cpv(self -> pos[0], self -> pos[1]));
 }
 
-static void shapeSetVelocity(Shape *self) {
+static void baseSetVelocity(Base *self) {
     if (self -> body)
         cpBodySetVelocity(self -> body, cpv(self -> velocity[0], self -> velocity[1]));
 }
 
-static void shapeSetMoment(Shape *self) {
+static void baseSetMoment(Base *self) {
     if (self -> body && self -> type == DYNAMIC)
         cpBodySetMoment(self -> body, self -> rotate ? self -> getMoment(self) : INFINITY);
 }
 
-static void shapeSetAngle(Shape *self) {
+static void baseSetAngle(Base *self) {
     if (self -> body)
         cpBodySetAngle(self -> body, self -> angle * M_PI / 180);
 }
 
-static void shapeDraw(Shape *self, vec2 size, uint vao, uint mode, uchar type, uint count) {
+static void baseMatrix(Base *self, vec2 size) {
     const float sx = (float) (size[0] * self -> scale[0]);
     const float sy = (float) (size[1] * self -> scale[1]);
     const float ax = (float) self -> anchor[0];
@@ -1629,182 +1818,207 @@ static void shapeDraw(Shape *self, vec2 size, uint vao, uint mode, uchar type, u
     };
 
     setUniform(matrix, self -> color);
-    glBindVertexArray(vao);
-
-    glUniform1i(glGetUniformLocation(program, "image"), type);
-    glDrawArrays(mode, 0, count);
-    glBindVertexArray(0);
 }
 
-static PyObject *Shape_getX(Shape *self, void *Py_UNUSED(closure)) {
+static int baseInit(Base *self, PyObject *color) {
+    self -> pos[0] = 0;
+    self -> pos[1] = 0;
+
+    self -> color[0] = 0;
+    self -> color[1] = 0;
+    self -> color[2] = 0;
+    self -> color[3] = 1;
+
+    self -> anchor[0] = 0;
+    self -> anchor[1] = 0;
+
+    self -> scale[0] = 1;
+    self -> scale[1] = 1;
+
+    self -> velocity[0] = 0;
+    self -> velocity[1] = 0;
+
+    self -> angle = 0;
+    self -> angularVelocity = 0;
+
+    self -> type = DYNAMIC;
+    self -> mass = 1;
+    self -> elasticity = .5;
+    self -> friction = .5;
+    self -> rotate = 1;
+
+    return color && vectorSet(color, self -> color, 4) ? -1 : 0;
+}
+
+static PyObject *Base_getX(Base *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> pos[0]);
 }
 
-static int Shape_setX(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setX(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> pos[0] = PyFloat_AsDouble(value);
-    return self -> pos[0] == -1 && PyErr_Occurred() ? -1 : shapeSetPos(self), 0;
+    return self -> pos[0] == -1 && PyErr_Occurred() ? -1 : baseSetPos(self), 0;
 }
 
-static PyObject *Shape_getY(Shape *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_getY(Base *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> pos[1]);
 }
 
-static int Shape_setY(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setY(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> pos[1] = PyFloat_AsDouble(value);
-    return self -> pos[1] == -1 && PyErr_Occurred() ? -1 : shapeSetPos(self), 0;
+    return self -> pos[1] == -1 && PyErr_Occurred() ? -1 : baseSetPos(self), 0;
 }
 
-static vec Shape_vecPos(Shape *self) {
+static vec Base_vecPos(Base *self) {
     return self -> pos;
 }
 
-static PyObject *Shape_getPos(Shape *self, void *Py_UNUSED(closure)) {
-    Vector *pos = vectorNew((PyObject *) self, (method) Shape_vecPos, 2);
-    pos -> data[0].set = (setter) Shape_setX;
-    pos -> data[1].set = (setter) Shape_setY;
+static PyObject *Base_getPos(Base *self, void *Py_UNUSED(closure)) {
+    Vector *pos = vectorNew((PyObject *) self, (method) Base_vecPos, 2);
+    pos -> data[0].set = (setter) Base_setX;
+    pos -> data[1].set = (setter) Base_setY;
     pos -> data[0].name = "x";
     pos -> data[1].name = "y";
 
     return (PyObject *) pos;
 }
 
-static int Shape_setPos(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return vectorSet(value, self -> pos, 2) ? -1 : shapeSetPos(self), 0;
+static int Base_setPos(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
+    return vectorSet(value, self -> pos, 2) ? -1 : baseSetPos(self), 0;
 }
 
-static int Shape_setScaleX(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setScaleX(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> scale[0] = PyFloat_AsDouble(value);
-    return self -> scale[0] == -1 && PyErr_Occurred() ? -1 : self -> setShape(self), 0;
+    return self -> scale[0] == -1 && PyErr_Occurred() ? -1 : self -> setBase(self), 0;
 }
 
-static int Shape_setScaleY(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setScaleY(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> scale[1] = PyFloat_AsDouble(value);
-    return self -> scale[1] == -1 && PyErr_Occurred() ? -1 : self -> setShape(self), 0;
+    return self -> scale[1] == -1 && PyErr_Occurred() ? -1 : self -> setBase(self), 0;
 }
 
-static vec Shape_vecScale(Shape *self) {
+static vec Base_vecScale(Base *self) {
     return self -> scale;
 }
 
-static PyObject *Shape_getScale(Shape *self, void *Py_UNUSED(closure)) {
-    Vector *scale = vectorNew((PyObject *) self, (method) Shape_vecScale, 2);
-    scale -> data[0].set = (setter) Shape_setScaleX;
-    scale -> data[1].set = (setter) Shape_setScaleY;
+static PyObject *Base_getScale(Base *self, void *Py_UNUSED(closure)) {
+    Vector *scale = vectorNew((PyObject *) self, (method) Base_vecScale, 2);
+    scale -> data[0].set = (setter) Base_setScaleX;
+    scale -> data[1].set = (setter) Base_setScaleY;
     scale -> data[0].name = "x";
     scale -> data[1].name = "y";
 
     return (PyObject *) scale;
 }
 
-static int Shape_setScale(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return vectorSet(value, self -> scale, 2) ? -1 : self -> setShape(self), 0;
+static int Base_setScale(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
+    return vectorSet(value, self -> scale, 2) ? -1 : self -> setBase(self), 0;
 }
 
-static int Shape_setAnchorX(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setAnchorX(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> anchor[0] = PyFloat_AsDouble(value);
     return self -> anchor[0] == -1 && PyErr_Occurred() ? -1 : 0;
 }
 
-static int Shape_setAnchorY(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setAnchorY(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> anchor[1] = PyFloat_AsDouble(value);
     return self -> anchor[1] == -1 && PyErr_Occurred() ? -1 : 0;
 }
 
-static vec Shape_vecAnchor(Shape *self) {
+static vec Base_vecAnchor(Base *self) {
     return self -> anchor;
 }
 
-static PyObject *Shape_getAnchor(Shape *self, void *Py_UNUSED(closure)) {
-    Vector *anchor = vectorNew((PyObject *) self, (method) Shape_vecAnchor, 2);
-    anchor -> data[0].set = (setter) Shape_setAnchorX;
-    anchor -> data[1].set = (setter) Shape_setAnchorY;
+static PyObject *Base_getAnchor(Base *self, void *Py_UNUSED(closure)) {
+    Vector *anchor = vectorNew((PyObject *) self, (method) Base_vecAnchor, 2);
+    anchor -> data[0].set = (setter) Base_setAnchorX;
+    anchor -> data[1].set = (setter) Base_setAnchorY;
     anchor -> data[0].name = "x";
     anchor -> data[1].name = "y";
 
     return (PyObject *) anchor;
 }
 
-static int Shape_setAnchor(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setAnchor(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     return vectorSet(value, self -> anchor, 2);
 }
 
-static PyObject *Shape_getAngle(Shape *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_getAngle(Base *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> angle);
 }
 
-static int Shape_setAngle(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setAngle(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> angle = PyFloat_AsDouble(value);
-    return self -> angle == -1 && PyErr_Occurred() ? -1 : shapeSetAngle(self), 0;
+    return self -> angle == -1 && PyErr_Occurred() ? -1 : baseSetAngle(self), 0;
 }
 
-static PyObject *Shape_getRed(Shape *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_getRed(Base *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> color[0]);
 }
 
-static int Shape_setRed(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setRed(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> color[0] = PyFloat_AsDouble(value);
     return self -> color[0] == -1 && PyErr_Occurred() ? -1 : 0;
 }
 
-static PyObject *Shape_getGreen(Shape *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_getGreen(Base *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> color[1]);
 }
 
-static int Shape_setGreen(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setGreen(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> color[1] = PyFloat_AsDouble(value);
     return self -> color[1] == -1 && PyErr_Occurred() ? -1 : 0;
 }
 
-static PyObject *Shape_getBlue(Shape *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_getBlue(Base *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> color[2]);
 }
 
-static int Shape_setBlue(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setBlue(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> color[2] = PyFloat_AsDouble(value);
     return self -> color[2] == -1 && PyErr_Occurred() ? -1 : 0;
 }
 
-static PyObject *Shape_getAlpha(Shape *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_getAlpha(Base *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> color[3]);
 }
 
-static int Shape_setAlpha(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setAlpha(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> color[3] = PyFloat_AsDouble(value);
     return self -> color[3] == -1 && PyErr_Occurred() ? -1 : 0;
 }
 
-static vec Shape_vecColor(Shape *self) {
+static vec Base_vecColor(Base *self) {
     return self -> color;
 }
 
-static PyObject *Shape_getColor(Shape *self, void *Py_UNUSED(closure)) {
-    Vector *color = vectorNew((PyObject *) self, (method) Shape_vecColor, 4);
-    color -> data[1].set = (setter) Shape_setRed;
-    color -> data[3].set = (setter) Shape_setGreen;
-    color -> data[1].set = (setter) Shape_setBlue;
-    color -> data[3].set = (setter) Shape_setAlpha;
+static PyObject *Base_getColor(Base *self, void *Py_UNUSED(closure)) {
+    Vector *color = vectorNew((PyObject *) self, (method) Base_vecColor, 4);
+    color -> data[1].set = (setter) Base_setRed;
+    color -> data[3].set = (setter) Base_setGreen;
+    color -> data[1].set = (setter) Base_setBlue;
+    color -> data[3].set = (setter) Base_setAlpha;
     color -> data[0].name = "red";
     color -> data[1].name = "green";
     color -> data[2].name = "blue";
@@ -1813,71 +2027,71 @@ static PyObject *Shape_getColor(Shape *self, void *Py_UNUSED(closure)) {
     return (PyObject *) color;
 }
 
-static int Shape_setColor(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setColor(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     return vectorSet(value, self -> color, 4);
 }
 
-static PyObject *Shape_getLeft(Shape *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_getLeft(Base *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> getLeft(self));
 }
 
-static int Shape_setLeft(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setLeft(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
     
     const double result = PyFloat_AsDouble(value);
     if (result == -1 && PyErr_Occurred()) return -1;
 
     self -> pos[0] += result - self -> getLeft(self);
-    return shapeSetPos(self), 0;
+    return baseSetPos(self), 0;
 }
 
-static PyObject *Shape_getTop(Shape *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_getTop(Base *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> getTop(self));
 }
 
-static int Shape_setTop(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setTop(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
     
     const double result = PyFloat_AsDouble(value);
     if (result == -1 && PyErr_Occurred()) return -1;
 
     self -> pos[1] += result - self -> getTop(self);
-    return shapeSetPos(self), 0;
+    return baseSetPos(self), 0;
 }
 
-static PyObject *Shape_getRight(Shape *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_getRight(Base *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> getRight(self));
 }
 
-static int Shape_setRight(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setRight(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
     
     const double result = PyFloat_AsDouble(value);
     if (result == -1 && PyErr_Occurred()) return -1;
 
     self -> pos[0] += result - self -> getRight(self);
-    return shapeSetPos(self), 0;
+    return baseSetPos(self), 0;
 }
 
-static PyObject *Shape_getBottom(Shape *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_getBottom(Base *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> getBottom(self));
 }
 
-static int Shape_setBottom(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setBottom(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
     
     const double result = PyFloat_AsDouble(value);
     if (result == -1 && PyErr_Occurred()) return -1;
 
     self -> pos[1] += result - self -> getBottom(self);
-    return shapeSetPos(self), 0;
+    return baseSetPos(self), 0;
 }
 
-static PyObject *Shape_getType(Shape *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_getType(Base *self, void *Py_UNUSED(closure)) {
     return PyLong_FromLong(self -> type);
 }
 
-static int Shape_setType(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setType(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     if ((self -> type = PyLong_AsLong(value)) == -1 && PyErr_Occurred())
@@ -1891,14 +2105,14 @@ static int Shape_setType(Shape *self, PyObject *value, void *Py_UNUSED(closure))
     if (self -> body)
         cpBodySetType(self -> body, self -> type);
 
-    return shapeSetMoment(self), 0;
+    return baseSetMoment(self), 0;
 }
 
-static PyObject *Shape_getMass(Shape *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_getMass(Base *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> mass);
 }
 
-static int Shape_setMass(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setMass(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     if ((self -> mass = PyFloat_AsDouble(value)) == -1 && PyErr_Occurred())
@@ -1907,14 +2121,14 @@ static int Shape_setMass(Shape *self, PyObject *value, void *Py_UNUSED(closure))
     if (self -> body)
         cpBodySetMass(self -> body, self -> mass);
 
-    return shapeSetMoment(self), 0;
+    return baseSetMoment(self), 0;
 }
 
-static PyObject *Shape_getElasticity(Shape *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_getElasticity(Base *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> elasticity);
 }
 
-static int Shape_setElasticity(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setElasticity(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     if ((self -> elasticity = PyFloat_AsDouble(value)) == -1 && PyErr_Occurred())
@@ -1926,11 +2140,11 @@ static int Shape_setElasticity(Shape *self, PyObject *value, void *Py_UNUSED(clo
     return 0;
 }
 
-static PyObject *Shape_getFriction(Shape *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_getFriction(Base *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> friction);
 }
 
-static int Shape_setFriction(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setFriction(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     if ((self -> friction = PyFloat_AsDouble(value)) == -1 && PyErr_Occurred())
@@ -1942,43 +2156,43 @@ static int Shape_setFriction(Shape *self, PyObject *value, void *Py_UNUSED(closu
     return 0;
 }
 
-static int Shape_setVelocityX(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setVelocityX(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> velocity[0] = PyFloat_AsDouble(value);
-    return self -> velocity[0] == -1 && PyErr_Occurred() ? -1 : shapeSetVelocity(self), 0;
+    return self -> velocity[0] == -1 && PyErr_Occurred() ? -1 : baseSetVelocity(self), 0;
 }
 
-static int Shape_setVelocityY(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setVelocityY(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     self -> velocity[1] = PyFloat_AsDouble(value);
-    return self -> velocity[1] == -1 && PyErr_Occurred() ? -1 : shapeSetVelocity(self), 0;
+    return self -> velocity[1] == -1 && PyErr_Occurred() ? -1 : baseSetVelocity(self), 0;
 }
 
-static vec Shape_vecVelocity(Shape *self) {
+static vec Base_vecVelocity(Base *self) {
     return self -> velocity;
 }
 
-static PyObject *Shape_getVelocity(Shape *self, void *Py_UNUSED(closure)) {
-    Vector *speed = vectorNew((PyObject *) self, (method) Shape_vecVelocity, 2);
-    speed -> data[0].set = (setter) Shape_setVelocityX;
-    speed -> data[1].set = (setter) Shape_setVelocityY;
+static PyObject *Base_getVelocity(Base *self, void *Py_UNUSED(closure)) {
+    Vector *speed = vectorNew((PyObject *) self, (method) Base_vecVelocity, 2);
+    speed -> data[0].set = (setter) Base_setVelocityX;
+    speed -> data[1].set = (setter) Base_setVelocityY;
     speed -> data[0].name = "x";
     speed -> data[1].name = "y";
 
     return (PyObject *) speed;
 }
 
-static int Shape_setVelocity(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return vectorSet(value, self -> velocity, 2) ? -1 : shapeSetVelocity(self), 0;
+static int Base_setVelocity(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
+    return vectorSet(value, self -> velocity, 2) ? -1 : baseSetVelocity(self), 0;
 }
 
-static PyObject *Shape_getAngularVelocity(Shape *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_getAngularVelocity(Base *self, void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(self -> angularVelocity);
 }
 
-static int Shape_setAngularVelocity(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setAngularVelocity(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     if ((self -> angularVelocity = PyFloat_AsDouble(value)) == -1 && PyErr_Occurred())
@@ -1990,76 +2204,78 @@ static int Shape_setAngularVelocity(Shape *self, PyObject *value, void *Py_UNUSE
     return 0;
 }
 
-static PyObject *Shape_getRotate(Shape *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_getRotate(Base *self, void *Py_UNUSED(closure)) {
     return PyBool_FromLong(self -> rotate);
 }
 
-static int Shape_setRotate(Shape *self, PyObject *value, void *Py_UNUSED(closure)) {
+static int Base_setRotate(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
     if (value == Py_True) {
         self -> rotate = 1;
-        return shapeSetMoment(self), 0;
+        return baseSetMoment(self), 0;
     }
 
     if (value == Py_False) {
         self -> rotate = 0;
-        return shapeSetMoment(self), 0;
+        return baseSetMoment(self), 0;
     }
 
     errorFormat(PyExc_TypeError, "must be bool, not %s", Py_TYPE(value) -> tp_name);
     return -1;
 }
 
-static PyGetSetDef ShapeGetSetters[] = {
-    {"x", (getter) Shape_getX, (setter) Shape_setX, "x position of the shape", NULL},
-    {"y", (getter) Shape_getY, (setter) Shape_setY, "y position of the shape", NULL},
-    {"position", (getter) Shape_getPos, (setter) Shape_setPos, "position of the shape", NULL},
-    {"pos", (getter) Shape_getPos, (setter) Shape_setPos, "position of the shape", NULL},
-    {"scale", (getter) Shape_getScale, (setter) Shape_setScale, "scale of the shape", NULL},
-    {"anchor", (getter) Shape_getAnchor, (setter) Shape_setAnchor, "rotation origin of the shape", NULL},
-    {"angle", (getter) Shape_getAngle, (setter) Shape_setAngle, "angle of the shape", NULL},
-    {"red", (getter) Shape_getRed, (setter) Shape_setRed, "red color of the shape", NULL},
-    {"green", (getter) Shape_getGreen, (setter) Shape_setGreen, "green color of the shape", NULL},
-    {"blue", (getter) Shape_getBlue, (setter) Shape_setBlue, "blue color of the shape", NULL},
-    {"alpha", (getter) Shape_getAlpha, (setter) Shape_setAlpha, "opacity of the shape", NULL},
-    {"color", (getter) Shape_getColor, (setter) Shape_setColor, "color of the shape", NULL},
-    {"left", (getter) Shape_getLeft, (setter) Shape_setLeft, "left position of the shape", NULL},
-    {"top", (getter) Shape_getTop, (setter) Shape_setTop, "top position of the shape", NULL},
-    {"right", (getter) Shape_getRight, (setter) Shape_setRight, "right position of the shape", NULL},
-    {"bottom", (getter) Shape_getBottom, (setter) Shape_setBottom, "bottom position of the shape", NULL},
-    {"type", (getter) Shape_getType, (setter) Shape_setType, "physics body of the shape", NULL},
-    {"mass", (getter) Shape_getMass, (setter) Shape_setMass, "weight of the shape", NULL},
-    {"elasticity", (getter) Shape_getElasticity, (setter) Shape_setElasticity, "bounciness of the shape", NULL},
-    {"friction", (getter) Shape_getFriction, (setter) Shape_setFriction, "roughness of the shape", NULL},
-    {"velocity", (getter) Shape_getVelocity, (setter) Shape_setVelocity, "physics speed of the shape", NULL},
-    {"speed", (getter) Shape_getVelocity, (setter) Shape_setVelocity, "physics speed of the shape", NULL},
-    {"angular_velocity", (getter) Shape_getAngularVelocity, (setter) Shape_setAngularVelocity, "physics rotation speed of the shape", NULL},
-    {"rotate_speed", (getter) Shape_getAngularVelocity, (setter) Shape_setAngularVelocity, "physics rotation speed of the shape", NULL},
-    {"rotate", (getter) Shape_getRotate, (setter) Shape_setRotate, "the shape is able to rotate in a physics engine", NULL},
+static PyGetSetDef BaseGetSetters[] = {
+    {"x", (getter) Base_getX, (setter) Base_setX, "x position of the object", NULL},
+    {"y", (getter) Base_getY, (setter) Base_setY, "y position of the object", NULL},
+    {"position", (getter) Base_getPos, (setter) Base_setPos, "position of the object", NULL},
+    {"pos", (getter) Base_getPos, (setter) Base_setPos, "position of the object", NULL},
+    {"scale", (getter) Base_getScale, (setter) Base_setScale, "scale of the object", NULL},
+    {"anchor", (getter) Base_getAnchor, (setter) Base_setAnchor, "rotation origin of the object", NULL},
+    {"angle", (getter) Base_getAngle, (setter) Base_setAngle, "angle of the object", NULL},
+    {"red", (getter) Base_getRed, (setter) Base_setRed, "red color of the object", NULL},
+    {"green", (getter) Base_getGreen, (setter) Base_setGreen, "green color of the object", NULL},
+    {"blue", (getter) Base_getBlue, (setter) Base_setBlue, "blue color of the object", NULL},
+    {"alpha", (getter) Base_getAlpha, (setter) Base_setAlpha, "opacity of the object", NULL},
+    {"color", (getter) Base_getColor, (setter) Base_setColor, "color of the object", NULL},
+    {"left", (getter) Base_getLeft, (setter) Base_setLeft, "left position of the object", NULL},
+    {"top", (getter) Base_getTop, (setter) Base_setTop, "top position of the object", NULL},
+    {"right", (getter) Base_getRight, (setter) Base_setRight, "right position of the object", NULL},
+    {"bottom", (getter) Base_getBottom, (setter) Base_setBottom, "bottom position of the object", NULL},
+    {"type", (getter) Base_getType, (setter) Base_setType, "physics body of the object", NULL},
+    {"mass", (getter) Base_getMass, (setter) Base_setMass, "weight of the object", NULL},
+    {"elasticity", (getter) Base_getElasticity, (setter) Base_setElasticity, "bounciness of the object", NULL},
+    {"friction", (getter) Base_getFriction, (setter) Base_setFriction, "roughness of the object", NULL},
+    {"velocity", (getter) Base_getVelocity, (setter) Base_setVelocity, "physics speed of the object", NULL},
+    {"speed", (getter) Base_getVelocity, (setter) Base_setVelocity, "physics speed of the object", NULL},
+    {"angular_velocity", (getter) Base_getAngularVelocity, (setter) Base_setAngularVelocity, "physics rotation speed of the object", NULL},
+    {"rotate_speed", (getter) Base_getAngularVelocity, (setter) Base_setAngularVelocity, "physics rotation speed of the object", NULL},
+    {"rotate", (getter) Base_getRotate, (setter) Base_setRotate, "the object is able to rotate in a physics engine", NULL},
     {NULL}
 };
 
-static PyObject *Shape_lookAt(Shape *self, PyObject *other) {
-    vec pos = getOtherPos(other);
-    if (!pos) return NULL;
+static PyObject *Base_lookAt(Base *self, PyObject *other) {
+    vec2 pos;
+    
+    if (getOtherPos(other, pos))
+        return NULL;
 
     const double angle = atan2(pos[1] - self -> pos[1], pos[0] - self -> pos[0]);
     self -> angle = angle * 180 / M_PI;
     
-    shapeSetAngle(self);
+    baseSetAngle(self);
     Py_RETURN_NONE;
 }
 
-static PyObject *Shape_moveToward(Shape *self, PyObject *args) {
+static PyObject *Base_moveToward(Base *self, PyObject *args) {
     if (moveToward(self -> pos, args))
         return NULL;
 
-    shapeSetAngle(self);
+    baseSetAngle(self);
     Py_RETURN_NONE;
 }
 
-static PyObject *Shape_applyImpulse(Shape *self, PyObject *args) {
+static PyObject *Base_applyImpulse(Base *self, PyObject *args) {
     if (!self -> body) {
         PyErr_SetString(PyExc_AttributeError, "must be added to a physics engine");
         return NULL;
@@ -2075,86 +2291,60 @@ static PyObject *Shape_applyImpulse(Shape *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
-static PyMethodDef ShapeMethods[] = {
-    {"collides_with", (PyCFunction) Object_collidesWith, METH_O, "check if the shape collides with another object"},
-    {"look_at", (PyCFunction) Shape_lookAt, METH_O, "rotate the shape so that it looks at another object"},
-    {"move_toward", (PyCFunction) Shape_moveToward, METH_VARARGS, "move the shape toward another object"},
-    {"apply_impulse", (PyCFunction) Shape_applyImpulse, METH_VARARGS, "apply an impulse to the shape physics"},
+static PyMethodDef BaseMethods[] = {
+    {"collides_with", (PyCFunction) Object_collidesWith, METH_O, "check if the object collides with another object"},
+    {"look_at", (PyCFunction) Base_lookAt, METH_O, "rotate the obejct so that it looks at another object"},
+    {"move_toward", (PyCFunction) Base_moveToward, METH_VARARGS, "move the object toward another object"},
+    {"apply_impulse", (PyCFunction) Base_applyImpulse, METH_VARARGS, "apply an impulse to the object physics"},
     {NULL}
 };
 
-static int Shape_init(Shape *self, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
-    self -> pos[0] = 0;
-    self -> pos[1] = 0;
-
-    self -> anchor[0] = 0;
-    self -> anchor[1] = 0;
-
-    self -> scale[0] = 1;
-    self -> scale[1] = 1;
-
-    self -> color[0] = 0;
-    self -> color[1] = 0;
-    self -> color[2] = 0;
-    self -> color[3] = 1;
-
-    self -> velocity[0] = 0;
-    self -> velocity[1] = 0;
-
-    self -> angle = 0;
-    self -> angularVelocity = 0;
-
-    self -> type = DYNAMIC;
-    self -> mass = 1;
-    self -> elasticity = .5;
-    self -> friction = .5;
-    self -> rotate = 1;
-
-    return 0;
-}
-
-static PyTypeObject ShapeType = {
+static PyTypeObject BaseType = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "Shape",
-    .tp_doc = "base class for drawing shapes",
-    .tp_basicsize = sizeof(Shape),
+    .tp_name = "Base",
+    .tp_doc = "base class for drawing things",
+    .tp_basicsize = sizeof(Base),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_new = PyType_GenericNew,
-    .tp_init = (initproc) Shape_init,
-    .tp_methods = ShapeMethods,
-    .tp_getset = ShapeGetSetters
+    .tp_methods = BaseMethods,
+    .tp_getset = BaseGetSetters
 };
 
 static void rectangleDraw(Rectangle *self, uchar type) {
-    shapeDraw((Shape *) self, self -> size, mesh, GL_TRIANGLE_STRIP, type, 4);
+    baseMatrix((Base *) self, self -> size);
+
+    glBindVertexArray(mesh);
+    glUniform1i(glGetUniformLocation(program, "image"), type);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
 }
 
 static void rectangleNewShape(Rectangle *self) {
-    self -> shape.shape = cpBoxShapeNew(
-        self -> shape.body, self -> size[0] * self -> shape.scale[0],
-        self -> size[1] * self -> shape.scale[1], 0);
+    self -> base.shape = cpBoxShapeNew(
+        self -> base.body, self -> size[0] * self -> base.scale[0],
+        self -> size[1] * self -> base.scale[1], 0);
 }
 
-static void rectangleSetShape(Rectangle *self) {
-    if (!self -> shape.shape) return;
+static void rectangleSetBase(Rectangle *self) {
+    if (!self -> base.shape) return;
 
     const double x = self -> size[0] / 2;
     const double y = self -> size[1] / 2;
 
     cpTransform transform = cpTransformNew(
-        self -> shape.scale[0], 0, 0,
-        self -> shape.scale[1], 0, 0);
+        self -> base.scale[0], 0, 0,
+        self -> base.scale[1], 0, 0);
 
     cpVect data[4] = {{-x, y}, {x, y}, {x, -y}, {-x, -y}};
-    cpPolyShapeSetVerts(self -> shape.shape, 4, data, transform);
-    shapeSetMoment((Shape *) self);
+    cpPolyShapeSetVerts(self -> base.shape, 4, data, transform);
+    baseSetMoment((Base *) self);
 }
 
 static cpFloat rectangleGetMoment(Rectangle *self) {
     return cpMomentForBox(
-        self -> shape.mass, self -> size[0] * self -> shape.scale[0],
-        self -> size[1] * self -> shape.scale[1]);
+        self -> base.mass, self -> size[0] * self -> base.scale[0],
+        self -> size[1] * self -> base.scale[1]);
 }
 
 static double rectangleGetTop(Rectangle *self) {
@@ -2185,7 +2375,7 @@ static int Rectangle_setWidth(Rectangle *self, PyObject *value, void *Py_UNUSED(
     CHECK(value)
 
     self -> size[0] = PyFloat_AsDouble(value);
-    return self -> size[0] == -1 && PyErr_Occurred() ? -1 : rectangleSetShape(self), 0;
+    return self -> size[0] == -1 && PyErr_Occurred() ? -1 : rectangleSetBase(self), 0;
 }
 
 static PyObject *Rectangle_getHeight(Rectangle *self, void *Py_UNUSED(closure)) {
@@ -2196,7 +2386,7 @@ static int Rectangle_setHeight(Rectangle *self, PyObject *value, void *Py_UNUSED
     CHECK(value)
 
     self -> size[1] = PyFloat_AsDouble(value);
-    return self -> size[1] == -1 && PyErr_Occurred() ? -1 : rectangleSetShape(self), 0;
+    return self -> size[1] == -1 && PyErr_Occurred() ? -1 : rectangleSetBase(self), 0;
 }
 
 static vec Rectangle_vecSize(Rectangle *self) {
@@ -2214,7 +2404,7 @@ static PyObject *Rectangle_getSize(Rectangle *self, void *Py_UNUSED(closure)) {
 }
 
 static int Rectangle_setSize(Rectangle *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return vectorSet(value, self -> size, 2) ? -1 : rectangleSetShape(self), 0;
+    return vectorSet(value, self -> size, 2) ? -1 : rectangleSetBase(self), 0;
 }
 
 static PyGetSetDef RectangleGetSetters[] = {
@@ -2237,13 +2427,13 @@ static PyMethodDef RectangleMethods[] = {
 static PyObject *Rectangle_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
     Rectangle *self = (Rectangle *) type -> tp_alloc(type, 0);
 
-    self -> shape.newShape = (void *)(Shape *) rectangleNewShape;
-    self -> shape.setShape = (void *)(Shape *) rectangleSetShape;
-    self -> shape.getMoment = (cpFloat (*)(Shape *)) rectangleGetMoment;
-    self -> shape.getTop = (double (*)(Shape *)) rectangleGetTop;
-    self -> shape.getBottom = (double (*)(Shape *)) rectangleGetBottom;
-    self -> shape.getLeft = (double (*)(Shape *)) rectangleGetLeft;
-    self -> shape.getRight = (double (*)(Shape *)) rectangleGetRight;
+    self -> base.newShape = (void *)(Base *) rectangleNewShape;
+    self -> base.setBase = (void *)(Base *) rectangleSetBase;
+    self -> base.getMoment = (cpFloat (*)(Base *)) rectangleGetMoment;
+    self -> base.getTop = (double (*)(Base *)) rectangleGetTop;
+    self -> base.getBottom = (double (*)(Base *)) rectangleGetBottom;
+    self -> base.getLeft = (double (*)(Base *)) rectangleGetLeft;
+    self -> base.getRight = (double (*)(Base *)) rectangleGetRight;
 
     return (PyObject *) self;
 }
@@ -2252,17 +2442,13 @@ static int Rectangle_init(Rectangle *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"x", "y", "width", "height", "angle", "color", NULL};
     PyObject *color = NULL;
 
-    if (ShapeType.tp_init((PyObject *) self, NULL, NULL))
-        return -1;
-
     self -> size[0] = 50;
     self -> size[1] = 50;
 
     return !PyArg_ParseTupleAndKeywords(
-        args, kwds, "|dddddO", kwlist, &self -> shape.pos[0],
-        &self -> shape.pos[1], &self -> size[0], &self -> size[1],
-        &self -> shape.angle, &color) || (color && vectorSet(
-            color, self -> shape.color, 4)) ? -1 : 0;
+        args, kwds, "|dddddO", kwlist, &self -> base.pos[0], &self -> base.pos[1],
+        &self -> size[0], &self -> size[1], &self -> base.angle,
+        &color) || baseInit((Base *) self, color) ? -1 : 0;
 }
 
 static PyTypeObject RectangleType = {
@@ -2272,7 +2458,7 @@ static PyTypeObject RectangleType = {
     .tp_basicsize = sizeof(Rectangle),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_base = &ShapeType,
+    .tp_base = &BaseType,
     .tp_new = Rectangle_new,
     .tp_init = (initproc) Rectangle_init,
     .tp_methods = RectangleMethods,
@@ -2294,24 +2480,18 @@ static PyMethodDef ImageMethods[] = {
 };
 
 static int Image_init(Image *self, PyObject *args, PyObject *kwds) {
-    static char *kwlist[] = {"name", "x", "y", "angle", "width", "height", "color", NULL};
+    static char *kwlist[] = {"name", "x", "y", "angle", "width", "height", NULL};
     const char *name = constructFilepath("images/man.png");
-
-    PyObject *color = NULL;
     vec2 size = {0};
 
-    if (ShapeType.tp_init((PyObject *) self, NULL, NULL))
-        return -1;
-
-    self -> rect.shape.color[0] = 1;
-    self -> rect.shape.color[1] = 1;
-    self -> rect.shape.color[2] = 1;
-
     if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|sdddddO", kwlist, &name, &self -> rect.shape.pos[0],
-        &self -> rect.shape.pos[1], &self -> rect.shape.angle,
-        &size[0], &size[1], &color) || (color && vectorSet(
-            color, self -> rect.shape.color, 4))) return -1;
+        args, kwds, "|sdddddO", kwlist, &name, &self -> rect.base.pos[0],
+        &self -> rect.base.pos[1], &self -> rect.base.angle, &size[0],
+        &size[1]) || baseInit((Base *) self, NULL)) return -1;
+
+    self -> rect.base.color[0] = 1;
+    self -> rect.base.color[1] = 1;
+    self -> rect.base.color[2] = 1;
 
     ITER(Texture, textures)
         if (!strcmp(this -> name, name)) {
@@ -2482,14 +2662,14 @@ static PyGetSetDef TextGetSetters[] = {
 };
 
 static PyObject *Text_draw(Text *self, PyObject *Py_UNUSED(ignored)) {
-    double pen = self -> rect.shape.anchor[0] - self -> base[0] / 2;
+    double pen = self -> rect.base.anchor[0] - self -> base[0] / 2;
 
-    const float sx = (float) (self -> rect.shape.scale[0] + self -> rect.size[0] / self -> base[0]) - 1;
-    const float sy = (float) (self -> rect.shape.scale[1] + self -> rect.size[1] / self -> base[1]) - 1;
-    const float s = (float) sin(self -> rect.shape.angle * M_PI / 180);
-	const float c = (float) cos(self -> rect.shape.angle * M_PI / 180);
-    const float px = (float) self -> rect.shape.pos[0];
-    const float py = (float) self -> rect.shape.pos[1];
+    const float sx = (float) (self -> rect.base.scale[0] + self -> rect.size[0] / self -> base[0]) - 1;
+    const float sy = (float) (self -> rect.base.scale[1] + self -> rect.size[1] / self -> base[1]) - 1;
+    const float s = (float) sin(self -> rect.base.angle * M_PI / 180);
+	const float c = (float) cos(self -> rect.base.angle * M_PI / 180);
+    const float px = (float) self -> rect.base.pos[0];
+    const float py = (float) self -> rect.base.pos[1];
 
     glUniform1i(glGetUniformLocation(program, "image"), TEXT);
     glBindVertexArray(mesh);
@@ -2502,7 +2682,7 @@ static PyObject *Text_draw(Text *self, PyObject *Py_UNUSED(ignored)) {
         const float iy = (float) glyph.size[1];
 
         const float ax = (float) (pen + glyph.pos[0] + glyph.size[0] / 2);
-        const float ay = (float) (self -> rect.shape.anchor[1] + glyph.pos[1] - (
+        const float ay = (float) (self -> rect.base.anchor[1] + glyph.pos[1] - (
             glyph.size[1] + self -> base[1]) / 2 - self -> descender);
 
         glActiveTexture(GL_TEXTURE0);
@@ -2515,7 +2695,7 @@ static PyObject *Text_draw(Text *self, PyObject *Py_UNUSED(ignored)) {
             ax * sx * c + ay * sy * -s + px, ax * sx * s + ay * sy * c + py, 0, 1
         };
 
-        setUniform(matrix, self -> rect.shape.color);
+        setUniform(matrix, self -> rect.base.color);
         pen += glyph.advance;
 
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -2537,17 +2717,12 @@ static int Text_init(Text *self, PyObject *args, PyObject *kwds) {
 
     PyObject *content = NULL;
     PyObject *color = NULL;
-
-    if (ShapeType.tp_init((PyObject *) self, NULL, NULL))
-        return -1;
-
     self -> fontSize = 50;
 
     if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|UddddOs", kwlist, &content, &self -> rect.shape.pos[0],
-        &self -> rect.shape.pos[1], &self -> fontSize, &self -> rect.shape.angle,
-        &color, &font) || textResetFont(self, font) || (color && vectorSet(
-            color, self -> rect.shape.color, 4))) return -1;
+        args, kwds, "|UddddOs", kwlist, &content, &self -> rect.base.pos[0],
+        &self -> rect.base.pos[1], &self -> fontSize, &self -> rect.base.angle, &color,
+        &font) || textResetFont(self, font) || baseInit((Base *) self, color)) return -1;
 
     if (content) {
         wchar_t *text = PyUnicode_AsWideCharString(content, NULL);
@@ -2584,7 +2759,7 @@ static PyTypeObject TextType = {
 };
 
 static uint circleGetVertices(Circle *self) {
-    return (int) (sqrt(fabs(self -> radius * self -> shape.scale[0])) * 4) + 4;
+    return (int) (sqrt(fabs(self -> radius * self -> base.scale[0])) * 4) + 4;
 }
 
 static void circleSetData(Circle *self) {
@@ -2608,41 +2783,41 @@ static void circleSetData(Circle *self) {
 }
 
 static void circleNewShape(Circle *self) {
-    self -> shape.shape = cpCircleShapeNew(
-        self -> shape.body, self -> radius * self -> shape.scale[0], cpv(0, 0));
+    self -> base.shape = cpCircleShapeNew(
+        self -> base.body, self -> radius * self -> base.scale[0], cpv(0, 0));
 }
 
-static void circleSetShape(Circle *self) {
-    const double average = (self -> shape.scale[0] + self -> shape.scale[1]) / 2;
-    self -> shape.scale[0] = average;
-    self -> shape.scale[1] = average;
+static void circleSetBase(Circle *self) {
+    const double average = (self -> base.scale[0] + self -> base.scale[1]) / 2;
+    self -> base.scale[0] = average;
+    self -> base.scale[1] = average;
     circleSetData(self);
 
-    if (self -> shape.shape) {
-        cpCircleShapeSetRadius(self -> shape.shape, self -> radius * average);
-        shapeSetMoment((Shape *) self);
+    if (self -> base.shape) {
+        cpCircleShapeSetRadius(self -> base.shape, self -> radius * average);
+        baseSetMoment((Base *) self);
     }
 }
 
 static cpFloat circleGetMoment(Circle *self) {
     return cpMomentForCircle(
-        self -> shape.mass, 0, self -> radius * self -> shape.scale[0], cpv(0, 0));
+        self -> base.mass, 0, self -> radius * self -> base.scale[0], cpv(0, 0));
 }
 
 static double circleGetTop(Circle *self) {
-    return getShapeCenter((Shape *) self)[1] + self -> radius * self -> shape.scale[0];
+    return getBaseCenter((Base *) self)[1] + self -> radius * self -> base.scale[0];
 }
 
 static double circleGetBottom(Circle *self) {
-    return getShapeCenter((Shape *) self)[1] - self -> radius * self -> shape.scale[0];
+    return getBaseCenter((Base *) self)[1] - self -> radius * self -> base.scale[0];
 }
 
 static double circleGetLeft(Circle *self) {
-    return getShapeCenter((Shape *) self)[0] - self -> radius * self -> shape.scale[0];
+    return getBaseCenter((Base *) self)[0] - self -> radius * self -> base.scale[0];
 }
 
 static double circleGetRight(Circle *self) {
-    return getShapeCenter((Shape *) self)[0] + self -> radius * self -> shape.scale[0];
+    return getBaseCenter((Base *) self)[0] + self -> radius * self -> base.scale[0];
 }
 
 static PyObject *Circle_getDiameter(Circle *self, void *Py_UNUSED(closure)) {
@@ -2678,8 +2853,13 @@ static PyGetSetDef CircleGetSetters[] = {
 
 static PyObject *Circle_draw(Circle *self, PyObject *Py_UNUSED(ignored)) {
     vec2 size = {self -> radius * 2, self -> radius * 2};
-    shapeDraw((Shape *) self, size, self -> vao, GL_TRIANGLE_FAN, SHAPE, circleGetVertices(self));
-    
+    baseMatrix((Base *) self, size);
+
+    glBindVertexArray(self -> vao);
+    glUniform1i(glGetUniformLocation(program, "image"), SHAPE);
+    glDrawArrays(GL_TRIANGLE_FAN, 0, circleGetVertices(self));
+    glBindVertexArray(0);
+
     Py_RETURN_NONE;
 }
 
@@ -2691,13 +2871,13 @@ static PyMethodDef CircleMethods[] = {
 static PyObject *Circle_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
     Circle *self = (Circle *) type -> tp_alloc(type, 0);
 
-    self -> shape.newShape = (void *)(Shape *) circleNewShape;
-    self -> shape.setShape = (void *)(Shape *) circleSetShape;
-    self -> shape.getMoment = (cpFloat (*)(Shape *)) circleGetMoment;
-    self -> shape.getTop = (double (*)(Shape *)) circleGetTop;
-    self -> shape.getBottom = (double (*)(Shape *)) circleGetBottom;
-    self -> shape.getLeft = (double (*)(Shape *)) circleGetLeft;
-    self -> shape.getRight = (double (*)(Shape *)) circleGetRight;
+    self -> base.newShape = (void *)(Base *) circleNewShape;
+    self -> base.setBase = (void *)(Base *) circleSetBase;
+    self -> base.getMoment = (cpFloat (*)(Base *)) circleGetMoment;
+    self -> base.getTop = (double (*)(Base *)) circleGetTop;
+    self -> base.getBottom = (double (*)(Base *)) circleGetBottom;
+    self -> base.getLeft = (double (*)(Base *)) circleGetLeft;
+    self -> base.getRight = (double (*)(Base *)) circleGetRight;
 
     glGenVertexArrays(1, &self -> vao);
     glBindVertexArray(self -> vao);
@@ -2717,19 +2897,21 @@ static PyObject *Circle_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObj
 static int Circle_init(Circle *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"x", "y", "diameter", "color", NULL};
 
-    double diameter = 50;
     PyObject *color = NULL;
-
-    if (ShapeType.tp_init((PyObject *) self, NULL, NULL))
-        return -1;
+    double diameter = 50;
 
     if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|dddO", kwlist, &self -> shape.pos[0],
-        &self -> shape.pos[1], &diameter, &color) || (color && vectorSet(
-            color, self -> shape.color, 4))) return -1;
+        args, kwds, "|dddO", kwlist, &self -> base.pos[0], &self -> base.pos[1],
+        &diameter, &color) || baseInit((Base *) self, color)) return -1;
 
     self -> radius = diameter / 2;
     return circleSetData(self), 0;
+}
+
+static void Circle_dealloc(Circle *self) {
+    glDeleteBuffers(1, &self -> vbo);
+    glDeleteVertexArrays(1, &self -> vao);
+    Py_TYPE(self) -> tp_free((PyObject *) self);
 }
 
 static PyTypeObject CircleType = {
@@ -2739,11 +2921,234 @@ static PyTypeObject CircleType = {
     .tp_basicsize = sizeof(Circle),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_base = &ShapeType,
+    .tp_base = &BaseType,
     .tp_new = Circle_new,
     .tp_init = (initproc) Circle_init,
+    .tp_dealloc = (destructor) Circle_dealloc,
     .tp_methods = CircleMethods,
     .tp_getset = CircleGetSetters
+};
+
+static cpVect *shapeGetPoly(Shape *self) {
+    cpVect *vertices = malloc(self -> vertex * 16);
+
+    for (uint i = 0; i < self -> vertex; i ++) {
+        vertices[i].x = self -> points[i][0];
+        vertices[i].y = self -> points[i][1];
+    }
+
+    return vertices;
+}
+
+static void shapeNewShape(Shape *self) {
+    cpVect *vertices = shapeGetPoly(self);
+
+    cpTransform transform = cpTransformNew(
+        self -> base.scale[0], 0, 0,
+        self -> base.scale[1], 0, 0);
+
+    self -> base.shape = cpPolyShapeNew(self -> base.body, self -> vertex, vertices, transform, 0);
+    free(vertices);
+}
+
+static void shapeSetBase(Shape *self) {
+    if (!self -> base.shape) return;
+    cpVect *vertices = shapeGetPoly(self);
+
+    cpTransform transform = cpTransformNew(
+        self -> base.scale[0], 0, 0,
+        self -> base.scale[1], 0, 0);
+
+    cpPolyShapeSetVerts(self -> base.shape, self -> vertex, vertices, transform);
+    baseSetMoment((Base *) self);
+    free(vertices);
+}
+
+static cpFloat shapeGetMoment(Shape *self) {
+    cpVect *vertices = shapeGetPoly(self);
+    cpFloat moment = cpMomentForPoly(self -> base.mass, self -> vertex, vertices, cpv(0, 0), 0);
+
+    return free(vertices), moment;
+}
+
+static double shapeGetTop(Shape *self) {
+    vec2 *poly = getShapePoly(self);
+
+    const double value = getPolyTop(poly, self -> vertex);
+    return free(poly), value;
+}
+
+static double shapeGetBottom(Shape *self) {
+    vec2 *poly = getShapePoly(self);
+
+    const double value = getPolyBottom(poly, self -> vertex);
+    return free(poly), value;
+}
+
+static double shapeGetLeft(Shape *self) {
+    vec2 *poly = getShapePoly(self);
+
+    const double value = getPolyLeft(poly, self -> vertex);
+    return free(poly), value;
+}
+
+static double shapeGetRight(Shape *self) {
+    vec2 *poly = getShapePoly(self);
+
+    const double value = getPolyRight(poly, self -> vertex);
+    return free(poly), value;
+}
+
+static PyObject *Shape_draw(Shape *self, PyObject *Py_UNUSED(ignored)) {
+    vec2 size = {1, 1};
+    baseMatrix((Base *) self, size);
+
+    glBindVertexArray(self -> vao);
+    glUniform1i(glGetUniformLocation(program, "image"), SHAPE);
+    glDrawElements(GL_TRIANGLES, self -> index, GL_UNSIGNED_INT, 0);
+    glBindVertexArray(0);
+
+    Py_RETURN_NONE;
+}
+
+static PyMethodDef ShapeMethods[] = {
+    {"draw", (PyCFunction) Shape_draw, METH_NOARGS, "draw the shape on the screen"},
+    {NULL}
+};
+
+static PyObject *Shape_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
+    Shape *self = (Shape *) type -> tp_alloc(type, 0);
+
+    self -> base.newShape = (void *)(Base *) shapeNewShape;
+    self -> base.setBase = (void *)(Base *) shapeSetBase;
+    self -> base.getMoment = (cpFloat (*)(Base *)) shapeGetMoment;
+    self -> base.getTop = (double (*)(Base *)) shapeGetTop;
+    self -> base.getBottom = (double (*)(Base *)) shapeGetBottom;
+    self -> base.getLeft = (double (*)(Base *)) shapeGetLeft;
+    self -> base.getRight = (double (*)(Base *)) shapeGetRight;
+
+    self -> points = malloc(0);
+    self -> indices = malloc(0);
+
+    glGenVertexArrays(1, &self -> vao);
+    glBindVertexArray(self -> vao);
+
+    glGenBuffers(1, &self -> vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, self -> vbo);
+
+    glVertexAttribPointer(
+        glGetAttribLocation(program, "vertex"),
+        2, GL_DOUBLE, GL_FALSE, 0, 0);
+
+    glGenBuffers(1, &self -> ibo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self -> ibo);
+
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+
+    return (PyObject *) self;
+}
+
+static int Shape_init(Shape *self, PyObject *args, PyObject *kwds) {
+    static char *kwlist[] = {"points", "x", "y", "color", NULL};
+
+    PyObject *color = NULL;
+    PyObject *points = NULL;
+
+    if (!PyArg_ParseTupleAndKeywords(
+        args, kwds, "|OddO", kwlist, &points, &self -> base.pos[0],
+        &self -> base.pos[1], &color) || baseInit((Base *) self, color)) return -1;
+
+    if (points) {
+        if (!PySequence_Check(points)) {
+            errorFormat(PyExc_TypeError, "must be sequence, not %s", Py_TYPE(points) -> tp_name);
+            return -1;
+        }
+
+        PyObject *sequence = PySequence_Fast(points, NULL);
+        Py_DECREF(sequence);
+
+        self -> vertex = PySequence_Fast_GET_SIZE(sequence);
+        self -> points = realloc(self -> points, self -> vertex * 16);
+
+        if (self -> vertex < 3) {
+            PyErr_SetString(PyExc_ValueError, "shape must have at least 3 corners");
+            return -1;
+        }
+
+        for (uint i = 0; i < self -> vertex; i ++) {
+            PyObject *point = PySequence_Fast_GET_ITEM(sequence, i);
+
+            if (!PySequence_Check(point)) {
+                errorFormat(PyExc_TypeError, "point must be sequence, not %s", Py_TYPE(point) -> tp_name);
+                return -1;
+            }
+
+            PyObject *value = PySequence_Fast(point, NULL);
+            Py_DECREF(value);
+
+            if (PySequence_Fast_GET_SIZE(value) < 2) {
+                PyErr_SetString(PyExc_ValueError, "point must contain 2 values");
+                return -1;
+            }
+
+            self -> points[i][0] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(value, 0));
+            self -> points[i][1] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(value, 1));
+
+            if ((self -> points[i][0] == -1 || self -> points[i][1] == -1) && PyErr_Occurred())
+                return -1;
+        }
+
+        if (triangulatePoly(self -> points, self -> vertex, &self -> indices, &self -> index))
+            return -1;
+    }
+
+    else {
+        self -> vertex = 3;
+        self -> index = 3;
+
+        self -> points = realloc(self -> points, self -> vertex * 16);
+        self -> indices = realloc(self -> indices, self -> index * 4);
+
+        self -> points[0][0] = 0;
+        self -> points[0][1] = self -> points[1][0] = 25;
+        self -> points[1][1] = self -> points[2][0] = self -> points[2][1] = -25;
+
+        self -> indices[0] = 0;
+        self -> indices[1] = 1;
+        self -> indices[2] = 2;
+    }
+
+    glBindVertexArray(self -> vao);
+    glBufferData(GL_ARRAY_BUFFER, self -> vertex * 16, self -> points, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, self -> index * 4, self -> indices, GL_STATIC_DRAW);
+    return glBindVertexArray(0), 0;
+}
+
+static void Shape_dealloc(Shape *self) {
+    uint buffers[] = {self -> vbo, self -> ibo};
+
+    free(self -> indices);
+    free(self -> points);
+
+    glDeleteBuffers(2, buffers);
+    glDeleteVertexArrays(1, &self -> vao);
+    Py_TYPE(self) -> tp_free((PyObject *) self);
+}
+
+static PyTypeObject ShapeType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "Shape",
+    .tp_doc = "draw polygons on the screen",
+    .tp_basicsize = sizeof(Shape),
+    .tp_itemsize = 0,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+    .tp_base = &BaseType,
+    .tp_new = Shape_new,
+    .tp_init = (initproc) Shape_init,
+    .tp_dealloc = (destructor) Shape_dealloc,
+    .tp_methods = ShapeMethods,
+    // .tp_getset = CircleGetSetters
 };
 
 static Py_ssize_t Physics_len(Physics *self) {
@@ -2814,64 +3219,66 @@ static PyGetSetDef PhysicsGetSetters[] = {
 };
 
 static PyObject *Physics_add(Physics *self, PyObject *args) {
-    Shape *shape;
+    Base *base;
 
-    if (!PyArg_ParseTuple(args, "O!", &ShapeType, &shape))
+    if (!PyArg_ParseTuple(args, "O!", &BaseType, &base))
         return NULL;
 
-    if (shape -> shape) {
+    if (base -> shape) {
         PyErr_SetString(PyExc_ValueError, "already added to a physics engine");
         return NULL;
     }
 
-    if (shape -> type == DYNAMIC)
-        shape -> body = cpBodyNew(
-            shape -> mass, shape -> rotate ? shape -> getMoment(shape) : INFINITY);
+    if (base -> type == DYNAMIC)
+        base -> body = cpBodyNew(
+            base -> mass, base -> rotate ? base -> getMoment(base) : INFINITY);
 
-    else if (shape -> type == STATIC)
-        shape -> body = cpBodyNewKinematic();
+    else if (base -> type == STATIC)
+        base -> body = cpBodyNewKinematic();
 
-    cpBodySetAngle(shape -> body, shape -> angle * M_PI / 180);
-    cpBodySetPosition(shape -> body, cpv(shape -> pos[0], shape -> pos[1]));
-    cpBodySetVelocity(shape -> body, cpv(shape -> velocity[0], shape -> velocity[1]));
-    cpBodySetAngularVelocity(shape -> body, shape -> angularVelocity * M_PI / 180);
+    cpBodySetAngle(base -> body, base -> angle * M_PI / 180);
+    cpBodySetPosition(base -> body, cpv(base -> pos[0], base -> pos[1]));
+    cpBodySetVelocity(base -> body, cpv(base -> velocity[0], base -> velocity[1]));
+    cpBodySetAngularVelocity(base -> body, base -> angularVelocity * M_PI / 180);
 
-    shape -> newShape(shape);
-    cpShapeSetElasticity(shape -> shape, shape -> elasticity);
-    cpShapeSetFriction(shape -> shape, shape -> friction);
+    base -> newShape(base);
+    cpShapeSetElasticity(base -> shape, base -> elasticity);
+    cpShapeSetFriction(base -> shape, base -> friction);
 
-    cpSpaceAddBody(self -> space, shape -> body);
-    cpSpaceAddShape(self -> space, shape -> shape);
+    cpSpaceAddBody(self -> space, base -> body);
+    cpSpaceAddShape(self -> space, base -> shape);
 
-    self -> data = realloc(self -> data, sizeof(Shape *) * (self -> length + 1));
-    self -> data[self -> length] = shape;
+    self -> data = realloc(self -> data, sizeof(Base *) * (self -> length + 1));
+    self -> data[self -> length] = base;
     self -> length ++;
 
-    Py_INCREF(shape);
+    Py_INCREF(base);
     Py_RETURN_NONE;
 }
 
 static PyObject *Physics_remove(Physics *self, PyObject *args) {
-    Shape *other;
+    Base *other;
 
-    if (!PyArg_ParseTuple(args, "O!", &ShapeType, &other))
+    if (!PyArg_ParseTuple(args, "O!", &BaseType, &other))
         return NULL;
 
     for (uint i = 0; i < self -> length; i ++)
         if (self -> data[i] == other) {
-            cpSpaceRemoveBody(self -> space, self -> data[i] -> body);
-            cpSpaceRemoveShape(self -> space, self -> data[i] -> shape);
-            cpBodyFree(self -> data[i] -> body);
-            cpShapeFree(self -> data[i] -> shape);
+            Py_DECREF(other);
 
-            self -> data[i] -> body = NULL;
-            self -> data[i] -> shape = NULL;
+            cpSpaceRemoveBody(self -> space, other -> body);
+            cpSpaceRemoveShape(self -> space, other -> shape);
+            cpBodyFree(other -> body);
+            cpShapeFree(other -> shape);
+
+            other -> body = NULL;
+            other -> shape = NULL;
             self -> length --;
 
             for (uint j = i; j < self -> length; j ++)
                 self -> data[j] = self -> data[j + 1];
 
-            self -> data = realloc(self -> data, sizeof(Shape *) * self -> length);
+            self -> data = realloc(self -> data, sizeof(Base *) * self -> length);
             Py_RETURN_NONE;
         }
 
@@ -3039,6 +3446,7 @@ static int Module_exec(PyObject *self) {
     BUILD((PyObject *) &ImageType, "Image")
     BUILD((PyObject *) &TextType, "Text")
     BUILD((PyObject *) &CircleType, "Circle")
+    BUILD((PyObject *) &ShapeType, "Shape")
     BUILD((PyObject *) &PhysicsType, "Physics")
 
     BUILD(PyLong_FromLong(DYNAMIC), "DYNAMIC")
@@ -3047,6 +3455,7 @@ static int Module_exec(PyObject *self) {
     PATH("images/man.png", "MAN")
     PATH("images/coin.png", "COIN")
     PATH("images/enemy.png", "ENEMY")
+    PATH("images/plane.png", "PLANE")
     PATH("fonts/default.ttf", "DEFAULT")
     PATH("fonts/code.ttf", "CODE")
     PATH("fonts/pencil.ttf", "PENCIL")
@@ -3058,6 +3467,8 @@ static int Module_exec(PyObject *self) {
     COLOR("WHITE", 1, 1, 1)
     COLOR("BLACK", 0, 0, 0)
     COLOR("GRAY", .5, .5, .5)
+    COLOR("DARK_GRAY", .2, .2, .2)
+    COLOR("LIGHT_GRAY", .8, .8, .8)
     COLOR("BROWN", .6, .2, .2)
     COLOR("TAN", .8, .7, .6)
     COLOR("RED", 1, 0, 0)
@@ -3072,6 +3483,7 @@ static int Module_exec(PyObject *self) {
     COLOR("GREEN", 0, .5, 0)
     COLOR("AQUA", 0, 1, 1)
     COLOR("BLUE", 0, 0, 1)
+    COLOR("LIGHT_BLUE", .5, .8, 1)
     COLOR("AZURE", .9, 1, 1)
     COLOR("NAVY", 0, 0, .5)
     COLOR("PURPLE", .5, 0, .5)
@@ -3220,11 +3632,12 @@ PyMODINIT_FUNC PyInit_JoBase() {
     READY(KeyType)
     READY(CameraType)
     READY(WindowType)
-    READY(ShapeType)
+    READY(BaseType)
     READY(RectangleType)
     READY(ImageType)
     READY(TextType)
     READY(CircleType)
+    READY(ShapeType)
     READY(PhysicsType)
 
     return PyModuleDef_Init(&Module);

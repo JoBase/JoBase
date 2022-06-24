@@ -8,7 +8,7 @@ time = 0
 
 floor = Rectangle(width = window.width - 300, height = 20, color = GRAY)
 floor.type = STATIC
-floor.bottom = window.bottom
+floor.bottom = camera.bottom
 engine.add(floor)
 
 def loop():
@@ -36,12 +36,12 @@ def loop():
 
         else: thing = Circle(diameter = random(20, 30))
         
-        thing.y = window.top + 100
+        thing.y = camera.top + 100
         thing.color = random(0, 1), random(0, 1), random(0, 1)
         engine.add(thing)
 
     for thing in engine:
-        if thing.top < window.bottom:
+        if thing.top < camera.bottom:
             engine.remove(thing)
 
     for thing in engine:

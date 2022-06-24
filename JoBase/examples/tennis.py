@@ -14,7 +14,7 @@ engine = Physics(0, 0)
 score_1 = 0
 score_2 = 0
 
-window.color = BLACK
+window.color = DARK_GRAY
 window.caption = "Tennis"
 window.size = 1024, 576
 
