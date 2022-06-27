@@ -8,7 +8,6 @@ player_2 = Rectangle(width = 30, height = 150, color = WHITE)
 
 text = Text(color = WHITE)
 ball = Circle(diameter = 30, color = ORANGE)
-blob = Rectangle(width = 15, height = 5, color = BLACK)
 engine = Physics(0, 0)
 
 score_1 = 0
@@ -45,12 +44,12 @@ def loop():
 
     if window.resize:
         top.width = bottom.width = window.width
-        top.top = window.bottom
-        bottom.bottom = window.top
+        top.top = camera.bottom
+        bottom.bottom = camera.top
 
-        text.top = window.top
-        player_1.left = window.left
-        player_2.right = window.right
+        text.top = camera.top
+        player_1.left = camera.left
+        player_2.right = camera.right
 
     if key.w: player_1.speed.y = 400
     elif key.s: player_1.speed.y = -400
@@ -61,21 +60,18 @@ def loop():
     else: player_2.speed.y = 0
 
     engine.update()
-    blob.angle = ball.angle
-    blob.pos = ball.pos
 
-    if ball.left > window.right:
+    if ball.left > camera.right:
         score_1 += 1
         reset()
 
-    elif ball.right < window.left:
+    elif ball.right < camera.left:
         score_2 += 1
         reset()
 
     player_1.draw()
     player_2.draw()
     ball.draw()
-    blob.draw()
     text.draw()
 
 reset()
