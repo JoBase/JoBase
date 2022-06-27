@@ -3,9 +3,11 @@
 #define _USE_MATH_DEFINES
 
 #define CHECK(i) if (!i) {return PyErr_SetString(PyExc_AttributeError, "can't delete attribute"), -1;}
+#define ARRAY(i) return errorFormat(PyExc_TypeError, "must be sequence, not %s", Py_TYPE(i) -> tp_name), -1;
 #define ITER(t, i) for (t *this = i; this; this = this -> next)
 #define NEW(t, i) t *e = malloc(sizeof(t)); e -> next = i; i = e;
 #define PARSE(e) wchar_t item; for (uint i = 0; (item = e[i]); i ++)
+#define AVERAGE(i) (i[0] + i[1]) / 2
 #define GET(t, i) t -> get(t -> parent)[i]
 #define MIN(a, b) (a < b ? a : b)
 #define MAX(a, b) (a > b ? a : b)
@@ -556,13 +558,13 @@ static double getPolyBottom(poly poly, uint size) {
 }
 
 static void getRectPoly(Rectangle *self, poly poly) {
-    const double px = self -> base.anchor[0] + self -> size[0] * self -> base.scale[0] / 2;
-    const double py = self -> base.anchor[1] + self -> size[1] * self -> base.scale[1] / 2;
+    const double px = self -> size[0] * self -> base.scale[0] / 2;
+    const double py = self -> size[1] * self -> base.scale[1] / 2;
 
-    poly[0][0] = poly[3][0] = -px;
-    poly[0][1] = poly[1][1] = py;
-    poly[1][0] = poly[2][0] = px;
-    poly[2][1] = poly[3][1] = -py;
+    poly[0][0] = poly[3][0] = self -> base.anchor[0] - px;
+    poly[0][1] = poly[1][1] = self -> base.anchor[1] + py;
+    poly[1][0] = poly[2][0] = self -> base.anchor[0] + px;
+    poly[2][1] = poly[3][1] = self -> base.anchor[1] - py;
 
     rotPoly(poly, 4, self -> base.angle, self -> base.pos);
 }
@@ -589,13 +591,11 @@ static vec getBaseCenter(Base *base) {
 }
 
 static void setUniform(mat matrix, vec4 color) {
-    glUniformMatrix4fv(
-        glGetUniformLocation(program, "object"),
-        1, GL_FALSE, matrix);
+    glUniformMatrix4fv(glGetUniformLocation(program, "object"), 1, GL_FALSE, matrix);
 
     glUniform4f(
-        glGetUniformLocation(program, "color"), (GLfloat) color[0],
-        (GLfloat) color[1], (GLfloat) color[2], (GLfloat) color[3]);
+        glGetUniformLocation(program, "color"), (float) color[0],
+        (float) color[1], (float) color[2], (float) color[3]);
 }
 
 static int mainLoop() {
@@ -613,10 +613,7 @@ static int mainLoop() {
         -px * 2 / sx, -py * 2 / sy, -1, 1
     };
     
-    glUniformMatrix4fv(
-        glGetUniformLocation(program, "camera"),
-        1, GL_FALSE, matrix);
-
+    glUniformMatrix4fv(glGetUniformLocation(program, "camera"), 1, GL_FALSE, matrix);
     glClear(GL_COLOR_BUFFER_BIT);
 
     if (loop && !PyObject_CallObject(loop, NULL)) {
@@ -715,7 +712,7 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
 
             return BOOL(collidePolyCircle(
                 rect, 4, getBaseCenter((Base *) circle),
-                circle -> radius * circle -> base.scale[0]));
+                circle -> radius * AVERAGE(circle -> base.scale)));
         }
 
         if (Py_TYPE(other) == &ShapeType) {
@@ -734,7 +731,7 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
 
     if (Py_TYPE(self) == &CircleType) {
         Circle *circle = (Circle *) self;
-        const double size = circle -> radius * circle -> base.scale[0];
+        const double size = circle -> radius * AVERAGE(circle -> base.scale);
         vec pos = getBaseCenter((Base *) circle);
 
         if (RECT(other)) {
@@ -749,7 +746,7 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
 
             return BOOL(collideCircleCircle(
                 pos, size, getBaseCenter((Base *) other),
-                other -> radius * other -> base.scale[0]));
+                other -> radius * AVERAGE(other -> base.scale)));
         }
 
         if (Py_TYPE(other) == &ShapeType) {
@@ -783,7 +780,7 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
 
             PyObject *value = BOOL(collidePolyCircle(
                 poly, shape -> vertex, getBaseCenter((Base *) circle),
-                circle -> radius * circle -> base.scale[0]));
+                circle -> radius * AVERAGE(circle -> base.scale)));
 
             return free(poly), value;
         }
@@ -817,8 +814,8 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
             Circle *circle = (Circle *) other;
 
             return BOOL(collideCirclePoint(
-                getBaseCenter((Base *) circle), circle -> radius * circle -> base.scale[0],
-                getCursorPos()));
+                getBaseCenter((Base *) circle),
+                circle -> radius * AVERAGE(circle -> base.scale), getCursorPos()));
         }
 
         if (Py_TYPE(other) == &ShapeType) {
@@ -899,7 +896,7 @@ static int vectorSet(PyObject *value, vec vector, uchar size) {
             }
     }
 
-    else return PyErr_SetString(PyExc_TypeError, "attribute must be a sequence"), -1;
+    else ARRAY(value)
     return 0;
 }
 
@@ -1532,8 +1529,8 @@ static PyTypeObject CameraType = {
 
 static void windowClearColor() {
     glClearColor(
-        (GLfloat) window -> color[0], (GLfloat) window -> color[1],
-        (GLfloat) window -> color[2], 1);
+        (float) window -> color[0], (float) window -> color[1],
+        (float) window -> color[2], 1);
 }
 
 static PyObject *Window_getCaption(Window *self, void *Py_UNUSED(closure)) {
@@ -1800,9 +1797,9 @@ static void baseSetAngle(Base *self) {
         cpBodySetAngle(self -> body, self -> angle * M_PI / 180);
 }
 
-static void baseMatrix(Base *self, vec2 size) {
-    const float sx = (float) (size[0] * self -> scale[0]);
-    const float sy = (float) (size[1] * self -> scale[1]);
+static void baseMatrix(Base *self, double x, double y) {
+    const float sx = (float) (x * self -> scale[0]);
+    const float sy = (float) (y * self -> scale[1]);
     const float ax = (float) self -> anchor[0];
     const float ay = (float) self -> anchor[1];
     const float px = (float) self -> pos[0];
@@ -2312,7 +2309,7 @@ static PyTypeObject BaseType = {
 };
 
 static void rectangleDraw(Rectangle *self, uchar type) {
-    baseMatrix((Base *) self, self -> size);
+    baseMatrix((Base *) self, self -> size[0], self -> size[1]);
 
     glBindVertexArray(mesh);
     glUniform1i(glGetUniformLocation(program, "image"), type);
@@ -2759,7 +2756,7 @@ static PyTypeObject TextType = {
 };
 
 static uint circleGetVertices(Circle *self) {
-    return (int) (sqrt(fabs(self -> radius * self -> base.scale[0])) * 4) + 4;
+    return (int) (sqrt(fabs(self -> radius * AVERAGE(self -> base.scale))) * 4) + 4;
 }
 
 static void circleSetData(Circle *self) {
@@ -2784,40 +2781,37 @@ static void circleSetData(Circle *self) {
 
 static void circleNewShape(Circle *self) {
     self -> base.shape = cpCircleShapeNew(
-        self -> base.body, self -> radius * self -> base.scale[0], cpv(0, 0));
+        self -> base.body, self -> radius * AVERAGE(self -> base.scale), cpv(0, 0));
 }
 
 static void circleSetBase(Circle *self) {
-    const double average = (self -> base.scale[0] + self -> base.scale[1]) / 2;
-    self -> base.scale[0] = average;
-    self -> base.scale[1] = average;
     circleSetData(self);
 
     if (self -> base.shape) {
-        cpCircleShapeSetRadius(self -> base.shape, self -> radius * average);
         baseSetMoment((Base *) self);
+        cpCircleShapeSetRadius(self -> base.shape, self -> radius * AVERAGE(self -> base.scale));
     }
 }
 
 static cpFloat circleGetMoment(Circle *self) {
     return cpMomentForCircle(
-        self -> base.mass, 0, self -> radius * self -> base.scale[0], cpv(0, 0));
+        self -> base.mass, 0, self -> radius * AVERAGE(self -> base.scale), cpv(0, 0));
 }
 
 static double circleGetTop(Circle *self) {
-    return getBaseCenter((Base *) self)[1] + self -> radius * self -> base.scale[0];
+    return getBaseCenter((Base *) self)[1] + self -> radius * AVERAGE(self -> base.scale);
 }
 
 static double circleGetBottom(Circle *self) {
-    return getBaseCenter((Base *) self)[1] - self -> radius * self -> base.scale[0];
+    return getBaseCenter((Base *) self)[1] - self -> radius * AVERAGE(self -> base.scale);
 }
 
 static double circleGetLeft(Circle *self) {
-    return getBaseCenter((Base *) self)[0] - self -> radius * self -> base.scale[0];
+    return getBaseCenter((Base *) self)[0] - self -> radius * AVERAGE(self -> base.scale);
 }
 
 static double circleGetRight(Circle *self) {
-    return getBaseCenter((Base *) self)[0] + self -> radius * self -> base.scale[0];
+    return getBaseCenter((Base *) self)[0] + self -> radius * AVERAGE(self -> base.scale);
 }
 
 static PyObject *Circle_getDiameter(Circle *self, void *Py_UNUSED(closure)) {
@@ -2852,8 +2846,7 @@ static PyGetSetDef CircleGetSetters[] = {
 };
 
 static PyObject *Circle_draw(Circle *self, PyObject *Py_UNUSED(ignored)) {
-    vec2 size = {self -> radius * 2, self -> radius * 2};
-    baseMatrix((Base *) self, size);
+    baseMatrix((Base *) self, self -> radius * 2, self -> radius * 2);
 
     glBindVertexArray(self -> vao);
     glUniform1i(glGetUniformLocation(program, "image"), SHAPE);
@@ -2884,10 +2877,7 @@ static PyObject *Circle_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObj
     glGenBuffers(1, &self -> vbo);
     glBindBuffer(GL_ARRAY_BUFFER, self -> vbo);
 
-    glVertexAttribPointer(
-        glGetAttribLocation(program, "vertex"),
-        2, GL_FLOAT, GL_FALSE, 0, 0);
-
+    glVertexAttribPointer(glGetAttribLocation(program, "vertex"), 2, GL_FLOAT, GL_FALSE, 0, 0);
     glEnableVertexAttribArray(0);
     glBindVertexArray(0);
 
@@ -3000,8 +2990,7 @@ static double shapeGetRight(Shape *self) {
 }
 
 static PyObject *Shape_draw(Shape *self, PyObject *Py_UNUSED(ignored)) {
-    vec2 size = {1, 1};
-    baseMatrix((Base *) self, size);
+    baseMatrix((Base *) self, 1, 1);
 
     glBindVertexArray(self -> vao);
     glUniform1i(glGetUniformLocation(program, "image"), SHAPE);
@@ -3050,21 +3039,17 @@ static PyObject *Shape_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObje
 }
 
 static int Shape_init(Shape *self, PyObject *args, PyObject *kwds) {
-    static char *kwlist[] = {"points", "x", "y", "color", NULL};
+    static char *kwlist[] = {"points", "x", "y", "angle", "color", NULL};
 
     PyObject *color = NULL;
     PyObject *points = NULL;
 
     if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|OddO", kwlist, &points, &self -> base.pos[0],
-        &self -> base.pos[1], &color) || baseInit((Base *) self, color)) return -1;
+        args, kwds, "|OddO", kwlist, &points, &self -> base.pos[0], &self -> base.pos[1],
+        &self -> base.angle, &color) || baseInit((Base *) self, color)) return -1;
 
     if (points) {
-        if (!PySequence_Check(points)) {
-            errorFormat(PyExc_TypeError, "must be sequence, not %s", Py_TYPE(points) -> tp_name);
-            return -1;
-        }
-
+        if (!PySequence_Check(points)) ARRAY(points)
         PyObject *sequence = PySequence_Fast(points, NULL);
         Py_DECREF(sequence);
 
@@ -3078,11 +3063,7 @@ static int Shape_init(Shape *self, PyObject *args, PyObject *kwds) {
 
         for (uint i = 0; i < self -> vertex; i ++) {
             PyObject *point = PySequence_Fast_GET_ITEM(sequence, i);
-
-            if (!PySequence_Check(point)) {
-                errorFormat(PyExc_TypeError, "point must be sequence, not %s", Py_TYPE(point) -> tp_name);
-                return -1;
-            }
+            if (!PySequence_Check(point)) ARRAY(point)
 
             PyObject *value = PySequence_Fast(point, NULL);
             Py_DECREF(value);
@@ -3553,13 +3534,8 @@ static int Module_exec(PyObject *self) {
     glBindBuffer(GL_ARRAY_BUFFER, buffer);
     glBufferData(GL_ARRAY_BUFFER, 64, data, GL_STATIC_DRAW);
 
-    glVertexAttribPointer(
-        glGetAttribLocation(program, "vertex"),
-        2, GL_FLOAT, GL_FALSE, 16, 0);
-
-    glVertexAttribPointer(
-        glGetAttribLocation(program, "coordinate"),
-        2, GL_FLOAT, GL_FALSE, 16, (void *) 8);
+    glVertexAttribPointer(glGetAttribLocation(program, "vertex"), 2, GL_FLOAT, GL_FALSE, 16, 0);
+    glVertexAttribPointer(glGetAttribLocation(program, "coordinate"), 2, GL_FLOAT, GL_FALSE, 16, (void *) 8);
 
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
