@@ -2,7 +2,7 @@
 **Fast Python Game Library**
 
 JoBase is a blazingly fast Python game library for beginner coders.
-It is written in pure C and uses the OpenGL GLFW library.
+It is written in pure C and uses the GLFW library.
 Please visit [jobase.org](https://jobase.org) for tutorials and documentation.
 If you have any questions, please contact us at <hello@jobase.org>.
 
