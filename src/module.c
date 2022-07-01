@@ -56,6 +56,19 @@ typedef vec2 poly[];
 typedef vec2 tri[3];
 typedef vec (*method)(PyObject *);
 
+typedef struct Font {
+    struct Font *next;
+    FT_Face face;
+    char *name;
+} Font;
+
+typedef struct Texture {
+    struct Texture *next;
+    uint source;
+    uint2 size;
+    char *name;
+} Texture;
+
 typedef struct Set {
     const char *key;
     uchar hold;
@@ -68,19 +81,6 @@ typedef struct Var {
     const char *name;
     setter set;
 } Var;
-
-typedef struct Texture {
-    struct Texture *next;
-    uint source;
-    uint2 size;
-    char *name;
-} Texture;
-
-typedef struct Font {
-    struct Font *next;
-    FT_Face face;
-    char *name;
-} Font;
 
 typedef struct Char {
     uchar loaded;
@@ -99,14 +99,19 @@ typedef struct Vector {
     Var data[4];
 } Vector;
 
+typedef struct Button {
+    PyObject_HEAD
+    Set *state;
+} Button;
+
 typedef struct Cursor {
     PyObject_HEAD
+    Set buttons[GLFW_MOUSE_BUTTON_LAST + 1];
     uchar move;
     uchar enter;
     uchar leave;
     uchar press;
     uchar release;
-    uchar hold;
 } Cursor;
 
 typedef struct Key {
@@ -208,6 +213,7 @@ static Camera *camera;
 static Window *window;
 
 static PyTypeObject VectorType;
+static PyTypeObject ButtonType;
 static PyTypeObject BaseType;
 static PyTypeObject CursorType;
 static PyTypeObject RectangleType;
@@ -286,17 +292,23 @@ static int getOtherPos(PyObject *other, vec2 pos) {
 
     else if (PySequence_Check(other)) {
         PyObject *sequence = PySequence_Fast(other, NULL);
-        Py_DECREF(sequence);
 
         if (PySequence_Fast_GET_SIZE(sequence) < 2) {
             PyErr_SetString(PyExc_ValueError, "sequence must contain 2 values");
+            Py_DECREF(sequence);
             return -1;
         }
 
         for (uchar i = 0; i < 2; i ++) {
             pos[i] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(sequence, i));
-            if (pos[i] == -1 && PyErr_Occurred()) return -1;
+
+            if (pos[i] == -1 && PyErr_Occurred()) {
+                Py_DECREF(sequence);
+                return -1;
+            }
         }
+
+        Py_DECREF(sequence);
     }
 
     else {
@@ -631,10 +643,15 @@ static int mainLoop() {
     key -> release = 0;
     key -> repeat = 0;
 
-    for (ushort i = 0; i < GLFW_KEY_LAST + 1; i ++) {
+    for (ushort i = 0; i <= GLFW_KEY_LAST; i ++) {
         key -> keys[i].press = 0;
         key -> keys[i].release = 0;
         key -> keys[i].repeat = 0;
+    }
+
+    for (ushort i = 0; i <= GLFW_MOUSE_BUTTON_LAST; i ++) {
+        cursor -> buttons[i].press = 0;
+        cursor -> buttons[i].release = 0;
     }
 
     return glfwSwapBuffers(window -> glfw), 0;
@@ -660,15 +677,17 @@ static void cursorEnterCallback(GLFWwindow *Py_UNUSED(window), int entered) {
     entered ? (cursor -> enter = 1) : (cursor -> leave = 1);
 }
 
-static void mouseButtonCallback(GLFWwindow *Py_UNUSED(window), int Py_UNUSED(button), int action, int Py_UNUSED(mods)) {
+static void mouseButtonCallback(GLFWwindow *Py_UNUSED(window), int button, int action, int Py_UNUSED(mods)) {
     if (action == GLFW_PRESS) {
         cursor -> press = 1;
-        cursor -> hold = 1;
+        cursor -> buttons[button].press = 1;
+        cursor -> buttons[button].hold = 1;
     }
 
     else if (action == GLFW_RELEASE) {
         cursor -> release = 1;
-        cursor -> hold = 0;
+        cursor -> buttons[button].release = 1;
+        cursor -> buttons[button].hold = 0;
     }
 }
 
@@ -692,7 +711,7 @@ static void keyCallback(GLFWwindow *Py_UNUSED(window), int type, int Py_UNUSED(s
 }
 
 static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
-    #define BOOL(i) PyBool_FromLong(i);
+    #define LONG(i) PyBool_FromLong(i);
     #define RECT(r) PyObject_IsInstance(r, (PyObject *) &RectangleType)
     #define OBJECT(o) return errorFormat(PyExc_TypeError, "must be Base or cursor, not %s", Py_TYPE(o) -> tp_name), NULL;
 
@@ -704,13 +723,13 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
             vec2 poly[4];
 
             getRectPoly((Rectangle *) other, poly);
-            return BOOL(collidePolyPoly(rect, 4, poly, 4));
+            return LONG(collidePolyPoly(rect, 4, poly, 4));
         }
 
         if (Py_TYPE(other) == &CircleType) {
             Circle *circle = (Circle *) other;
 
-            return BOOL(collidePolyCircle(
+            return LONG(collidePolyCircle(
                 rect, 4, getBaseCenter((Base *) circle),
                 circle -> radius * AVERAGE(circle -> base.scale)));
         }
@@ -719,11 +738,11 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
             Shape *shape = (Shape *) other;
             vec2 *poly = getShapePoly(shape);
 
-            PyObject *value = BOOL(collidePolyPoly(rect, 4, poly, shape -> vertex));
+            PyObject *value = LONG(collidePolyPoly(rect, 4, poly, shape -> vertex));
             return free(poly), value;
         }
 
-        if (other == (PyObject *) cursor) return BOOL(collidePolyPoint(
+        if (other == (PyObject *) cursor) return LONG(collidePolyPoint(
             rect, 4, getCursorPos()));
 
         OBJECT(other)
@@ -738,13 +757,13 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
             vec2 rect[4];
 
             getRectPoly((Rectangle *) other, rect);
-            return BOOL(collidePolyCircle(rect, 4, pos, size));
+            return LONG(collidePolyCircle(rect, 4, pos, size));
         }
 
         if (Py_TYPE(other) == &CircleType) {
             Circle *other = (Circle *) other;
 
-            return BOOL(collideCircleCircle(
+            return LONG(collideCircleCircle(
                 pos, size, getBaseCenter((Base *) other),
                 other -> radius * AVERAGE(other -> base.scale)));
         }
@@ -753,11 +772,11 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
             Shape *shape = (Shape *) other;
             vec2 *poly = getShapePoly(shape);
 
-            PyObject *value = BOOL(collidePolyCircle(poly, shape -> vertex, pos, size));
+            PyObject *value = LONG(collidePolyCircle(poly, shape -> vertex, pos, size));
             return free(poly), value;
         }
 
-        if (other == (PyObject *) cursor) return BOOL(collideCirclePoint(
+        if (other == (PyObject *) cursor) return LONG(collideCirclePoint(
             pos, size, getCursorPos()));
 
         OBJECT(other)
@@ -771,14 +790,14 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
             vec2 rect[4];
             getRectPoly((Rectangle *) other, rect);
 
-            PyObject *value = BOOL(collidePolyPoly(poly, shape -> vertex, rect, 4));
+            PyObject *value = LONG(collidePolyPoly(poly, shape -> vertex, rect, 4));
             return free(poly), value;
         }
 
         if (Py_TYPE(other) == &CircleType) {
             Circle *circle = (Circle *) other;
 
-            PyObject *value = BOOL(collidePolyCircle(
+            PyObject *value = LONG(collidePolyCircle(
                 poly, shape -> vertex, getBaseCenter((Base *) circle),
                 circle -> radius * AVERAGE(circle -> base.scale)));
 
@@ -789,12 +808,12 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
             Shape *other = (Shape *) other;
             vec2 *mesh = getShapePoly(other);
 
-            PyObject *value = BOOL(collidePolyPoly(poly, shape -> vertex, mesh, other -> vertex));
+            PyObject *value = LONG(collidePolyPoly(poly, shape -> vertex, mesh, other -> vertex));
             return free(poly), free(mesh), value;
         }
 
         if (other == (PyObject *) cursor) {
-            PyObject *value = BOOL(collidePolyPoint(poly, shape -> vertex, getCursorPos()));
+            PyObject *value = LONG(collidePolyPoint(poly, shape -> vertex, getCursorPos()));
             return free(poly), value;
         }
 
@@ -807,13 +826,13 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
             vec2 rect[4];
 
             getRectPoly((Rectangle *) other, rect);
-            return BOOL(collidePolyPoint(rect, 4, getCursorPos()));
+            return LONG(collidePolyPoint(rect, 4, getCursorPos()));
         }
 
         if (Py_TYPE(other) == &CircleType) {
             Circle *circle = (Circle *) other;
 
-            return BOOL(collideCirclePoint(
+            return LONG(collideCirclePoint(
                 getBaseCenter((Base *) circle),
                 circle -> radius * AVERAGE(circle -> base.scale), getCursorPos()));
         }
@@ -822,7 +841,7 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
             Shape *shape = (Shape *) other;
             vec2 *poly = getShapePoly(shape);
 
-            PyObject *value = BOOL(collidePolyPoint(poly, shape -> vertex, getCursorPos()));
+            PyObject *value = LONG(collidePolyPoint(poly, shape -> vertex, getCursorPos()));
             return free(poly), value;
         }
 
@@ -833,7 +852,7 @@ static PyObject *Object_collidesWith(PyObject *self, PyObject *other) {
     }
 
     OBJECT(self)
-    #undef BOOL
+    #undef LONG
     #undef RECT
     #undef OBJECT
 }
@@ -887,13 +906,19 @@ static int vectorSet(PyObject *value, vec vector, uchar size) {
     }
 
     else if (PySequence_Check(value)) {
-        Py_ssize_t length = PySequence_Fast_GET_SIZE(value);
+        PyObject *sequence = PySequence_Fast(value, NULL);
+        Py_ssize_t length = PySequence_Fast_GET_SIZE(sequence);
 
-        for (uchar i = 0; i < size; i ++)
-            if (i < length) {
-                vector[i] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(value, i));
-                if (vector[i] == -1 && PyErr_Occurred()) return -1;
+        for (uchar i = 0; i < MIN(size, length); i ++) {
+            vector[i] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(sequence, i));
+
+            if (vector[i] == -1 && PyErr_Occurred()) {
+                Py_DECREF(sequence);
+                return -1;
             }
+        }
+
+        Py_DECREF(sequence);
     }
 
     else ARRAY(value)
@@ -1088,6 +1113,64 @@ static PyTypeObject VectorType = {
     .tp_as_sequence = &VectorSequenceMethods
 };
 
+static Button *buttonNew(Set *state) {
+    Button *button = (Button *) PyObject_CallObject((PyObject *) &ButtonType, NULL);
+    if (!button) return NULL;
+
+    button -> state = state;
+    return button;
+}
+
+static int Button_bool(Button *self) {
+    return self -> state -> hold || self -> state -> release;
+}
+
+static PyNumberMethods ButtonNumberMethods = {
+    .nb_bool = (inquiry) Button_bool
+};
+
+static PyObject *Button_getPress(Button *self, void *Py_UNUSED(closure)) {
+    return PyBool_FromLong(self -> state -> press);
+}
+
+static PyObject *Button_getRelease(Button *self, void *Py_UNUSED(closure)) {
+    return PyBool_FromLong(self -> state -> release);
+}
+
+static PyObject *Button_getRepeat(Button *self, void *Py_UNUSED(closure)) {
+    return PyBool_FromLong(self -> state -> repeat);
+}
+
+static PyObject *Button_getHold(Button *self, void *Py_UNUSED(closure)) {
+    return PyBool_FromLong(self -> state -> hold);
+}
+
+static PyGetSetDef ButtonGetSetters[] = {
+    {"press", (getter) Button_getPress, NULL, "the button is pressed", NULL},
+    {"release", (getter) Button_getRelease, NULL, "the button is released", NULL},
+    {"repeat", (getter) Button_getRepeat, NULL, "the button repeat is triggered", NULL},
+    {"hold", (getter) Button_getHold, NULL, "the button is held down", NULL},
+    {NULL}
+};
+
+static PyObject *Button_str(Button *self) {
+    return PyUnicode_FromString(
+        self -> state -> hold || self -> state -> release ? "True" : "False");
+}
+
+static PyTypeObject ButtonType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "Button",
+    .tp_doc = "the state of a keyboard or mouse button",
+    .tp_basicsize = sizeof(Button),
+    .tp_itemsize = 0,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+    .tp_new = PyType_GenericNew,
+    .tp_str = (reprfunc) Button_str,
+    .tp_getset = ButtonGetSetters,
+    .tp_as_number = &ButtonNumberMethods
+};
+
 static PyObject *Cursor_getX(Cursor *Py_UNUSED(self), void *Py_UNUSED(closure)) {
     return PyFloat_FromDouble(getCursorPos()[0]);
 }
@@ -1159,7 +1242,11 @@ static PyObject *Cursor_getRelease(Cursor *self, void *Py_UNUSED(closure)) {
 }
 
 static PyObject *Cursor_getHold(Cursor *self, void *Py_UNUSED(closure)) {
-    return PyBool_FromLong(self -> hold);
+    for (ushort i = 0; i <= GLFW_MOUSE_BUTTON_LAST; i ++)
+        if (self -> buttons[i].hold)
+            Py_RETURN_TRUE;
+
+    Py_RETURN_FALSE;
 }
 
 static PyGetSetDef CursorGetSetters[] = {
@@ -1183,9 +1270,30 @@ static PyMethodDef CursorMethods[] = {
 
 static PyObject *Cursor_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
     Cursor *self = cursor = (Cursor *) type -> tp_alloc(type, 0);
+    Set *e = self -> buttons;
+
+    e[GLFW_MOUSE_BUTTON_LEFT].key = "left";
+    e[GLFW_MOUSE_BUTTON_RIGHT].key = "right";
+    e[GLFW_MOUSE_BUTTON_MIDDLE].key = "middle";
+    e[GLFW_MOUSE_BUTTON_4].key = "_4";
+    e[GLFW_MOUSE_BUTTON_5].key = "_5";
+    e[GLFW_MOUSE_BUTTON_6].key = "_6";
+    e[GLFW_MOUSE_BUTTON_7].key = "_7";
+    e[GLFW_MOUSE_BUTTON_8].key = "_8";
 
     Py_XINCREF(self);
     return (PyObject *) self;
+}
+
+static PyObject *Cursor_getattro(Cursor *self, PyObject *attr) {
+    const char *name = PyUnicode_AsUTF8(attr);
+    if (!name) return NULL;
+    
+    for (ushort i = 0; i <= GLFW_MOUSE_BUTTON_LAST; i ++)
+        if (self -> buttons[i].key && !strcmp(self -> buttons[i].key, name))
+            return (PyObject *) buttonNew(&self -> buttons[i]);
+
+    return PyObject_GenericGetAttr((PyObject *) self, attr);
 }
 
 static PyTypeObject CursorType = {
@@ -1196,6 +1304,7 @@ static PyTypeObject CursorType = {
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_new = Cursor_new,
+    .tp_getattro = (getattrofunc) Cursor_getattro,
     .tp_getset = CursorGetSetters,
     .tp_methods = CursorMethods
 };
@@ -1230,130 +1339,126 @@ static PyGetSetDef KeyGetSetters[] = {
 
 static PyObject *Key_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
     Key *self = key = (Key *) type -> tp_alloc(type, 0);
+    Set *e = self -> keys;
 
-    Set data[] = {
-        [GLFW_KEY_SPACE] = {.key = "space"},
-        [GLFW_KEY_APOSTROPHE] = {.key = "apostrophe"},
-        [GLFW_KEY_COMMA] = {.key = "comma"},
-        [GLFW_KEY_MINUS] = {.key = "minus"},
-        [GLFW_KEY_PERIOD] = {.key = "period"},
-        [GLFW_KEY_SLASH] = {.key = "slash"},
-        [GLFW_KEY_0] = {.key = "_0"},
-        [GLFW_KEY_1] = {.key = "_1"},
-        [GLFW_KEY_2] = {.key = "_2"},
-        [GLFW_KEY_3] = {.key = "_3"},
-        [GLFW_KEY_4] = {.key = "_4"},
-        [GLFW_KEY_5] = {.key = "_5"},
-        [GLFW_KEY_6] = {.key = "_6"},
-        [GLFW_KEY_7] = {.key = "_7"},
-        [GLFW_KEY_8] = {.key = "_8"},
-        [GLFW_KEY_9] = {.key = "_9"},
-        [GLFW_KEY_SEMICOLON] = {.key = "semicolon"},
-        [GLFW_KEY_EQUAL] = {.key = "equal"},
-        [GLFW_KEY_A] = {.key = "a"},
-        [GLFW_KEY_B] = {.key = "b"},
-        [GLFW_KEY_C] = {.key = "c"},
-        [GLFW_KEY_D] = {.key = "d"},
-        [GLFW_KEY_E] = {.key = "e"},
-        [GLFW_KEY_F] = {.key = "f"},
-        [GLFW_KEY_G] = {.key = "g"},
-        [GLFW_KEY_H] = {.key = "h"},
-        [GLFW_KEY_I] = {.key = "i"},
-        [GLFW_KEY_J] = {.key = "j"},
-        [GLFW_KEY_K] = {.key = "k"},
-        [GLFW_KEY_L] = {.key = "l"},
-        [GLFW_KEY_M] = {.key = "m"},
-        [GLFW_KEY_N] = {.key = "n"},
-        [GLFW_KEY_O] = {.key = "o"},
-        [GLFW_KEY_P] = {.key = "p"},
-        [GLFW_KEY_Q] = {.key = "q"},
-        [GLFW_KEY_R] = {.key = "r"},
-        [GLFW_KEY_S] = {.key = "s"},
-        [GLFW_KEY_T] = {.key = "t"},
-        [GLFW_KEY_U] = {.key = "u"},
-        [GLFW_KEY_V] = {.key = "v"},
-        [GLFW_KEY_W] = {.key = "w"},
-        [GLFW_KEY_X] = {.key = "x"},
-        [GLFW_KEY_Y] = {.key = "y"},
-        [GLFW_KEY_Z] = {.key = "z"},
-        [GLFW_KEY_LEFT_BRACKET] = {.key = "left_bracket"},
-        [GLFW_KEY_BACKSLASH] = {.key = "backslash"},
-        [GLFW_KEY_RIGHT_BRACKET] = {.key = "right_bracket"},
-        [GLFW_KEY_GRAVE_ACCENT] = {.key = "backquote"},
-        [GLFW_KEY_ESCAPE] = {.key = "escape"},
-        [GLFW_KEY_ENTER] = {.key = "enter"},
-        [GLFW_KEY_TAB] = {.key = "tab"},
-        [GLFW_KEY_BACKSPACE] = {.key = "backspace"},
-        [GLFW_KEY_INSERT] = {.key = "insert"},
-        [GLFW_KEY_DELETE] = {.key = "delete"},
-        [GLFW_KEY_RIGHT] = {.key = "right"},
-        [GLFW_KEY_LEFT] = {.key = "left"},
-        [GLFW_KEY_DOWN] = {.key = "down"},
-        [GLFW_KEY_UP] = {.key = "up"},
-        [GLFW_KEY_PAGE_UP] = {.key = "page_up"},
-        [GLFW_KEY_PAGE_DOWN] = {.key = "page_down"},
-        [GLFW_KEY_HOME] = {.key = "home"},
-        [GLFW_KEY_END] = {.key = "end"},
-        [GLFW_KEY_CAPS_LOCK] = {.key = "caps_lock"},
-        [GLFW_KEY_SCROLL_LOCK] = {.key = "scroll_lock"},
-        [GLFW_KEY_NUM_LOCK] = {.key = "num_lock"},
-        [GLFW_KEY_PRINT_SCREEN] = {.key = "print_screen"},
-        [GLFW_KEY_PAUSE] = {.key = "pause"},
-        [GLFW_KEY_F1] = {.key = "f1"},
-        [GLFW_KEY_F2] = {.key = "f2"},
-        [GLFW_KEY_F3] = {.key = "f3"},
-        [GLFW_KEY_F4] = {.key = "f4"},
-        [GLFW_KEY_F5] = {.key = "f5"},
-        [GLFW_KEY_F6] = {.key = "f6"},
-        [GLFW_KEY_F7] = {.key = "f7"},
-        [GLFW_KEY_F8] = {.key = "f8"},
-        [GLFW_KEY_F9] = {.key = "f9"},
-        [GLFW_KEY_F10] = {.key = "f10"},
-        [GLFW_KEY_F11] = {.key = "f11"},
-        [GLFW_KEY_F12] = {.key = "f12"},
-        [GLFW_KEY_F13] = {.key = "f13"},
-        [GLFW_KEY_F14] = {.key = "f14"},
-        [GLFW_KEY_F15] = {.key = "f15"},
-        [GLFW_KEY_F16] = {.key = "f16"},
-        [GLFW_KEY_F17] = {.key = "f17"},
-        [GLFW_KEY_F18] = {.key = "f18"},
-        [GLFW_KEY_F19] = {.key = "f19"},
-        [GLFW_KEY_F20] = {.key = "f20"},
-        [GLFW_KEY_F21] = {.key = "f21"},
-        [GLFW_KEY_F22] = {.key = "f22"},
-        [GLFW_KEY_F23] = {.key = "f23"},
-        [GLFW_KEY_F24] = {.key = "f24"},
-        [GLFW_KEY_F25] = {.key = "f25"},
-        [GLFW_KEY_KP_0] = {.key = "pad_0"},
-        [GLFW_KEY_KP_1] = {.key = "pad_1"},
-        [GLFW_KEY_KP_2] = {.key = "pad_2"},
-        [GLFW_KEY_KP_3] = {.key = "pad_3"},
-        [GLFW_KEY_KP_4] = {.key = "pad_4"},
-        [GLFW_KEY_KP_5] = {.key = "pad_5"},
-        [GLFW_KEY_KP_6] = {.key = "pad_6"},
-        [GLFW_KEY_KP_7] = {.key = "pad_7"},
-        [GLFW_KEY_KP_8] = {.key = "pad_8"},
-        [GLFW_KEY_KP_9] = {.key = "pad_9"},
-        [GLFW_KEY_KP_DECIMAL] = {.key = "pad_decimal"},
-        [GLFW_KEY_KP_DIVIDE] = {.key = "pad_divide"},
-        [GLFW_KEY_KP_MULTIPLY] = {.key = "pad_multiply"},
-        [GLFW_KEY_KP_SUBTRACT] = {.key = "pad_subtract"},
-        [GLFW_KEY_KP_ADD] = {.key = "pad_add"},
-        [GLFW_KEY_KP_ENTER] = {.key = "pad_enter"},
-        [GLFW_KEY_KP_EQUAL] = {.key = "pad_equal"},
-        [GLFW_KEY_LEFT_SHIFT] = {.key = "left_shift"},
-        [GLFW_KEY_LEFT_CONTROL] = {.key = "left_ctrl"},
-        [GLFW_KEY_LEFT_ALT] = {.key = "left_alt"},
-        [GLFW_KEY_LEFT_SUPER] = {.key = "left_super"},
-        [GLFW_KEY_RIGHT_SHIFT] = {.key = "right_shift"},
-        [GLFW_KEY_RIGHT_CONTROL] = {.key = "right_ctrl"},
-        [GLFW_KEY_RIGHT_ALT] = {.key = "right_alt"},
-        [GLFW_KEY_RIGHT_SUPER] = {.key = "right_super"},
-        [GLFW_KEY_MENU] = {.key = "menu"}
-    };
-
-    for (ushort i = 0; i <= GLFW_KEY_LAST; i ++)
-        self -> keys[i].key = data[i].key;
+    e[GLFW_KEY_SPACE].key = "space";
+    e[GLFW_KEY_APOSTROPHE].key = "apostrophe";
+    e[GLFW_KEY_COMMA].key = "comma";
+    e[GLFW_KEY_MINUS].key = "minus";
+    e[GLFW_KEY_PERIOD].key = "period";
+    e[GLFW_KEY_SLASH].key = "slash";
+    e[GLFW_KEY_0].key = "_0";
+    e[GLFW_KEY_1].key = "_1";
+    e[GLFW_KEY_2].key = "_2";
+    e[GLFW_KEY_3].key = "_3";
+    e[GLFW_KEY_4].key = "_4";
+    e[GLFW_KEY_5].key = "_5";
+    e[GLFW_KEY_6].key = "_6";
+    e[GLFW_KEY_7].key = "_7";
+    e[GLFW_KEY_8].key = "_8";
+    e[GLFW_KEY_9].key = "_9";
+    e[GLFW_KEY_SEMICOLON].key = "semicolon";
+    e[GLFW_KEY_EQUAL].key = "equal";
+    e[GLFW_KEY_A].key = "a";
+    e[GLFW_KEY_B].key = "b";
+    e[GLFW_KEY_C].key = "c";
+    e[GLFW_KEY_D].key = "d";
+    e[GLFW_KEY_E].key = "e";
+    e[GLFW_KEY_F].key = "f";
+    e[GLFW_KEY_G].key = "g";
+    e[GLFW_KEY_H].key = "h";
+    e[GLFW_KEY_I].key = "i";
+    e[GLFW_KEY_J].key = "j";
+    e[GLFW_KEY_K].key = "k";
+    e[GLFW_KEY_L].key = "l";
+    e[GLFW_KEY_M].key = "m";
+    e[GLFW_KEY_N].key = "n";
+    e[GLFW_KEY_O].key = "o";
+    e[GLFW_KEY_P].key = "p";
+    e[GLFW_KEY_Q].key = "q";
+    e[GLFW_KEY_R].key = "r";
+    e[GLFW_KEY_S].key = "s";
+    e[GLFW_KEY_T].key = "t";
+    e[GLFW_KEY_U].key = "u";
+    e[GLFW_KEY_V].key = "v";
+    e[GLFW_KEY_W].key = "w";
+    e[GLFW_KEY_X].key = "x";
+    e[GLFW_KEY_Y].key = "y";
+    e[GLFW_KEY_Z].key = "z";
+    e[GLFW_KEY_LEFT_BRACKET].key = "left_bracket";
+    e[GLFW_KEY_BACKSLASH].key = "backslash";
+    e[GLFW_KEY_RIGHT_BRACKET].key = "right_bracket";
+    e[GLFW_KEY_GRAVE_ACCENT].key = "backquote";
+    e[GLFW_KEY_ESCAPE].key = "escape";
+    e[GLFW_KEY_ENTER].key = "enter";
+    e[GLFW_KEY_TAB].key = "tab";
+    e[GLFW_KEY_BACKSPACE].key = "backspace";
+    e[GLFW_KEY_INSERT].key = "insert";
+    e[GLFW_KEY_DELETE].key = "delete";
+    e[GLFW_KEY_RIGHT].key = "right";
+    e[GLFW_KEY_LEFT].key = "left";
+    e[GLFW_KEY_DOWN].key = "down";
+    e[GLFW_KEY_UP].key = "up";
+    e[GLFW_KEY_PAGE_UP].key = "page_up";
+    e[GLFW_KEY_PAGE_DOWN].key = "page_down";
+    e[GLFW_KEY_HOME].key = "home";
+    e[GLFW_KEY_END].key = "end";
+    e[GLFW_KEY_CAPS_LOCK].key = "caps_lock";
+    e[GLFW_KEY_SCROLL_LOCK].key = "scroll_lock";
+    e[GLFW_KEY_NUM_LOCK].key = "num_lock";
+    e[GLFW_KEY_PRINT_SCREEN].key = "print_screen";
+    e[GLFW_KEY_PAUSE].key = "pause";
+    e[GLFW_KEY_F1].key = "f1";
+    e[GLFW_KEY_F2].key = "f2";
+    e[GLFW_KEY_F3].key = "f3";
+    e[GLFW_KEY_F4].key = "f4";
+    e[GLFW_KEY_F5].key = "f5";
+    e[GLFW_KEY_F6].key = "f6";
+    e[GLFW_KEY_F7].key = "f7";
+    e[GLFW_KEY_F8].key = "f8";
+    e[GLFW_KEY_F9].key = "f9";
+    e[GLFW_KEY_F10].key = "f10";
+    e[GLFW_KEY_F11].key = "f11";
+    e[GLFW_KEY_F12].key = "f12";
+    e[GLFW_KEY_F13].key = "f13";
+    e[GLFW_KEY_F14].key = "f14";
+    e[GLFW_KEY_F15].key = "f15";
+    e[GLFW_KEY_F16].key = "f16";
+    e[GLFW_KEY_F17].key = "f17";
+    e[GLFW_KEY_F18].key = "f18";
+    e[GLFW_KEY_F19].key = "f19";
+    e[GLFW_KEY_F20].key = "f20";
+    e[GLFW_KEY_F21].key = "f21";
+    e[GLFW_KEY_F22].key = "f22";
+    e[GLFW_KEY_F23].key = "f23";
+    e[GLFW_KEY_F24].key = "f24";
+    e[GLFW_KEY_F25].key = "f25";
+    e[GLFW_KEY_KP_0].key = "pad_0";
+    e[GLFW_KEY_KP_1].key = "pad_1";
+    e[GLFW_KEY_KP_2].key = "pad_2";
+    e[GLFW_KEY_KP_3].key = "pad_3";
+    e[GLFW_KEY_KP_4].key = "pad_4";
+    e[GLFW_KEY_KP_5].key = "pad_5";
+    e[GLFW_KEY_KP_6].key = "pad_6";
+    e[GLFW_KEY_KP_7].key = "pad_7";
+    e[GLFW_KEY_KP_8].key = "pad_8";
+    e[GLFW_KEY_KP_9].key = "pad_9";
+    e[GLFW_KEY_KP_DECIMAL].key = "pad_decimal";
+    e[GLFW_KEY_KP_DIVIDE].key = "pad_divide";
+    e[GLFW_KEY_KP_MULTIPLY].key = "pad_multiply";
+    e[GLFW_KEY_KP_SUBTRACT].key = "pad_subtract";
+    e[GLFW_KEY_KP_ADD].key = "pad_add";
+    e[GLFW_KEY_KP_ENTER].key = "pad_enter";
+    e[GLFW_KEY_KP_EQUAL].key = "pad_equal";
+    e[GLFW_KEY_LEFT_SHIFT].key = "left_shift";
+    e[GLFW_KEY_LEFT_CONTROL].key = "left_ctrl";
+    e[GLFW_KEY_LEFT_ALT].key = "left_alt";
+    e[GLFW_KEY_LEFT_SUPER].key = "left_super";
+    e[GLFW_KEY_RIGHT_SHIFT].key = "right_shift";
+    e[GLFW_KEY_RIGHT_CONTROL].key = "right_ctrl";
+    e[GLFW_KEY_RIGHT_ALT].key = "right_alt";
+    e[GLFW_KEY_RIGHT_SUPER].key = "right_super";
+    e[GLFW_KEY_MENU].key = "menu";
 
     Py_XINCREF(self);
     return (PyObject *) self;
@@ -1363,35 +1468,9 @@ static PyObject *Key_getattro(Key *self, PyObject *attr) {
     const char *name = PyUnicode_AsUTF8(attr);
     if (!name) return NULL;
     
-    for (ushort i = 0; i <= GLFW_KEY_LAST; i ++) {
-        Set set = self -> keys[i];
-
-        if (set.key && !strcmp(set.key, name)) {
-            if (set.hold || set.release) {
-                PyObject *object = PyDict_New();
-                if (!object) return NULL;
-
-                if (PyDict_SetItemString(object, "press", PyBool_FromLong(set.press))) {
-                    Py_DECREF(object);
-                    return NULL;
-                }
-
-                if (PyDict_SetItemString(object, "release", PyBool_FromLong(set.release))) {
-                    Py_DECREF(object);
-                    return NULL;
-                }
-
-                if (PyDict_SetItemString(object, "repeat", PyBool_FromLong(set.repeat))) {
-                    Py_DECREF(object);
-                    return NULL;
-                }
-
-                return object;
-            }
-
-            Py_RETURN_FALSE;
-        }
-    }
+    for (ushort i = 0; i <= GLFW_KEY_LAST; i ++)
+        if (self -> keys[i].key && !strcmp(self -> keys[i].key, name))
+            return (PyObject *) buttonNew(&self -> keys[i]);
 
     return PyObject_GenericGetAttr((PyObject *) self, attr);
 }
@@ -1651,6 +1730,28 @@ static int Window_setSize(Window *Py_UNUSED(self), PyObject *value, void *Py_UNU
     END return 0;
 }
 
+static PyObject *Window_getResizable(Window *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(glfwGetWindowAttrib(self -> glfw, GLFW_RESIZABLE));
+}
+
+static int Window_setResizable(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+
+    const int bool = PyObject_IsTrue(value);
+    return bool == -1 ? -1 : glfwSetWindowAttrib(self -> glfw, GLFW_RESIZABLE, bool), 0;
+}
+
+static PyObject *Window_getDecorated(Window *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(glfwGetWindowAttrib(self -> glfw, GLFW_DECORATED));
+}
+
+static int Window_setDecorated(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
+    CHECK(value)
+
+    const int bool = PyObject_IsTrue(value);
+    return bool == -1 ? -1 : glfwSetWindowAttrib(self -> glfw, GLFW_DECORATED, bool), 0;
+}
+
 static PyObject *Window_getResize(Window *self, void *Py_UNUSED(closure)) {
     return PyBool_FromLong(self -> resize);
 }
@@ -1664,6 +1765,8 @@ static PyGetSetDef WindowGetSetters[] = {
     {"width", (getter) Window_getWidth, (setter) Window_setWidth, "width of the window", NULL},
     {"height", (getter) Window_getHeight, (setter) Window_setHeight, "height of the window", NULL},
     {"size", (getter) Window_getSize, (setter) Window_setSize, "dimensions of the window", NULL},
+    {"resizable", (getter) Window_getResizable, (setter) Window_setResizable, "the window is resizable", NULL},
+    {"decorated", (getter) Window_getDecorated, (setter) Window_setDecorated, "the window is decorated", NULL},
     {"resize", (getter) Window_getResize, NULL, "the window is resized", NULL},
     {NULL}
 };
@@ -1705,10 +1808,12 @@ static PyMethodDef WindowMethods[] = {
 static PyObject *Window_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
     Window *self = window = (Window *) type -> tp_alloc(type, 0);
 
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-    self -> glfw = glfwCreateWindow(640, 480, "JoBase", NULL, NULL);
 
-    if (!self -> glfw) {
+    if (!(self -> glfw = glfwCreateWindow(640, 480, "JoBase", NULL, NULL))) {
         const char *buffer;
         glfwGetError(&buffer);
 
@@ -1817,7 +1922,7 @@ static void baseMatrix(Base *self, double x, double y) {
     setUniform(matrix, self -> color);
 }
 
-static int baseInit(Base *self, PyObject *color) {
+static void baseInit(Base *self) {
     self -> pos[0] = 0;
     self -> pos[1] = 0;
 
@@ -1843,8 +1948,6 @@ static int baseInit(Base *self, PyObject *color) {
     self -> elasticity = .5;
     self -> friction = .5;
     self -> rotate = 1;
-
-    return color && vectorSet(color, self -> color, 4) ? -1 : 0;
 }
 
 static PyObject *Base_getX(Base *self, void *Py_UNUSED(closure)) {
@@ -2208,18 +2311,11 @@ static PyObject *Base_getRotate(Base *self, void *Py_UNUSED(closure)) {
 static int Base_setRotate(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     CHECK(value)
 
-    if (value == Py_True) {
-        self -> rotate = 1;
-        return baseSetMoment(self), 0;
-    }
-
-    if (value == Py_False) {
-        self -> rotate = 0;
-        return baseSetMoment(self), 0;
-    }
-
-    errorFormat(PyExc_TypeError, "must be bool, not %s", Py_TYPE(value) -> tp_name);
-    return -1;
+    const int result = PyObject_IsTrue(value);
+    if (result == -1) return -1;
+    
+    self -> rotate = result;
+    return baseSetMoment(self), 0;
 }
 
 static PyGetSetDef BaseGetSetters[] = {
@@ -2241,6 +2337,7 @@ static PyGetSetDef BaseGetSetters[] = {
     {"bottom", (getter) Base_getBottom, (setter) Base_setBottom, "bottom position of the object", NULL},
     {"type", (getter) Base_getType, (setter) Base_setType, "physics body of the object", NULL},
     {"mass", (getter) Base_getMass, (setter) Base_setMass, "weight of the object", NULL},
+    {"weight", (getter) Base_getMass, (setter) Base_setMass, "weight of the object", NULL},
     {"elasticity", (getter) Base_getElasticity, (setter) Base_setElasticity, "bounciness of the object", NULL},
     {"friction", (getter) Base_getFriction, (setter) Base_setFriction, "roughness of the object", NULL},
     {"velocity", (getter) Base_getVelocity, (setter) Base_setVelocity, "physics speed of the object", NULL},
@@ -2268,7 +2365,15 @@ static PyObject *Base_moveToward(Base *self, PyObject *args) {
     if (moveToward(self -> pos, args))
         return NULL;
 
-    baseSetAngle(self);
+    baseSetPos(self);
+    Py_RETURN_NONE;
+}
+
+static PyObject *Base_moveSmooth(Base *self, PyObject *args) {
+    if (moveSmooth(self -> pos, args))
+        return NULL;
+
+    baseSetPos(self);
     Py_RETURN_NONE;
 }
 
@@ -2290,8 +2395,9 @@ static PyObject *Base_applyImpulse(Base *self, PyObject *args) {
 
 static PyMethodDef BaseMethods[] = {
     {"collides_with", (PyCFunction) Object_collidesWith, METH_O, "check if the object collides with another object"},
-    {"look_at", (PyCFunction) Base_lookAt, METH_O, "rotate the obejct so that it looks at another object"},
+    {"look_at", (PyCFunction) Base_lookAt, METH_O, "rotate the object so that it points to another object"},
     {"move_toward", (PyCFunction) Base_moveToward, METH_VARARGS, "move the object toward another object"},
+    {"move_smooth", (PyCFunction) Base_moveSmooth, METH_VARARGS, "move the object smoothly toward another object"},
     {"apply_impulse", (PyCFunction) Base_applyImpulse, METH_VARARGS, "apply an impulse to the object physics"},
     {NULL}
 };
@@ -2437,7 +2543,9 @@ static PyObject *Rectangle_new(PyTypeObject *type, PyObject *Py_UNUSED(args), Py
 
 static int Rectangle_init(Rectangle *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"x", "y", "width", "height", "angle", "color", NULL};
+
     PyObject *color = NULL;
+    baseInit((Base *) self);
 
     self -> size[0] = 50;
     self -> size[1] = 50;
@@ -2445,7 +2553,7 @@ static int Rectangle_init(Rectangle *self, PyObject *args, PyObject *kwds) {
     return !PyArg_ParseTupleAndKeywords(
         args, kwds, "|dddddO", kwlist, &self -> base.pos[0], &self -> base.pos[1],
         &self -> size[0], &self -> size[1], &self -> base.angle,
-        &color) || baseInit((Base *) self, color) ? -1 : 0;
+        &color) || (color && vectorSet(color, self -> base.color, 4)) ? -1 : 0;
 }
 
 static PyTypeObject RectangleType = {
@@ -2479,12 +2587,14 @@ static PyMethodDef ImageMethods[] = {
 static int Image_init(Image *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"name", "x", "y", "angle", "width", "height", NULL};
     const char *name = constructFilepath("images/man.png");
+
     vec2 size = {0};
+    baseInit((Base *) self);
 
     if (!PyArg_ParseTupleAndKeywords(
         args, kwds, "|sdddddO", kwlist, &name, &self -> rect.base.pos[0],
         &self -> rect.base.pos[1], &self -> rect.base.angle, &size[0],
-        &size[1]) || baseInit((Base *) self, NULL)) return -1;
+        &size[1])) return -1;
 
     self -> rect.base.color[0] = 1;
     self -> rect.base.color[1] = 1;
@@ -2714,12 +2824,15 @@ static int Text_init(Text *self, PyObject *args, PyObject *kwds) {
 
     PyObject *content = NULL;
     PyObject *color = NULL;
+
+    baseInit((Base *) self);
     self -> fontSize = 50;
 
     if (!PyArg_ParseTupleAndKeywords(
         args, kwds, "|UddddOs", kwlist, &content, &self -> rect.base.pos[0],
         &self -> rect.base.pos[1], &self -> fontSize, &self -> rect.base.angle, &color,
-        &font) || textResetFont(self, font) || baseInit((Base *) self, color)) return -1;
+        &font) || textResetFont(self, font) || (color && vectorSet(
+            color, self -> rect.base.color, 4))) return -1;
 
     if (content) {
         wchar_t *text = PyUnicode_AsWideCharString(content, NULL);
@@ -2889,10 +3002,11 @@ static int Circle_init(Circle *self, PyObject *args, PyObject *kwds) {
 
     PyObject *color = NULL;
     double diameter = 50;
+    baseInit((Base *) self);
 
     if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|dddO", kwlist, &self -> base.pos[0], &self -> base.pos[1],
-        &diameter, &color) || baseInit((Base *) self, color)) return -1;
+        args, kwds, "|dddO", kwlist, &self -> base.pos[0], &self -> base.pos[1], &diameter,
+        &color) || (color && vectorSet(color, self -> base.color, 4))) return -1;
 
     self -> radius = diameter / 2;
     return circleSetData(self), 0;
@@ -3043,42 +3157,50 @@ static int Shape_init(Shape *self, PyObject *args, PyObject *kwds) {
 
     PyObject *color = NULL;
     PyObject *points = NULL;
+    baseInit((Base *) self);
 
     if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|OddO", kwlist, &points, &self -> base.pos[0], &self -> base.pos[1],
-        &self -> base.angle, &color) || baseInit((Base *) self, color)) return -1;
+        args, kwds, "|OdddO", kwlist, &points,
+        &self -> base.pos[0], &self -> base.pos[1], &self -> base.angle,
+        &color) || (color && vectorSet(color, self -> base.color, 4))) return -1;
 
     if (points) {
         if (!PySequence_Check(points)) ARRAY(points)
         PyObject *sequence = PySequence_Fast(points, NULL);
-        Py_DECREF(sequence);
 
         self -> vertex = PySequence_Fast_GET_SIZE(sequence);
         self -> points = realloc(self -> points, self -> vertex * 16);
 
         if (self -> vertex < 3) {
             PyErr_SetString(PyExc_ValueError, "shape must have at least 3 corners");
+            Py_DECREF(sequence);
             return -1;
         }
 
         for (uint i = 0; i < self -> vertex; i ++) {
             PyObject *point = PySequence_Fast_GET_ITEM(sequence, i);
-            if (!PySequence_Check(point)) ARRAY(point)
 
+            if (!PySequence_Check(point)) ARRAY(point)
             PyObject *value = PySequence_Fast(point, NULL);
-            Py_DECREF(value);
 
             if (PySequence_Fast_GET_SIZE(value) < 2) {
                 PyErr_SetString(PyExc_ValueError, "point must contain 2 values");
+                Py_DECREF(sequence);
+                Py_DECREF(value);
                 return -1;
             }
 
             self -> points[i][0] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(value, 0));
             self -> points[i][1] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(value, 1));
+            Py_DECREF(value);
 
-            if ((self -> points[i][0] == -1 || self -> points[i][1] == -1) && PyErr_Occurred())
+            if ((self -> points[i][0] == -1 || self -> points[i][1] == -1) && PyErr_Occurred()) {
+                Py_DECREF(sequence);
                 return -1;
+            }
         }
+
+        Py_DECREF(sequence);
 
         if (triangulatePoly(self -> points, self -> vertex, &self -> indices, &self -> index))
             return -1;
@@ -3128,9 +3250,21 @@ static PyTypeObject ShapeType = {
     .tp_new = Shape_new,
     .tp_init = (initproc) Shape_init,
     .tp_dealloc = (destructor) Shape_dealloc,
-    .tp_methods = ShapeMethods,
-    // .tp_getset = CircleGetSetters
+    .tp_methods = ShapeMethods
 };
+
+static void physicsRemove(Physics *self, uint index) {
+    Base *object = self -> data[index];
+
+    cpSpaceRemoveBody(self -> space, object -> body);
+    cpSpaceRemoveShape(self -> space, object -> shape);
+    cpBodyFree(object -> body);
+    cpShapeFree(object -> shape);
+
+    object -> body = NULL;
+    object -> shape = NULL;
+    Py_DECREF(object);
+}
 
 static Py_ssize_t Physics_len(Physics *self) {
     return self -> length;
@@ -3210,12 +3344,9 @@ static PyObject *Physics_add(Physics *self, PyObject *args) {
         return NULL;
     }
 
-    if (base -> type == DYNAMIC)
-        base -> body = cpBodyNew(
-            base -> mass, base -> rotate ? base -> getMoment(base) : INFINITY);
-
-    else if (base -> type == STATIC)
-        base -> body = cpBodyNewKinematic();
+    base -> body = base -> type == DYNAMIC ? cpBodyNew(
+        base -> mass, base -> rotate ? base -> getMoment(base) : INFINITY) :
+            cpBodyNewKinematic();
 
     cpBodySetAngle(base -> body, base -> angle * M_PI / 180);
     cpBodySetPosition(base -> body, cpv(base -> pos[0], base -> pos[1]));
@@ -3245,15 +3376,7 @@ static PyObject *Physics_remove(Physics *self, PyObject *args) {
 
     for (uint i = 0; i < self -> length; i ++)
         if (self -> data[i] == other) {
-            Py_DECREF(other);
-
-            cpSpaceRemoveBody(self -> space, other -> body);
-            cpSpaceRemoveShape(self -> space, other -> shape);
-            cpBodyFree(other -> body);
-            cpShapeFree(other -> shape);
-
-            other -> body = NULL;
-            other -> shape = NULL;
+            physicsRemove(self, i);
             self -> length --;
 
             for (uint j = i; j < self -> length; j ++)
@@ -3294,16 +3417,26 @@ static PyMethodDef PhysicsMethods[] = {
     {NULL}
 };
 
+static PyObject *Physics_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
+    Physics *self = (Physics *) type -> tp_alloc(type, 0);
+
+    self -> data = realloc(self -> data, 0);
+    self -> space = cpSpaceNew();
+
+    return (PyObject *) self;
+}
+
 static int Physics_init(Physics *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"gravity_x", "gravity_y", NULL};
     cpVect vector = {0, -500};
 
     if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|dd", kwlist, &vector.x, &vector.y))
-            return -1;
+        args, kwds, "|dd", kwlist, &vector.x, &vector.y)) return -1;
 
-    self -> space = cpSpaceNew();
-    self -> data = malloc(0);
+    for (uint i = 0; i < self -> length; i ++)
+        physicsRemove(self, i);
+
+    self -> data = realloc(self -> data, 0);
     self -> length = 0;
 
     cpSpaceSetGravity(self -> space, vector);
@@ -3311,13 +3444,8 @@ static int Physics_init(Physics *self, PyObject *args, PyObject *kwds) {
 }
 
 static void Physics_dealloc(Physics *self) {
-    for (uint i = 0; i < self -> length; i ++) {
-        cpBodyFree(self -> data[i] -> body);
-        cpShapeFree(self -> data[i] -> shape);
-
-        self -> data[i] -> body = NULL;
-        self -> data[i] -> shape = NULL;
-    }
+    for (uint i = 0; i < self -> length; i ++)
+        physicsRemove(self, i);
 
     free(self -> data);
     cpSpaceFree(self -> space);
@@ -3331,7 +3459,7 @@ static PyTypeObject PhysicsType = {
     .tp_basicsize = sizeof(Physics),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_new = PyType_GenericNew,
+    .tp_new = Physics_new,
     .tp_init = (initproc) Physics_init,
     .tp_dealloc = (destructor) Physics_dealloc,
     .tp_getset = PhysicsGetSetters,
@@ -3467,7 +3595,7 @@ static int Module_exec(PyObject *self) {
     COLOR("LIGHT_BLUE", .5, .8, 1)
     COLOR("AZURE", .9, 1, 1)
     COLOR("NAVY", 0, 0, .5)
-    COLOR("PURPLE", .5, 0, .5)
+    COLOR("PURPLE", .5, 0, 1)
     COLOR("PINK", 1, .75, .8)
     COLOR("MAGENTA", 1, 0, 1)
 
@@ -3475,12 +3603,12 @@ static int Module_exec(PyObject *self) {
     #undef COLOR
     #undef BUILD
 
-    uint vertexShader = glCreateShader(GL_VERTEX_SHADER);    
+    uint vertexShader = glCreateShader(GL_VERTEX_SHADER);
     uint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
     program = glCreateProgram();
 
     const char *vertexSource =
-        "#version 300 es\n"
+        "#version 330 core\n"
 
         "in vec2 vertex;"
         "in vec2 coordinate;"
@@ -3495,8 +3623,7 @@ static int Module_exec(PyObject *self) {
         "}";
 
     const char *fragmentSource =
-        "#version 300 es\n"
-        "precision mediump float;"
+        "#version 330 core\n"
 
         "in vec2 position;"
         "out vec4 fragment;"
@@ -3518,12 +3645,10 @@ static int Module_exec(PyObject *self) {
 
     glAttachShader(program, vertexShader);
     glAttachShader(program, fragmentShader);
-    glLinkProgram(program);
-    glUseProgram(program);
-    glUniform1i(glGetUniformLocation(program, "sampler"), 0);
-
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
+    glLinkProgram(program);
+    glUseProgram(program);
 
     uint buffer;
     float data[] = {-.5, .5, 0, 0, .5, .5, 1, 0, -.5, -.5, 0, 1, .5, -.5, 1, 1};
@@ -3546,6 +3671,7 @@ static int Module_exec(PyObject *self) {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glUniform1i(glGetUniformLocation(program, "sampler"), 0);
 
     return 0;
 }
@@ -3604,6 +3730,7 @@ PyMODINIT_FUNC PyInit_JoBase() {
     srand(time(NULL));
 
     READY(VectorType)
+    READY(ButtonType)
     READY(CursorType)
     READY(KeyType)
     READY(CameraType)
