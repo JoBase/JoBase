@@ -32,7 +32,7 @@ elif sys.platform == "linux":
 
 setuptools.setup(
     name = "JoBase",
-    version = "2.0",
+    version = "2.1",
     author = "Reuben Ford",
     author_email = "hello@jobase.org",
     description = "Fast Python Game Library",
