@@ -1,12 +1,7 @@
 name: Build JoBase
 
 on:
-  workflow_dispatch:
-    inputs:
-      upload:
-        description: Upload to PyPI
-        required: true
-        type: boolean
+  push
 
 jobs:
   wheels:
@@ -17,29 +12,25 @@ jobs:
       fail-fast: false
       matrix:
         plat:
-          #- [macos-latest, MacOS, "*"]
-          - [windows-latest, Win64, "*64"]
-          - [windows-latest, Win32, "*32"]
-          - [ubuntu-latest, Musllinux, "*musllinux*"]
-          - [ubuntu-latest, Manylinux, "*manylinux*"]
+          - [self-hosted, MacOS Silicon, "*-macosx_arm64"]
+          - [macos-latest, MacOS Intel, "*-macosx_x86_64"]
+          - [ubuntu-latest, Musl Linux, "*-musllinux_*"]
+          - [ubuntu-latest, Manylinux, "*-manylinux_*"]
+          - [windows-latest, Windows 64-bit, "*64"]
+          - [windows-latest, Windows 32-bit, "*32"]
 
     env:
-      BASE: ${{matrix.plat[1] == 'Win64' && 'x64' || matrix.plat[1]}}
-
-      BUILD: |
-        git clone https://github.com/glfw/glfw.git
-        cmake -S glfw -B glfw/build -DGLFW_BUILD_DOCS=OFF -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF
-        cmake --build glfw/build
-        git clone https://gitlab.freedesktop.org/freetype/freetype.git
-        cmake -S freetype -B freetype/build -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-        cmake --build freetype/build
-        git clone https://github.com/slembcke/Chipmunk2D.git
-        cmake -S Chipmunk2D -B Chipmunk2D/build -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_SHARED=OFF -DBUILD_DEMOS=OFF
-        cmake --build Chipmunk2D/build
+      BASE: ${{matrix.plat[2] == '*64' && 'x64' || matrix.plat[2] == '*32' && 'Win32' || matrix.plat[1]}}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+
+      - name: Setup
+        uses: docker/setup-qemu-action@v1
+        if: runner.os == 'Linux'
+        with:
+          platforms: all
 
       - name: Build
         uses: pypa/cibuildwheel@v2.3.1
@@ -47,27 +38,16 @@ jobs:
           CIBW_BUILD: ${{matrix.plat[2]}}
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_24
           CIBW_MANYLINUX_I686_IMAGE: manylinux_2_24
-          CIBW_ARCHS_LINUX: x86_64 i686
-          CIBW_BEFORE_ALL_MACOS: ${{env.BUILD}}
-
-          CIBW_BEFORE_ALL_WINDOWS: >
-            git clone https://github.com/glfw/glfw.git &&
-            cmake -A %BASE% -S glfw -B glfw/build -DGLFW_BUILD_DOCS=OFF -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF &&
-            cmake --build glfw/build --config Release &&
-            git clone https://gitlab.freedesktop.org/freetype/freetype.git &&
-            cmake -A %BASE% -S freetype -B freetype/build &&
-            cmake --build freetype/build --config Release &&
-            git clone https://github.com/slembcke/Chipmunk2D.git &&
-            cmake -A %BASE% -S Chipmunk2D -B Chipmunk2D/build -DBUILD_SHARED=OFF -DBUILD_DEMOS=OFF &&
-            cmake --build Chipmunk2D/build --config Release
-
-          CIBW_BEFORE_ALL_LINUX: |
-            ${{env.BASE == 'Musllinux' && '
-              apk update
-              apk add libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libpng-dev' || '
-              apt-get update
-              apt-get install -y xorg-dev'}}
-            ${{env.BUILD}}
+          CIBW_MANYLINUX_PYPY_X86_64_IMAGE: manylinux_2_24
+          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_24
+          CIBW_MANYLINUX_PPC64LE_IMAGE: manylinux_2_24
+          CIBW_MANYLINUX_S390X_IMAGE: manylinux_2_24
+          CIBW_MANYLINUX_PYPY_AARCH64_IMAGE: manylinux_2_24
+          CIBW_MANYLINUX_PYPY_I686_IMAGE: manylinux_2_24
+          CIBW_ENVIRONMENT_PASS_LINUX: BASE RUNNER_OS
+          CIBW_BEFORE_ALL: bash build.sh
+          CIBW_ARCHS_MACOS: x86_64 arm64
+          CIBW_ARCHS_LINUX: all
 
       - name: Upload
         uses: actions/upload-artifact@v2

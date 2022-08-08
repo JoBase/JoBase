@@ -1,34 +1,34 @@
-import sys, os, setuptools
+import setuptools, sys, os
 
-libraries = []
-library_dirs = []
 extra_compile_args = []
+extra_link_args = []
+library_dirs = []
+libraries = []
 
 if sys.platform == "win32":
-    library_dirs = [
-        "glfw/build/src/Release", "freetype/build/Release",
-        "Chipmunk2D/build/src/Release"
-    ]
-
     libraries = [
-        "glfw3", "opengl32", "kernel32", "user32", "gdi32",
-        "winspool", "shell32", "ole32", "oleaut32", "uuid",
-        "comdlg32", "advapi32", "freetype", "chipmunk"
+        "glfw3", "opengl32", "kernel32", "user32", "gdi32", "winspool", "shell32",
+        "ole32", "oleaut32", "uuid", "comdlg32", "advapi32", "freetype", "chipmunk"
     ]
 
-elif sys.platform == "darwin":
-    library_dirs = ["glfw/build/src", "freetype/build", "Chipmunk2D/build/src"]
-    os.environ["LDFLAGS"] = "-framework OpenGL -framework IOKit -framework Cocoa"
-    libraries = ["glfw3", "freetype", "chipmunk"]
+    library_dirs = [
+        "glfw-master/build/src/Release", "freetype-master/build/Release",
+        "Chipmunk2D-master/build/src/Release"
+    ]
 
 elif sys.platform == "linux":
-    library_dirs = ["glfw/build/src", "freetype/build", "Chipmunk2D/build/src"]
-    extra_compile_args = ["-Wextra", "-Wno-comment", "-Wfloat-conversion"]
-
     libraries = [
-        "glfw3", "GL", "m", "X11", "pthread", "Xi", "Xrandr",
-        "dl", "rt", "png", "freetype", "z", "chipmunk"
+        "glfw3", "GL", "m", "X11", "pthread", "Xi", "Xrandr", "dl", "rt", "png",
+        "freetype", "z", "chipmunk"
     ]
+
+    library_dirs = ["glfw-master/build/src", "freetype-master/build", "Chipmunk2D-master/build/src"]
+    extra_compile_args = ["-Wextra", "-Wfloat-conversion"]
+
+elif sys.platform == "darwin":
+    extra_link_args = ["-framework", "OpenGL", "-framework", "IOKit", "-framework", "Cocoa"]
+    library_dirs = ["glfw-master/build/src", "freetype-master/build", "Chipmunk2D-master/build/src"]
+    libraries = ["glfw3", "freetype", "chipmunk", "bz2", "z"]
 
 setuptools.setup(
     name = "JoBase",
@@ -64,14 +64,16 @@ setuptools.setup(
     
     ext_modules = [
         setuptools.Extension(
-            "JoBase.__init__", ["src/module.c", "src/glad.c"],
-
-            include_dirs = [
-                "include", "glfw/include",
-                "freetype/include", "Chipmunk2D/include"
-            ],
+            "JoBase.__init__",
+            [os.path.join("src", e) for e in os.listdir("src")],
 
             extra_compile_args = extra_compile_args,
+            extra_link_args = extra_link_args,
             library_dirs = library_dirs,
-            libraries = libraries)
+            libraries = libraries,
+
+            include_dirs = [
+                "include", "glfw-master/include", "freetype-master/include",
+                "Chipmunk2D-master/include"
+            ])
     ])
