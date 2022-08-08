@@ -1,7 +1,12 @@
 name: Build JoBase
 
 on:
-  push
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: Upload to PyPI
+        required: true
+        type: boolean
 
 jobs:
   wheels:
