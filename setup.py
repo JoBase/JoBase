@@ -12,8 +12,8 @@ if sys.platform == "win32":
     ]
 
     library_dirs = [
-        "glfw-master/build/src/Release", "freetype-master/build/Release",
-        "Chipmunk2D-master/build/src/Release"
+        "glfw/build/src/Release", "freetype/build/Release",
+        "Chipmunk2D/build/src/Release"
     ]
 
 elif sys.platform == "linux":
@@ -22,12 +22,12 @@ elif sys.platform == "linux":
         "freetype", "z", "chipmunk"
     ]
 
-    library_dirs = ["glfw-master/build/src", "freetype-master/build", "Chipmunk2D-master/build/src"]
+    library_dirs = ["glfw/build/src", "freetype/build", "Chipmunk2D/build/src"]
     extra_compile_args = ["-Wextra", "-Wfloat-conversion"]
 
 elif sys.platform == "darwin":
     extra_link_args = ["-framework", "OpenGL", "-framework", "IOKit", "-framework", "Cocoa"]
-    library_dirs = ["glfw-master/build/src", "freetype-master/build", "Chipmunk2D-master/build/src"]
+    library_dirs = ["glfw/build/src", "freetype/build", "Chipmunk2D/build/src"]
     libraries = ["glfw3", "freetype", "chipmunk", "bz2", "z"]
 
 setuptools.setup(
@@ -73,7 +73,7 @@ setuptools.setup(
             libraries = libraries,
 
             include_dirs = [
-                "include", "glfw-master/include", "freetype-master/include",
-                "Chipmunk2D-master/include"
+                "include", "glfw/include", "freetype/include",
+                "Chipmunk2D/include"
             ])
     ])

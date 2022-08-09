@@ -12,30 +12,34 @@ then
     chipmunk+=${extra}
     freetype+=${extra}
 
+elif [[ "$RUNNER_OS" == macOS ]]
+then
+    extra=" -DCMAKE_OSX_ARCHITECTURES=$BASE"
+
+    glfw+=${extra}
+    chipmunk+=${extra}
+    freetype+=${extra}
+
 elif [[ "$RUNNER_OS" == Linux ]]
 then
-    if [[ "$BASE" == Manylinux ]]
+    if [[ "$BASE" == Musl ]]
     then
-        apt-get update
-        apt-get install -y xorg-dev
-    else
         apk update
         apk add libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libpng-dev
+    else
+        apt-get update
+        apt-get install -y xorg-dev
     fi
 fi
 
-curl https://github.com/glfw/glfw/archive/refs/heads/master.zip -O -J -L
-curl https://github.com/slembcke/Chipmunk2D/archive/refs/heads/master.zip -O -J -L
-curl https://gitlab.freedesktop.org/freetype/freetype/-/archive/master/freetype-master.zip -O -J -L
+git clone https://github.com/glfw/glfw.git
+git clone https://github.com/slembcke/Chipmunk2D.git
+git clone https://gitlab.freedesktop.org/freetype/freetype.git
 
-unzip glfw-master.zip
-unzip Chipmunk2D-master.zip
-unzip freetype-master.zip
+cmake -S glfw -B glfw/build ${glfw}
+cmake -S Chipmunk2D -B Chipmunk2D/build ${chipmunk}
+cmake -S freetype -B freetype/build ${freetype}
 
-cmake -S glfw-master -B glfw-master/build ${glfw}
-cmake -S Chipmunk2D-master -B Chipmunk2D-master/build ${chipmunk}
-cmake -S freetype-master -B freetype-master/build ${freetype}
-
-cmake --build glfw-master/build --config Release
-cmake --build Chipmunk2D-master/build --config Release
-cmake --build freetype-master/build --config Release
+cmake --build glfw/build --config Release
+cmake --build Chipmunk2D/build --config Release
+cmake --build freetype/build --config Release
