@@ -14,7 +14,6 @@ jobs:
     runs-on: ${{matrix.plat[0]}}
 
     strategy:
-      fail-fast: false
       matrix:
         plat:
           - [self-hosted, MacOS Silicon, "*-macosx_arm64", arm64]
