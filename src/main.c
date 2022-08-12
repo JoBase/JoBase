@@ -1,5 +1,5 @@
 #define OBJ(e) return format(PyExc_TypeError,"must be Base or cursor, not %s",Py_TYPE(e)->tp_name),NULL;
-#define RECT(e) PyObject_IsInstance(e,(PyObject*)&RectangleType)
+#define BASE(e, t) PyObject_IsInstance(e,(PyObject*)&t)
 #define _USE_MATH_DEFINES
 
 #include <glad/glad.h>
@@ -191,24 +191,24 @@ int update() {
 PyObject *collide(PyObject *self, PyObject *other) {
     bool result;
 
-    if (RECT(self)) {
+    if (BASE(self, RectangleType)) {
         vec2 rect[4];
         polyRect((Rectangle *) self, rect);
 
-        if (RECT(other)) {
+        if (BASE(other, RectangleType)) {
             vec2 poly[4];
 
             polyRect((Rectangle *) other, poly);
             result = polyPoly(rect, 4, poly, 4);
         }
 
-        else if (Py_TYPE(other) == &CircleType) {
+        else if (BASE(other, CircleType)) {
             Circle *circle = (Circle *) other;
             vec2 pos = {circleX(circle), circleY(circle)};
             result = polyCircle(rect, 4, pos, circle -> radius * AVR(circle -> base.scale));
         }
 
-        else if (Py_TYPE(other) == &ShapeType) {
+        else if (BASE(other, ShapeType)) {
             Shape *shape = (Shape *) other;
             vec2 *poly = polyShape(shape);
 
@@ -222,25 +222,25 @@ PyObject *collide(PyObject *self, PyObject *other) {
         else OBJ(other)
     }
 
-    else if (Py_TYPE(self) == &CircleType) {
+    else if (BASE(self, CircleType)) {
         Circle *circle = (Circle *) self;
         vec2 pos = {circleX(circle), circleY(circle)};
         const double size = circle -> radius * AVR(circle -> base.scale);
 
-        if (RECT(other)) {
+        if (BASE(other, RectangleType)) {
             vec2 rect[4];
 
             polyRect((Rectangle *) other, rect);
             result = polyCircle(rect, 4, pos, size);
         }
 
-        else if (Py_TYPE(other) == &CircleType) {
+        else if (BASE(other, CircleType)) {
             Circle *object = (Circle *) other;
             vec2 point = {circleX(object), circleY(object)};
             result = circleCircle(pos, size, point, object -> radius * AVR(object -> base.scale));
         }
 
-        else if (Py_TYPE(other) == &ShapeType) {
+        else if (BASE(other, ShapeType)) {
             Shape *shape = (Shape *) other;
             vec2 *poly = polyShape(shape);
 
@@ -254,24 +254,24 @@ PyObject *collide(PyObject *self, PyObject *other) {
         else OBJ(other)
     }
 
-    else if (Py_TYPE(self) == &ShapeType) {
+    else if (BASE(self, ShapeType)) {
         Shape *shape = (Shape *) self;
         vec2 *poly = polyShape(shape);
 
-        if (RECT(other)) {
+        if (BASE(other, RectangleType)) {
             vec2 rect[4];
 
             polyRect((Rectangle *) other, rect);
             result = polyPoly(poly, shape -> vertex, rect, 4);
         }
 
-        else if (Py_TYPE(other) == &CircleType) {
+        else if (BASE(other, CircleType)) {
             Circle *circle = (Circle *) other;
             vec2 pos = {circleX(circle), circleY(circle)};
             result = polyCircle(poly, shape -> vertex, pos, circle -> radius * AVR(circle -> base.scale));
         }
 
-        else if (Py_TYPE(other) == &ShapeType) {
+        else if (BASE(other, ShapeType)) {
             Shape *object = (Shape *) other;
             vec2 *mesh = polyShape(object);
 
@@ -291,20 +291,20 @@ PyObject *collide(PyObject *self, PyObject *other) {
     }
 
     else if (self == (PyObject *) cursor) {
-        if (RECT(other)) {
+        if (BASE(other, RectangleType)) {
             vec2 rect[4];
 
             polyRect((Rectangle *) other, rect);
             result = polyPoint(rect, 4, cursorPos());
         }
 
-        else if (Py_TYPE(other) == &CircleType) {
+        else if (BASE(other, CircleType)) {
             Circle *circle = (Circle *) other;
             vec2 pos = {circleX(circle), circleY(circle)};
             result = circlePoint(pos, circle -> radius * AVR(circle -> base.scale), cursorPos());
         }
 
-        else if (Py_TYPE(other) == &ShapeType) {
+        else if (BASE(other, ShapeType)) {
             Shape *shape = (Shape *) other;
             vec2 *poly = polyShape(shape);
 

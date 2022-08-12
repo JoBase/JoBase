@@ -1,76 +1,56 @@
 from JoBase import *
 
-top = Rectangle(height = 500)
-bottom = Rectangle(height = 500)
-
-player_1 = Rectangle(width = 30, height = 150, color = WHITE)
-player_2 = Rectangle(width = 30, height = 150, color = WHITE)
-
-text = Text(color = WHITE)
+player = Rectangle(width = 150, height = 30, color = WHITE)
+text = Text(color = LIGHT_BLUE, font_size = 20)
 ball = Circle(diameter = 30, color = ORANGE)
-engine = Physics(0, 0)
 
-score_1 = 0
-score_2 = 0
+score = 0
+best = 0
 
 window.color = DARK_GRAY
 window.caption = "Tennis"
-window.size = 1024, 576
 
-player_1.type = player_2.type = STATIC
-player_1.elasticity = player_2.elasticity = 1.2
-
-top.type = bottom.type = STATIC
-top.elasticity = bottom.elasticity = 1
-top.friction = bottom.friction = 0
-
-ball.elasticity = 1
-ball.friction = 1
-
-engine.add(top)
-engine.add(bottom)
-engine.add(player_1)
-engine.add(player_2)
-engine.add(ball)
+def update():
+    text.content = "Score: " + str(score) + ", Best: " + str(best)
 
 def reset():
-    text.content = str(score_1) + " - " + str(score_2)
-    ball.speed.x = -300 if randint(0, 1) else 300
-    ball.speed.y = random(-100, 100)
-    ball.pos = 0
+    ball.pos.y = 200
+    ball.speed.x = -2 if randint(0, 1) else 2
+    ball.speed.y = 0
+
+    update()
 
 def loop():
-    global score_1, score_2
+    global score, best
 
-    if window.resize:
-        top.width = bottom.width = window.width
-        top.top = camera.bottom
-        bottom.bottom = camera.top
+    if ball.top < camera.bottom:
+        if score > best:
+            best = score
 
-        text.top = camera.top
-        player_1.left = camera.left
-        player_2.right = camera.right
-
-    if key.w: player_1.speed.y = 400
-    elif key.s: player_1.speed.y = -400
-    else: player_1.speed.y = 0
-
-    if key.up: player_2.speed.y = 400
-    elif key.down: player_2.speed.y = -400
-    else: player_2.speed.y = 0
-
-    engine.update()
-
-    if ball.left > camera.right:
-        score_1 += 1
+        score = 0
         reset()
 
-    elif ball.right < camera.left:
-        score_2 += 1
-        reset()
+    if ball.collides_with(player):
+        ball.speed.y = abs(ball.speed.y)
+        ball.speed.x *= 1.1
 
-    player_1.draw()
-    player_2.draw()
+        score += 1
+        update()
+
+    if ball.right > camera.right or ball.left < camera.left:
+        ball.speed.x *= -1
+
+    if key.left: player.x -= 5
+    if key.right: player.x += 5
+
+    player.bottom = camera.bottom
+    text.left = camera.left + 10
+    text.top = camera.top - 10
+
+    ball.speed.y -= 0.1
+    ball.pos += ball.speed
+
+    player.draw()
     ball.draw()
     text.draw()
 

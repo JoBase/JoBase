@@ -120,9 +120,9 @@ static PyObject *Window_getColor(Window *self, void *Py_UNUSED(closure)) {
     color -> data[r].set = (setter) Window_setRed;
     color -> data[g].set = (setter) Window_setGreen;
     color -> data[b].set = (setter) Window_setBlue;
-    color -> data[r].name = "red";
-    color -> data[g].name = "green";
-    color -> data[b].name = "blue";
+    color -> data[r].name = "r";
+    color -> data[g].name = "g";
+    color -> data[b].name = "b";
 
     return (PyObject *) color;
 }

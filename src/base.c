@@ -226,14 +226,14 @@ static vec Base_vecColor(Base *self) {
 static PyObject *Base_getColor(Base *self, void *Py_UNUSED(closure)) {
     Vector *color = vectorNew((PyObject *) self, (Getter) Base_vecColor, 4);
 
-    color -> data[1].set = (setter) Base_setRed;
-    color -> data[3].set = (setter) Base_setGreen;
-    color -> data[1].set = (setter) Base_setBlue;
-    color -> data[3].set = (setter) Base_setAlpha;
-    color -> data[0].name = "red";
-    color -> data[1].name = "green";
-    color -> data[2].name = "blue";
-    color -> data[3].name = "alpha";
+    color -> data[r].set = (setter) Base_setRed;
+    color -> data[g].set = (setter) Base_setGreen;
+    color -> data[b].set = (setter) Base_setBlue;
+    color -> data[a].set = (setter) Base_setAlpha;
+    color -> data[r].name = "r";
+    color -> data[g].name = "g";
+    color -> data[b].name = "b";
+    color -> data[a].name = "a";
 
     return (PyObject *) color;
 }
@@ -438,17 +438,17 @@ static PyObject *Base_moveSmooth(Base *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
-static PyObject *Base_applyImpulse(Base *self, PyObject *args) {
+static PyObject *Base_force(Base *self, PyObject *args) {
     if (!self -> body) {
         PyErr_SetString(PyExc_AttributeError, "must be added to a physics engine");
         return NULL;
     }
 
     cpVect pos = {0, 0};
-    cpVect imp;
+    cpVect force;
 
-    if (!PyArg_ParseTuple(args, "dd|dd", &imp.x, &imp.y, &pos.x, &pos.y)) return NULL;
-    cpBodyApplyImpulseAtLocalPoint(self -> body, imp, pos);
+    if (!PyArg_ParseTuple(args, "dd|dd", &force.x, &force.y, &pos.x, &pos.y)) return NULL;
+    cpBodyApplyForceAtLocalPoint(self -> body, force, pos);
 
     Py_RETURN_NONE;
 }
@@ -489,7 +489,7 @@ static PyMethodDef BaseMethods[] = {
     {"look_at", (PyCFunction) Base_lookAt, METH_O, "rotate the object so that it points to another object"},
     {"move_toward", (PyCFunction) Base_moveToward, METH_VARARGS, "move the object toward another object"},
     {"move_smooth", (PyCFunction) Base_moveSmooth, METH_VARARGS, "move the object smoothly toward another object"},
-    {"apply_impulse", (PyCFunction) Base_applyImpulse, METH_VARARGS, "apply an impulse to the object physics"},
+    {"force", (PyCFunction) Base_force, METH_VARARGS, "apply a force to the object physics"},
     {NULL}
 };
 

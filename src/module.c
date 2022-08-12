@@ -1,3 +1,5 @@
+#define _USE_MATH_DEFINES
+
 #include <glad/glad.h>
 #include <main.h>
 
@@ -27,6 +29,27 @@ static PyObject *Module_randint(PyObject *Py_UNUSED(self), PyObject *args) {
     return PyLong_FromLong(rand() / (RAND_MAX / abs(y - x + 1)) + MIN(x, y));
 }
 
+static PyObject *Module_sin(PyObject *Py_UNUSED(self), PyObject *value) {
+    double angle = PyFloat_AsDouble(value);
+
+    if (ERR(angle)) return NULL;
+    return PyFloat_FromDouble(sin(angle));
+}
+
+static PyObject *Module_cos(PyObject *Py_UNUSED(self), PyObject *value) {
+    double angle = PyFloat_AsDouble(value);
+
+    if (ERR(angle)) return NULL;
+    return PyFloat_FromDouble(cos(angle));
+}
+
+static PyObject *Module_tan(PyObject *Py_UNUSED(self), PyObject *value) {
+    double angle = PyFloat_AsDouble(value);
+
+    if (ERR(angle)) return NULL;
+    return PyFloat_FromDouble(tan(angle));
+}
+
 static PyObject *Module_run(PyObject *Py_UNUSED(self), PyObject *Py_UNUSED(ignored)) {
     PyObject *module = PyDict_GetItemString(PySys_GetObject("modules"), "__main__");
     glfwShowWindow(window -> glfw);
@@ -37,7 +60,7 @@ static PyObject *Module_run(PyObject *Py_UNUSED(self), PyObject *Py_UNUSED(ignor
     }
 
     while (!glfwWindowShouldClose(window -> glfw)) {
-        if (PyErr_Occurred() || update()) return NULL;
+        if (PyErr_CheckSignals() || PyErr_Occurred() || update()) return NULL;
         glfwPollEvents();
     }
 
@@ -90,8 +113,10 @@ static int Module_exec(PyObject *self) {
     BUILD("Circle", (PyObject *) &CircleType)
     BUILD("Shape", (PyObject *) &ShapeType)
     BUILD("Physics", (PyObject *) &PhysicsType)
+
     BUILD("DYNAMIC", PyLong_FromLong(DYNAMIC))
     BUILD("STATIC", PyLong_FromLong(STATIC))
+    BUILD("PI", PyFloat_FromDouble(M_PI))
 
     PATH("MAN", "images/man.png")
     PATH("COIN", "images/coin.png")
@@ -246,6 +271,9 @@ static void Module_free() {
 static PyMethodDef ModuleMethods[] = {
     {"random", Module_random, METH_VARARGS, "find a random number between two numbers"},
     {"randint", Module_randint, METH_VARARGS, "find a random integer between two integers"},
+    {"sin", Module_sin, METH_O, "sine function of an angle"},
+    {"cos", Module_cos, METH_O, "cosine function of an angle"},
+    {"tan", Module_tan, METH_O, "tangent function of an angle"},
     {"run", Module_run, METH_NOARGS, "activate the main game loop"},
     {NULL}
 };
