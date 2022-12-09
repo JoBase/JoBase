@@ -32,7 +32,7 @@ elif sys.platform == "darwin":
 
 setuptools.setup(
     name = "JoBase",
-    version = "2.3",
+    version = "2.4",
     author = "Reuben Ford",
     author_email = "hello@jobase.org",
     description = "Fast Python Game Library",

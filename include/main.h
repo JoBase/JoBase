@@ -24,7 +24,7 @@
 
 enum {x, y, z};
 enum {r, g, b, a};
-enum {vert, coord, view, obj, color, sampler, img};
+enum {vert, coord, view, obj, color, img};
 
 typedef double *vec;
 typedef double vec2[2];

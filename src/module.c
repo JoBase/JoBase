@@ -208,7 +208,6 @@ static int Module_exec(PyObject *self) {
     uniform[view] = glGetUniformLocation(program, "view");
     uniform[obj] = glGetUniformLocation(program, "obj");
     uniform[color] = glGetUniformLocation(program, "color");
-    uniform[sampler] = glGetUniformLocation(program, "sampler");
     uniform[img] = glGetUniformLocation(program, "img");
 
     GLuint buffer;
@@ -231,7 +230,7 @@ static int Module_exec(PyObject *self) {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glUniform1i(uniform[sampler], 0);
+    glUniform1i(glGetUniformLocation(program, "sampler"), 0);
 
     return 0;
 }

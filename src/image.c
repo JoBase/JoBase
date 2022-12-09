@@ -18,20 +18,24 @@ static PyObject *Image_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObje
 }
 
 static int Image_init(Image *self, PyObject *args, PyObject *kwds) {
-    static char *kwlist[] = {"name", "x", "y", "angle", "width", "height", NULL};
+    static char *kwlist[] = {"name", "x", "y", "angle", "width", "height", "color", NULL};
+    const char *name = filepath("images/man.png");
     double sx = 0, sy = 0;
 
-    const char *name = filepath("images/man.png");
+    PyObject *color = NULL;
     baseInit((Base *) self);
 
     if (!PyArg_ParseTupleAndKeywords(
         args, kwds, "|sdddddO", kwlist, &name, &self -> rect.base.pos[x],
         &self -> rect.base.pos[y], &self -> rect.base.angle,
-        &sx, &sy)) return -1;
+        &sx, &sy, &color)) return -1;
 
     self -> rect.base.color[r] = 1;
     self -> rect.base.color[g] = 1;
     self -> rect.base.color[b] = 1;
+
+    if (color && vectorSet(color, self -> rect.base.color, 4))
+        return -1;
 
     for (Texture *this = textures; this; this = this -> next)
         if (!strcmp(this -> name, name)) {
