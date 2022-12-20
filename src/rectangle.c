@@ -31,22 +31,22 @@ static cpFloat moment(Rectangle *self) {
 
 static double top(Rectangle *self) {
     vec2 poly[4];
-    return polyRect(self, poly), polyTop(poly, 4);
+    return rectanglePoly(self, poly), getTop(poly, 4);
 }
 
 static double bottom(Rectangle *self) {
     vec2 poly[4];
-    return polyRect(self, poly), polyBottom(poly, 4);
+    return rectanglePoly(self, poly), getBottom(poly, 4);
 }
 
 static double left(Rectangle *self) {
     vec2 poly[4];
-    return polyRect(self, poly), polyLeft(poly, 4);
+    return rectanglePoly(self, poly), getLeft(poly, 4);
 }
 
 static double right(Rectangle *self) {
     vec2 poly[4];
-    return polyRect(self, poly), polyRight(poly, 4);
+    return rectanglePoly(self, poly), getRight(poly, 4);
 }
 
 static PyObject *Rectangle_getWidth(Rectangle *self, void *Py_UNUSED(closure)) {
@@ -148,6 +148,18 @@ void rectangleDraw(Rectangle *self, uint8_t type) {
     glUniform1i(uniform[img], type);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindVertexArray(0);
+}
+
+void rectanglePoly(Rectangle *self, poly poly) {
+    const double px = self -> size[x] * self -> base.scale[x] / 2;
+    const double py = self -> size[y] * self -> base.scale[y] / 2;
+
+    poly[0][x] = poly[3][x] = self -> base.anchor[x] - px;
+    poly[0][y] = poly[1][y] = self -> base.anchor[y] + py;
+    poly[1][x] = poly[2][x] = self -> base.anchor[x] + px;
+    poly[2][y] = poly[3][y] = self -> base.anchor[y] - py;
+
+    rotate(poly, 4, self -> base.angle, self -> base.pos);
 }
 
 PyTypeObject RectangleType = {

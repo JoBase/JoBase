@@ -111,6 +111,7 @@ static int Module_exec(PyObject *self) {
     BUILD("Image", (PyObject *) &ImageType)
     BUILD("Text", (PyObject *) &TextType)
     BUILD("Circle", (PyObject *) &CircleType)
+    BUILD("Line", (PyObject *) &LineType)
     BUILD("Shape", (PyObject *) &ShapeType)
     BUILD("Physics", (PyObject *) &PhysicsType)
 
@@ -306,6 +307,7 @@ PyMODINIT_FUNC PyInit_JoBase() {
     READY(ImageType)
     READY(TextType)
     READY(CircleType)
+    READY(LineType)
     READY(ShapeType)
     READY(PhysicsType)
 

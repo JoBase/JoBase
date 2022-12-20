@@ -96,7 +96,7 @@ static bool polyCircle(poly poly, size_t size, vec2 pos, double radius) {
     return false;
 }
 
-static void rotate(poly poly, size_t size, double angle, vec2 pos) {
+void rotate(poly poly, size_t size, double angle, vec2 pos) {
     const double cosine = cos(angle * M_PI / 180);
     const double sine = sin(angle * M_PI / 180);
 
@@ -193,12 +193,12 @@ PyObject *collide(PyObject *self, PyObject *other) {
 
     if (BASE(self, RectangleType)) {
         vec2 rect[4];
-        polyRect((Rectangle *) self, rect);
+        rectanglePoly((Rectangle *) self, rect);
 
         if (BASE(other, RectangleType)) {
             vec2 poly[4];
 
-            polyRect((Rectangle *) other, poly);
+            rectanglePoly((Rectangle *) other, poly);
             result = polyPoly(rect, 4, poly, 4);
         }
 
@@ -208,9 +208,9 @@ PyObject *collide(PyObject *self, PyObject *other) {
             result = polyCircle(rect, 4, pos, circle -> radius * AVR(circle -> base.scale));
         }
 
-        else if (BASE(other, ShapeType)) {
+        else if (BASE(other, ShapeType) || BASE(other, LineType)) {
             Shape *shape = (Shape *) other;
-            vec2 *poly = polyShape(shape);
+            vec2 *poly = shapePoly(shape);
 
             result = polyPoly(rect, 4, poly, shape -> vertex);
             free(poly);
@@ -230,7 +230,7 @@ PyObject *collide(PyObject *self, PyObject *other) {
         if (BASE(other, RectangleType)) {
             vec2 rect[4];
 
-            polyRect((Rectangle *) other, rect);
+            rectanglePoly((Rectangle *) other, rect);
             result = polyCircle(rect, 4, pos, size);
         }
 
@@ -240,9 +240,9 @@ PyObject *collide(PyObject *self, PyObject *other) {
             result = circleCircle(pos, size, point, object -> radius * AVR(object -> base.scale));
         }
 
-        else if (BASE(other, ShapeType)) {
+        else if (BASE(other, ShapeType) || BASE(other, LineType)) {
             Shape *shape = (Shape *) other;
-            vec2 *poly = polyShape(shape);
+            vec2 *poly = shapePoly(shape);
 
             result = polyCircle(poly, shape -> vertex, pos, size);
             free(poly);
@@ -254,14 +254,14 @@ PyObject *collide(PyObject *self, PyObject *other) {
         else OBJ(other)
     }
 
-    else if (BASE(self, ShapeType)) {
+    else if (BASE(self, ShapeType) || BASE(self, LineType)) {
         Shape *shape = (Shape *) self;
-        vec2 *poly = polyShape(shape);
+        vec2 *poly = shapePoly(shape);
 
         if (BASE(other, RectangleType)) {
             vec2 rect[4];
 
-            polyRect((Rectangle *) other, rect);
+            rectanglePoly((Rectangle *) other, rect);
             result = polyPoly(poly, shape -> vertex, rect, 4);
         }
 
@@ -271,9 +271,9 @@ PyObject *collide(PyObject *self, PyObject *other) {
             result = polyCircle(poly, shape -> vertex, pos, circle -> radius * AVR(circle -> base.scale));
         }
 
-        else if (BASE(other, ShapeType)) {
+        else if (BASE(other, ShapeType) || BASE(other, LineType)) {
             Shape *object = (Shape *) other;
-            vec2 *mesh = polyShape(object);
+            vec2 *mesh = shapePoly(object);
 
             result = polyPoly(poly, shape -> vertex, mesh, object -> vertex);
             free(mesh);
@@ -294,7 +294,7 @@ PyObject *collide(PyObject *self, PyObject *other) {
         if (BASE(other, RectangleType)) {
             vec2 rect[4];
 
-            polyRect((Rectangle *) other, rect);
+            rectanglePoly((Rectangle *) other, rect);
             result = polyPoint(rect, 4, cursorPos());
         }
 
@@ -304,9 +304,9 @@ PyObject *collide(PyObject *self, PyObject *other) {
             result = circlePoint(pos, circle -> radius * AVR(circle -> base.scale), cursorPos());
         }
 
-        else if (BASE(other, ShapeType)) {
+        else if (BASE(other, ShapeType) || BASE(other, LineType)) {
             Shape *shape = (Shape *) other;
-            vec2 *poly = polyShape(shape);
+            vec2 *poly = shapePoly(shape);
 
             result = polyPoint(poly, shape -> vertex, cursorPos());
             free(poly);
@@ -322,7 +322,7 @@ PyObject *collide(PyObject *self, PyObject *other) {
     return PyBool_FromLong(result);
 }
 
-double polyLeft(poly poly, size_t size) {
+double getLeft(poly poly, size_t size) {
     double left = poly[0][x];
 
     for (size_t i = 1; i < size; i ++)
@@ -331,7 +331,7 @@ double polyLeft(poly poly, size_t size) {
     return left;
 }
 
-double polyTop(poly poly, size_t size) {
+double getTop(poly poly, size_t size) {
     double top = poly[0][y];
 
     for (size_t i = 1; i < size; i ++)
@@ -340,7 +340,7 @@ double polyTop(poly poly, size_t size) {
     return top;
 }
 
-double polyRight(poly poly, size_t size) {
+double getRight(poly poly, size_t size) {
     double right = poly[0][x];
 
     for (size_t i = 1; i < size; i ++)
@@ -349,35 +349,11 @@ double polyRight(poly poly, size_t size) {
     return right;
 }
 
-double polyBottom(poly poly, size_t size) {
+double getBottom(poly poly, size_t size) {
     double bottom = poly[0][y];
 
     for (size_t i = 1; i < size; i ++)
         if (poly[i][y] < bottom) bottom = poly[i][y];
 
     return bottom;
-}
-
-void polyRect(Rectangle *self, poly poly) {
-    const double px = self -> size[x] * self -> base.scale[x] / 2;
-    const double py = self -> size[y] * self -> base.scale[y] / 2;
-
-    poly[0][x] = poly[3][x] = self -> base.anchor[x] - px;
-    poly[0][y] = poly[1][y] = self -> base.anchor[y] + py;
-    poly[1][x] = poly[2][x] = self -> base.anchor[x] + px;
-    poly[2][y] = poly[3][y] = self -> base.anchor[y] - py;
-
-    rotate(poly, 4, self -> base.angle, self -> base.pos);
-}
-
-poly polyShape(Shape *self) {
-    poly poly = malloc(self -> vertex * sizeof(vec2));
-
-    FOR(size_t, self -> vertex) {
-        poly[i][x] = self -> points[i][x] + self -> base.anchor[x];
-        poly[i][y] = self -> points[i][y] + self -> base.anchor[y];
-    }
-
-    rotate(poly, self -> vertex, self -> base.angle, self -> base.pos);
-    return poly;
 }

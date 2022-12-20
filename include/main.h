@@ -7,6 +7,7 @@
 #define AVR(e) (e[x]+e[y])/2
 #define MIN(a, b) (a<b?a:b)
 #define MAX(a, b) (a>b?a:b)
+#define IDX(e) (e-2)*3
 
 #define DYNAMIC CP_BODY_TYPE_DYNAMIC
 #define STATIC CP_BODY_TYPE_STATIC
@@ -167,14 +168,19 @@ typedef struct Circle {
 
 typedef struct Shape {
     Base base;
-    poly points;
-    size_t *indices;
     size_t vertex;
-    size_t index;
+    poly points;
+    GLuint *indices;
     GLuint vao;
     GLuint vbo;
     GLuint ibo;
 } Shape;
+
+typedef struct Line {
+    Shape shape;
+    poly base;
+    double width;
+} Line;
 
 typedef struct Physics {
     PyObject_HEAD
@@ -194,6 +200,7 @@ extern PyTypeObject RectangleType;
 extern PyTypeObject ImageType;
 extern PyTypeObject TextType;
 extern PyTypeObject CircleType;
+extern PyTypeObject LineType;
 extern PyTypeObject ShapeType;
 extern PyTypeObject PhysicsType;
 
@@ -218,19 +225,24 @@ extern void start();
 extern void end();
 extern void parameters();
 extern void rectangleDraw(Rectangle *, uint8_t);
-extern void polyRect(Rectangle *, poly);
+extern void rectanglePoly(Rectangle *, poly);
+extern void rotate(poly, size_t, double, vec2);
 extern void format(PyObject *, const char *, ...);
 extern void baseMatrix(Base *, double, double);
 extern void baseUniform(mat, vec4);
 extern void baseMoment(Base *);
 extern void baseInit(Base *);
+extern void shapeDealloc(Shape *);
+extern void shapeBase(Shape *);
 
 extern const char *filepath(const char *);
 extern Button *buttonNew(Set *);
-extern poly polyShape(Shape *);
 extern Vector *vectorNew(PyObject *, Getter, uint8_t);
 extern PyObject *collide(PyObject *, PyObject *);
 extern PyObject *rectangleNew(PyTypeObject *);
+extern PyObject *shapeDraw(Shape *, PyObject *);
+extern PyObject *shapeNew(PyTypeObject *, PyObject *, PyObject *);
+extern poly shapePoly(Shape *);
 
 extern vec cursorPos();
 extern vec windowSize();
@@ -240,9 +252,9 @@ extern int baseSmooth(vec2, PyObject *);
 extern int vectorSet(PyObject *, vec, uint8_t);
 extern int update();
 
-extern double polyLeft(poly, size_t);
-extern double polyTop(poly, size_t);
-extern double polyRight(poly, size_t);
-extern double polyBottom(poly, size_t);
+extern double getLeft(poly, size_t);
+extern double getTop(poly, size_t);
+extern double getRight(poly, size_t);
+extern double getBottom(poly, size_t);
 extern double circleX(Circle *);
 extern double circleY(Circle *);
