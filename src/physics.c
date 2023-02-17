@@ -93,10 +93,10 @@ static int Physics_setGravity(Physics *self, PyObject *value, void *Py_UNUSED(cl
 }
 
 static PyObject *Physics_add(Physics *self, PyObject *args) {
-    ssize_t length = PyTuple_GET_SIZE(args);
+    Py_ssize_t length = PyTuple_GET_SIZE(args);
     self -> data = realloc(self -> data, sizeof NULL * (self -> length + length));
 
-    FOR(ssize_t, length) {
+    FOR(Py_ssize_t, length) {
         PyObject *value = PyTuple_GET_ITEM(args, i);
 
         if (BASE(value, BaseType)) {
@@ -141,7 +141,7 @@ static PyObject *Physics_add(Physics *self, PyObject *args) {
 }
 
 static PyObject *Physics_remove(Physics *self, PyObject *args) {
-    FOR(ssize_t, PyTuple_GET_SIZE(args))
+    FOR(Py_ssize_t, PyTuple_GET_SIZE(args))
         if (array(self, PyTuple_GET_ITEM(args, i)))
             return NULL;
 
