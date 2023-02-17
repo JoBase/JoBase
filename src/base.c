@@ -607,10 +607,10 @@ void baseMatrix(Base *self, double px, double py) {
     const double sy = py * self -> scale[y];
 
     mat matrix = {
-        sx * cosine, sx * sine, 0, 0,
-        sy * -sine, sy * cosine, 0, 0, 0, 0, 1, 0,
-        self -> anchor[x] * cosine + self -> anchor[y] * -sine + self -> pos[x],
-        self -> anchor[x] * sine + self -> anchor[y] * cosine + self -> pos[y], 0, 1
+        (GLfloat) sx * cosine, (GLfloat) sx * sine, 0, 0,
+        (GLfloat) sy * -sine, (GLfloat) sy * cosine, 0, 0, 0, 0, 1, 0,
+        (GLfloat) self -> anchor[x] * cosine + self -> anchor[y] * -sine + self -> pos[x],
+        (GLfloat) self -> anchor[x] * sine + self -> anchor[y] * cosine + self -> pos[y], 0, 1
     };
 
     baseUniform(matrix, self -> color);
