@@ -183,10 +183,10 @@ int update() {
     const vec size = windowSize();
 
     mat matrix = {
-        2 / size[x], 0, 0, 0, 0,
-        2 / size[y], 0, 0, 0, 0, -2, 0,
-        -camera -> pos[x] * 2 / size[x],
-        -camera -> pos[y] * 2 / size[y], -1, 1
+        (GLfloat) 2 / size[x], 0, 0, 0, 0,
+        (GLfloat) 2 / size[y], 0, 0, 0, 0, -2, 0,
+        (GLfloat) -camera -> pos[x] * 2 / size[x],
+        (GLfloat) -camera -> pos[y] * 2 / size[y], -1, 1
     };
     
     glUniformMatrix4fv(uniform[view], 1, GL_FALSE, matrix);
