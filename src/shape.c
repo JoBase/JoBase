@@ -1,6 +1,5 @@
 #include <glad/glad.h>
 #include <main.h>
-#include <chipmunk/chipmunk_unsafe.h>
 
 static cpVect *vertices(Shape *self) {
     cpVect *verts = malloc(self -> vertex * sizeof(cpVect));
@@ -13,50 +12,19 @@ static cpVect *vertices(Shape *self) {
     return verts;
 }
 
-static cpTransform transform(Shape *self) {
-    return cpTransformNew(self -> base.scale[x], 0, 0, self -> base.scale[y], 0, 0);
-}
-
-void new(Shape *self) {
+static void new(Shape *self) {
     cpVect *verts = vertices(self);
-    self -> base.shape = cpPolyShapeNew(self -> base.body, self -> vertex, verts, transform(self), 0);
 
+    *self -> base.shapes = cpPolyShapeNew(self -> base.body, self -> vertex, verts, cpTransformNew(1, 0, 0, 1, 0, 0), 0);
+    self -> base.length = 1;
     free(verts);
 }
 
-cpFloat moment(Shape *self) {
+static cpFloat moment(Shape *self) {
     cpVect *verts = vertices(self);
-    cpFloat moment = cpMomentForPoly(self -> base.mass, self -> vertex, verts, cpv(0, 0), 0);
+    cpFloat moment = cpMomentForPoly(cpBodyGetMass(self -> base.body), self -> vertex, verts, cpv(0, 0), 0);
 
     return free(verts), moment;
-}
-
-double top(Shape *self) {
-    vec2 *poly = shapePoly(self);
-
-    const double value = getTop(poly, self -> vertex);
-    return free(poly), value;
-}
-
-double bottom(Shape *self) {
-    vec2 *poly = shapePoly(self);
-
-    const double value = getBottom(poly, self -> vertex);
-    return free(poly), value;
-}
-
-double left(Shape *self) {
-    vec2 *poly = shapePoly(self);
-
-    const double value = getLeft(poly, self -> vertex);
-    return free(poly), value;
-}
-
-double right(Shape *self) {
-    vec2 *poly = shapePoly(self);
-
-    const double value = getRight(poly, self -> vertex);
-    return free(poly), value;
 }
 
 static bool positive(poly poly, size_t size) {
@@ -92,44 +60,22 @@ static bool snip(poly poly, size_t u, size_t v, size_t w, size_t next, size_t *v
     return true;
 }
 
-static int triangulate(poly poly, size_t size, GLuint **indices) {
-    GLuint *data = *indices;
-    size_t *verts = malloc(size * sizeof(size_t));
-    size_t count = size * 2, next = size, index = 0;
+static PyObject *Shape_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
+    Base *self = shapeNew(type);
 
-    if (positive(poly, size)) FOR(size_t, size) verts[i] = i;
-    else FOR(size_t, size) verts[i] = (size - 1) - i;
+    self -> new = (void *)(Base *) new;
+    self -> moment = (cpFloat (*)(Base *)) moment;
+    self -> top = (double (*)(Base *)) shapeTop;
+    self -> bottom = (double (*)(Base *)) shapeBottom;
+    self -> left = (double (*)(Base *)) shapeLeft;
+    self -> right = (double (*)(Base *)) shapeRight;
 
-    for (size_t v = next - 1; next > 2;) {
-        if (count -- <= 0) {
-            PyErr_SetString(PyExc_ValueError, "failed to understand shape - probably because the edges overlap");
-            return free(verts), -1;
-        }
-
-        size_t u = next > v ? v : 0;
-        v = next > u + 1 ? u + 1 : 0;
-        size_t w = next > v + 1 ? v + 1 : 0;
-
-        if (snip(poly, u, v, w, next, verts)) {
-            data = realloc(data, (index + 3) * sizeof(GLuint));
-            data[index] = verts[u];
-            data[index + 1] = verts[v];
-            data[index + 2] = verts[w];
-
-            for (size_t s = v, t = v + 1; t < next; s ++, t ++)
-                verts[s] = verts[t];
-
-            next --;
-            count = next * 2;
-            index += 3;
-        }
-    }
-
-    return *indices = data, free(verts), 0;
+    return (PyObject *) self;
 }
 
 static int Shape_init(Shape *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"points", "x", "y", "angle", "color", NULL};
+    double angle = 0;
 
     PyObject *color = NULL;
     PyObject *points = NULL;
@@ -137,73 +83,74 @@ static int Shape_init(Shape *self, PyObject *args, PyObject *kwds) {
 
     int state = PyArg_ParseTupleAndKeywords(
         args, kwds, "|OdddO", kwlist, &points, &self -> base.pos[x],
-        &self -> base.pos[y], &self -> base.angle, &color);
+        &self -> base.pos[y], &angle, &color);
 
-    if (!state || (color && vectorSet(color, self -> base.color, 4)))
+    if (!state || (color && vectorSet(color, self -> base.color, 4)) || shapeParse(self, points))
         return -1;
 
-    if (points) {
-        if (!PySequence_Check(points)) SEQ(points)
-        PyObject *seq = PySequence_Fast(points, NULL);
-
-        self -> vertex = PySequence_Fast_GET_SIZE(seq);
-        self -> points = realloc(self -> points, self -> vertex * sizeof(vec2));
-
-        if (self -> vertex < 3) {
-            PyErr_SetString(PyExc_ValueError, "shape must have at least 3 corners");
-            Py_DECREF(seq);
-            return -1;
-        }
-
-        FOR(size_t, self -> vertex) {
-            PyObject *point = PySequence_Fast_GET_ITEM(seq, i);
-
-            if (!PySequence_Check(point)) SEQ(point)
-            PyObject *value = PySequence_Fast(point, NULL);
-
-            if (PySequence_Fast_GET_SIZE(value) < 2) {
-                PyErr_SetString(PyExc_ValueError, "point must contain 2 values");
-                Py_DECREF(value);
-                Py_DECREF(seq);
-                return -1;
-            }
-
-            self -> points[i][x] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(value, x));
-            self -> points[i][y] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(value, y));
-            Py_DECREF(value);
-
-            if (ERR(self -> points[i][x]) || ERR(self -> points[i][y])) {
-                Py_DECREF(seq);
-                return -1;
-            }
-        }
-
-        Py_DECREF(seq);
-
-        if (triangulate(self -> points, self -> vertex, &self -> indices))
-            return -1;
-    }
-
-    else {
+    if (!points) {
         self -> vertex = 3;
         self -> points = realloc(self -> points, self -> vertex * sizeof(vec2));
-        self -> indices = realloc(self -> indices, IDX(self -> vertex) * sizeof(GLuint));
 
         self -> points[0][x] = 0;
         self -> points[0][y] = self -> points[1][x] = 25;
         self -> points[1][y] = self -> points[2][x] = self -> points[2][y] = -25;
-
-        self -> indices[0] = 0;
-        self -> indices[1] = 1;
-        self -> indices[2] = 2;
     }
 
-    glBindVertexArray(self -> vao);
-    glBufferData(GL_ARRAY_BUFFER, self -> vertex * sizeof(vec2), self -> points, GL_DYNAMIC_DRAW);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, IDX(self -> vertex) * sizeof(GLuint), self -> indices, GL_STATIC_DRAW);
-    glBindVertexArray(0);
+    if (self -> vertex > 2) {
+        GLfloat *points = malloc(self -> vertex * 2 * sizeof(GLfloat));
+        GLuint *indices = malloc(IDX(self -> vertex) * sizeof(GLuint));
 
-    return 0;
+        size_t *verts = malloc(self -> vertex * sizeof(size_t));
+        size_t count = self -> vertex * 2, next = self -> vertex, index = 0;
+
+        if (positive(self -> points, self -> vertex)) FOR(size_t, self -> vertex) {
+            points[i * 2] = self -> points[i][x];
+            points[i * 2 + 1] = self -> points[i][y];
+            verts[i] = i;
+        }
+
+        else FOR(size_t, self -> vertex) {
+            points[i * 2] = self -> points[i][x];
+            points[i * 2 + 1] = self -> points[i][y];
+            verts[i] = (self -> vertex - 1) - i;
+        }
+
+        for (size_t v = next - 1; next > 2;) {
+            if (count -- <= 0) {
+                PyErr_SetString(PyExc_ValueError, "failed to understand shape - probably because the edges overlap");
+                return free(verts), -1;
+            }
+
+            size_t u = next > v ? v : 0;
+            v = next > u + 1 ? u + 1 : 0;
+            size_t w = next > v + 1 ? v + 1 : 0;
+
+            if (snip(self -> points, u, v, w, next, verts)) {
+                indices[index] = verts[u];
+                indices[index + 1] = verts[v];
+                indices[index + 2] = verts[w];
+
+                for (size_t s = v, t = v + 1; t < next; s ++, t ++)
+                    verts[s] = verts[t];
+
+                next --;
+                count = next * 2;
+                index += 3;
+            }
+        }
+
+        free(verts);
+        glBindVertexArray(self -> vao);
+        glBindBuffer(GL_ARRAY_BUFFER, self -> vbo);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self -> ibo);
+
+        glBufferData(GL_ARRAY_BUFFER, self -> vertex * 2 * sizeof(GLfloat), points, GL_DYNAMIC_DRAW);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, IDX(self -> vertex) * sizeof(GLuint), indices, GL_DYNAMIC_DRAW);
+        glBindVertexArray(0);
+    }
+
+    return baseStart((Base *) self, angle), 0;
 }
 
 static PyMethodDef ShapeMethods[] = {
@@ -213,13 +160,11 @@ static PyMethodDef ShapeMethods[] = {
 
 void shapeDealloc(Shape *self) {
     GLuint buffers[] = {self -> vbo, self -> ibo};
-
-    free(self -> indices);
     free(self -> points);
 
     glDeleteBuffers(2, buffers);
     glDeleteVertexArrays(1, &self -> vao);
-    Py_TYPE(self) -> tp_free((PyObject *) self);
+    baseDealloc((Base *) self);
 }
 
 PyObject *shapeDraw(Shape *self, PyObject *Py_UNUSED(ignored)) {
@@ -233,32 +178,12 @@ PyObject *shapeDraw(Shape *self, PyObject *Py_UNUSED(ignored)) {
     Py_RETURN_NONE;
 }
 
-PyObject *shapeNew(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
-    Shape *self = (Shape *) type -> tp_alloc(type, 0);
-
-    self -> base.new = (void *)(Base *) new;
-    self -> base.base = (void *)(Base *) shapeBase;
-    self -> base.moment = (cpFloat (*)(Base *)) moment;
-    self -> base.top = (double (*)(Base *)) top;
-    self -> base.bottom = (double (*)(Base *)) bottom;
-    self -> base.left = (double (*)(Base *)) left;
-    self -> base.right = (double (*)(Base *)) right;
-
-    self -> indices = malloc(0);
+Base *shapeNew(PyTypeObject *type) {
+    Shape *self = (Shape *) baseNew(type, 1);
     self -> points = malloc(0);
 
-    glGenVertexArrays(1, &self -> vao);
-    glBindVertexArray(self -> vao);
-    glGenBuffers(1, &self -> vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, self -> vbo);
-    glGenBuffers(1, &self -> ibo);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self -> ibo);
-
-    glVertexAttribPointer(uniform[vert], 2, GL_DOUBLE, GL_FALSE, 0, 0);
-    glEnableVertexAttribArray(uniform[vert]);
-    glBindVertexArray(0);
-
-    return (PyObject *) self;
+    buffers(&self -> vao, &self -> vbo, &self -> ibo);
+    return (Base *) self;
 }
 
 poly shapePoly(Shape *self) {
@@ -269,17 +194,71 @@ poly shapePoly(Shape *self) {
         poly[i][y] = self -> points[i][y] + self -> base.anchor[y];
     }
 
-    rotate(poly, self -> vertex, self -> base.angle, self -> base.pos);
+    rotate(poly, self -> vertex, cpBodyGetAngle(self -> base.body), self -> base.pos);
     return poly;
 }
 
-void shapeBase(Shape *self) {
-    if (!self -> base.shape) return;
-    cpVect *verts = vertices(self);
+int shapeParse(Shape *self, PyObject *points) {
+    if (!points) return 0;
+    if (!PySequence_Check(points)) SEQ(points)
 
-    cpPolyShapeSetVerts(self -> base.shape, self -> vertex, verts, transform(self));
-    baseMoment((Base *) self);
-    free(verts);
+    PyObject *seq = PySequence_Fast(points, NULL);
+    self -> vertex = PySequence_Fast_GET_SIZE(seq);
+    self -> points = realloc(self -> points, self -> vertex * sizeof(vec2));
+
+    FOR(size_t, self -> vertex) {
+        PyObject *point = PySequence_Fast_GET_ITEM(seq, i);
+
+        if (!PySequence_Check(point)) SEQ(point)
+        PyObject *value = PySequence_Fast(point, NULL);
+
+        if (PySequence_Fast_GET_SIZE(value) < 2) {
+            PyErr_SetString(PyExc_ValueError, "point must contain 2 values");
+            Py_DECREF(value);
+            Py_DECREF(seq);
+            return -1;
+        }
+
+        self -> points[i][x] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(value, x));
+        self -> points[i][y] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(value, y));
+        Py_DECREF(value);
+
+        if (ERR(self -> points[i][x]) || ERR(self -> points[i][y])) {
+            Py_DECREF(seq);
+            return -1;
+        }
+    }
+
+    Py_DECREF(seq);
+    return 0;
+}
+
+double shapeTop(Shape *self) {
+    vec2 *poly = shapePoly(self);
+
+    const double value = getTop(poly, self -> vertex);
+    return free(poly), value;
+}
+
+double shapeBottom(Shape *self) {
+    vec2 *poly = shapePoly(self);
+
+    const double value = getBottom(poly, self -> vertex);
+    return free(poly), value;
+}
+
+double shapeLeft(Shape *self) {
+    vec2 *poly = shapePoly(self);
+
+    const double value = getLeft(poly, self -> vertex);
+    return free(poly), value;
+}
+
+double shapeRight(Shape *self) {
+    vec2 *poly = shapePoly(self);
+
+    const double value = getRight(poly, self -> vertex);
+    return free(poly), value;
 }
 
 PyTypeObject ShapeType = {
@@ -290,7 +269,7 @@ PyTypeObject ShapeType = {
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_base = &BaseType,
-    .tp_new = shapeNew,
+    .tp_new = Shape_new,
     .tp_init = (initproc) Shape_init,
     .tp_dealloc = (destructor) shapeDealloc,
     .tp_methods = ShapeMethods

@@ -130,8 +130,8 @@ static PyObject *Text_draw(Text *self, PyObject *Py_UNUSED(ignored)) {
 
     const double sx = self -> rect.base.scale[x] + self -> rect.size[x] / self -> base.x - 1;
     const double sy = self -> rect.base.scale[y] + self -> rect.size[y] / self -> base.y - 1;
-    const double sine = sin(self -> rect.base.angle * M_PI / 180);
-	const double cosine = cos(self -> rect.base.angle * M_PI / 180);
+    const double sine = sin(cpBodyGetAngle(self -> rect.base.body) * M_PI / 180);
+	const double cosine = cos(cpBodyGetAngle(self -> rect.base.body) * M_PI / 180);
     const double px = self -> rect.base.pos[x];
     const double py = self -> rect.base.pos[y];
 
@@ -168,13 +168,10 @@ static PyObject *Text_draw(Text *self, PyObject *Py_UNUSED(ignored)) {
     Py_RETURN_NONE;
 }
 
-static PyObject *Text_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
-    return rectangleNew(type);
-}
-
 static int Text_init(Text *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"content", "x", "y", "font_size", "angle", "color", "font", NULL};
     const char *file = filepath("fonts/default.ttf");
+    double angle = 0;
 
     PyObject *content = NULL;
     PyObject *color = NULL;
@@ -183,9 +180,8 @@ static int Text_init(Text *self, PyObject *args, PyObject *kwds) {
     self -> size = 50;
 
     int state = PyArg_ParseTupleAndKeywords(
-        args, kwds, "|UddddOs", kwlist, &content,
-        &self -> rect.base.pos[x], &self -> rect.base.pos[y],
-        &self -> size, &self -> rect.base.angle, &color, &file);
+        args, kwds, "|UddddOs", kwlist, &content, &self -> rect.base.pos[x],
+        &self -> rect.base.pos[y], &self -> size, &angle, &color, &file);
 
     if (!state || font(self, file) || (color && vectorSet(color, self -> rect.base.color, 4)))
         return -1;
@@ -198,7 +194,7 @@ static int Text_init(Text *self, PyObject *args, PyObject *kwds) {
     }
 
     else self -> content = wcsdup(L"Text");
-    return reset(self);
+    return baseStart((Base *) self, angle), reset(self);
 }
 
 static void Text_dealloc(Text *self) {
@@ -206,7 +202,7 @@ static void Text_dealloc(Text *self) {
 
     free(self -> chars);
     free(self -> content);
-    Py_TYPE(self) -> tp_free((PyObject *) self);
+    baseDealloc((Base *) self);
 }
 
 static PyGetSetDef TextGetSetters[] = {
@@ -229,7 +225,7 @@ PyTypeObject TextType = {
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_base = &RectangleType,
-    .tp_new = Text_new,
+    .tp_new = rectangleNew,
     .tp_init = (initproc) Text_init,
     .tp_dealloc = (destructor) Text_dealloc,
     .tp_getset = TextGetSetters,

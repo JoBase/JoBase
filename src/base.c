@@ -3,16 +3,27 @@
 #include <glad/glad.h>
 #include <main.h>
 
+static void arbiter(cpBody *body, cpArbiter *arbiter, bool *data) {
+    const cpVect normal = cpArbiterGetContactPointSet(arbiter).normal;
+    const cpVect gravity = cpvnormalize(cpSpaceGetGravity(cpBodyGetSpace(body)));
+
+    if (fabs(normal.x - gravity.x) < M_PI / 4 && fabs(normal.y - gravity.y) < M_PI / 4)
+        *data = true;
+}
+
+static int vect(Base *self, PyObject *args, double *a, double *b, double *c, double *d) {
+    *c = *d = 0;
+
+    if (!self -> length) {
+        PyErr_SetString(PyExc_AttributeError, "must be added to a physics engine");
+        return -1;
+    }
+
+    return PyArg_ParseTuple(args, "dd|dd", a, b, c, d) ? 0 : -1;
+}
+
 static void pos(Base *self) {
-    if (self -> body) cpBodySetPosition(self -> body, cpv(self -> pos[x], self -> pos[y]));
-}
-
-static void vel(Base *self) {
-    if (self -> body) cpBodySetVelocity(self -> body, cpv(self -> vel[x], self -> vel[y]));
-}
-
-static void angle(Base *self) {
-    if (self -> body) cpBodySetAngle(self -> body, self -> angle * M_PI / 180);
+    cpBodySetPosition(self -> body, cpv(self -> pos[x], self -> pos[y]));
 }
 
 static int other(PyObject *other, vec2 pos) {
@@ -79,8 +90,8 @@ static int Base_setY(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     return ERR(self -> pos[y]) ? -1 : pos(self), 0;
 }
 
-static vec Base_vecPos(Base *self) {
-    return self -> pos;
+static double Base_vecPos(Base *self, uint8_t index) {
+    return self -> pos[index];
 }
 
 static PyObject *Base_getPos(Base *self, void *Py_UNUSED(closure)) {
@@ -102,18 +113,18 @@ static int Base_setScaleX(Base *self, PyObject *value, void *Py_UNUSED(closure))
     DEL(value)
 
     self -> scale[x] = PyFloat_AsDouble(value);
-    return ERR(self -> scale[x]) ? -1 : self -> base(self), 0;
+    return ERR(self -> scale[x]) ? -1 : 0;
 }
 
 static int Base_setScaleY(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     DEL(value)
 
     self -> scale[y] = PyFloat_AsDouble(value);
-    return ERR(self -> scale[y]) ? -1 : self -> base(self), 0;
+    return ERR(self -> scale[y]) ? -1 : 0;
 }
 
-static vec Base_vecScale(Base *self) {
-    return self -> scale;
+static double Base_vecScale(Base *self, uint8_t index) {
+    return self -> scale[index];
 }
 
 static PyObject *Base_getScale(Base *self, void *Py_UNUSED(closure)) {
@@ -128,7 +139,7 @@ static PyObject *Base_getScale(Base *self, void *Py_UNUSED(closure)) {
 }
 
 static int Base_setScale(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return vectorSet(value, self -> scale, 2) ? -1 : self -> base(self), 0;
+    return vectorSet(value, self -> scale, 2) ? -1 : 0;
 }
 
 static int Base_setAnchorX(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
@@ -145,8 +156,8 @@ static int Base_setAnchorY(Base *self, PyObject *value, void *Py_UNUSED(closure)
     return ERR(self -> anchor[y]) ? -1 : 0;
 }
 
-static vec Base_vecAnchor(Base *self) {
-    return self -> anchor;
+static double Base_vecAnchor(Base *self, uint8_t index) {
+    return self -> anchor[index];
 }
 
 static PyObject *Base_getAnchor(Base *self, void *Py_UNUSED(closure)) {
@@ -165,14 +176,14 @@ static int Base_setAnchor(Base *self, PyObject *value, void *Py_UNUSED(closure))
 }
 
 static PyObject *Base_getAngle(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> angle);
+    return PyFloat_FromDouble(cpBodyGetAngle(self -> body) * 180 / M_PI);
 }
 
 static int Base_setAngle(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     DEL(value)
 
-    self -> angle = PyFloat_AsDouble(value);
-    return ERR(self -> angle) ? -1 : angle(self), 0;
+    const double angle = PyFloat_AsDouble(value);
+    return ERR(angle) ? -1 : cpBodySetAngle(self -> body, angle * M_PI / 180), 0;
 }
 
 static PyObject *Base_getRed(Base *self, void *Py_UNUSED(closure)) {
@@ -219,8 +230,8 @@ static int Base_setAlpha(Base *self, PyObject *value, void *Py_UNUSED(closure)) 
     return ERR(self -> color[a]) ? -1 : 0;
 }
 
-static vec Base_vecColor(Base *self) {
-    return self -> color;
+static double Base_vecColor(Base *self, uint8_t index) {
+    return self -> color[index];
 }
 
 static PyObject *Base_getColor(Base *self, void *Py_UNUSED(closure)) {
@@ -299,34 +310,32 @@ static int Base_setBottom(Base *self, PyObject *value, void *Py_UNUSED(closure))
 }
 
 static PyObject *Base_getType(Base *self, void *Py_UNUSED(closure)) {
-    return PyLong_FromLong(self -> type);
+    return PyLong_FromLong(cpBodyGetType(self -> body));
 }
 
 static int Base_setType(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     DEL(value)
 
-    if (ERR(self -> type = PyLong_AsLong(value)))
-        return -1;
+    const long type = PyLong_AsLong(value);
+    if (ERR(type)) return -1;
 
-    if (self -> type != DYNAMIC && self -> type != STATIC) {
+    if (type != CP_BODY_TYPE_DYNAMIC && type != CP_BODY_TYPE_KINEMATIC) {
         PyErr_SetString(PyExc_ValueError, "type must be DYNAMIC or STATIC");
         return -1;
     }
 
-    if (self -> body) cpBodySetType(self -> body, self -> type);
-    return baseMoment(self), 0;
+    return cpBodySetType(self -> body, type), baseMoment(self), 0;
 }
 
 static PyObject *Base_getMass(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> mass);
+    return PyFloat_FromDouble(cpBodyGetMass(self -> body));
 }
 
 static int Base_setMass(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     DEL(value)
 
-    if (ERR(self -> mass = PyFloat_AsDouble(value))) return -1;
-    if (self -> body) cpBodySetMass(self -> body, self -> mass);
-    return baseMoment(self), 0;
+    const double mass = PyFloat_AsDouble(value);
+    return ERR(mass) ? -1 : cpBodySetMass(self -> body, mass), baseMoment(self), 0;
 }
 
 static PyObject *Base_getElasticity(Base *self, void *Py_UNUSED(closure)) {
@@ -337,7 +346,8 @@ static int Base_setElasticity(Base *self, PyObject *value, void *Py_UNUSED(closu
     DEL(value)
 
     if (ERR(self -> elasticity = PyFloat_AsDouble(value))) return -1;
-    if (self -> shape) cpShapeSetElasticity(self -> shape, self -> elasticity);
+    FOR(size_t, self -> length) cpShapeSetElasticity(self -> shapes[i], self -> elasticity);
+
     return 0;
 }
 
@@ -349,7 +359,8 @@ static int Base_setFriction(Base *self, PyObject *value, void *Py_UNUSED(closure
     DEL(value)
 
     if (ERR(self -> friction = PyFloat_AsDouble(value))) return -1;
-    if (self -> shape) cpShapeSetFriction(self -> shape, self -> friction);
+    FOR(size_t, self -> length) cpShapeSetFriction(self -> shapes[i], self -> friction);
+
     return 0;
 }
 
@@ -357,18 +368,18 @@ static int Base_setVelocityX(Base *self, PyObject *value, void *Py_UNUSED(closur
     DEL(value)
 
     self -> vel[x] = PyFloat_AsDouble(value);
-    return ERR(self -> vel[x]) ? -1 : vel(self), 0;
+    return ERR(self -> vel[x]) ? -1 : cpBodySetVelocity(self -> body, cpv(self -> vel[x], self -> vel[y])), 0;
 }
 
 static int Base_setVelocityY(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     DEL(value)
 
     self -> vel[y] = PyFloat_AsDouble(value);
-    return ERR(self -> vel[y]) ? -1 : vel(self), 0;
+    return ERR(self -> vel[y]) ? -1 : cpBodySetVelocity(self -> body, cpv(self -> vel[x], self -> vel[y])), 0;
 }
 
-static vec Base_vecVelocity(Base *self) {
-    return self -> vel;
+static double Base_vecVelocity(Base *self, uint8_t index) {
+    return self -> vel[index];
 }
 
 static PyObject *Base_getVelocity(Base *self, void *Py_UNUSED(closure)) {
@@ -383,19 +394,29 @@ static PyObject *Base_getVelocity(Base *self, void *Py_UNUSED(closure)) {
 }
 
 static int Base_setVelocity(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return vectorSet(value, self -> vel, 2) ? -1 : vel(self), 0;
+    return vectorSet(value, self -> vel, 2) ? -1 : cpBodySetVelocity(self -> body, cpv(self -> vel[x], self -> vel[y])), 0;
 }
 
 static PyObject *Base_getAngularVelocity(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> angular);
+    return PyFloat_FromDouble(cpBodyGetAngularVelocity(self -> body) * 180 / M_PI);
 }
 
 static int Base_setAngularVelocity(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
     DEL(value)
 
-    if (ERR(self -> angular = PyFloat_AsDouble(value))) return -1;
-    if (self -> body) cpBodySetAngularVelocity(self -> body, self -> angular * M_PI / 180);
-    return 0;
+    const double velocity = PyFloat_AsDouble(value);
+    return ERR(velocity) ? -1 : cpBodySetAngularVelocity(self -> body, velocity * M_PI / 180), 0;
+}
+
+static PyObject *Base_getTorque(Base *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(cpBodyGetTorque(self -> body));
+}
+
+static int Base_setTorque(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
+    DEL(value)
+
+    const double torque = PyFloat_AsDouble(value);
+    return ERR(torque) ? -1 : cpBodySetTorque(self -> body, torque), 0;
 }
 
 static PyObject *Base_getRotate(Base *self, void *Py_UNUSED(closure)) {
@@ -412,15 +433,20 @@ static int Base_setRotate(Base *self, PyObject *value, void *Py_UNUSED(closure))
     return baseMoment(self), 0;
 }
 
+static PyObject *Base_getGrounded(Base *self, void *Py_UNUSED(closure)) {
+    bool grounded = false;
+
+    cpBodyEachArbiter(self -> body, (cpBodyArbiterIteratorFunc) arbiter, &grounded);
+    return PyBool_FromLong(grounded);
+}
+
 static PyObject *Base_lookAt(Base *self, PyObject *object) {
     vec2 pos;
     
     if (other(object, pos)) return NULL;
     const double value = atan2(pos[y] - self -> pos[y], pos[x] - self -> pos[x]);
 
-    self -> angle = value * 180 / M_PI;
-    angle(self);
-
+    cpBodySetAngle(self -> body, value * 180 / M_PI);
     Py_RETURN_NONE;
 }
 
@@ -439,17 +465,22 @@ static PyObject *Base_moveSmooth(Base *self, PyObject *args) {
 }
 
 static PyObject *Base_force(Base *self, PyObject *args) {
-    if (!self -> body) {
-        PyErr_SetString(PyExc_AttributeError, "must be added to a physics engine");
+    cpVect pos, force;
+
+    if (vect(self, args, &force.x, &force.y, &pos.x, &pos.y))
         return NULL;
-    }
 
-    cpVect pos = {0, 0};
-    cpVect force;
-
-    if (!PyArg_ParseTuple(args, "dd|dd", &force.x, &force.y, &pos.x, &pos.y)) return NULL;
     cpBodyApplyForceAtLocalPoint(self -> body, force, pos);
+    Py_RETURN_NONE;
+}
 
+static PyObject *Base_impulse(Base *self, PyObject *args) {
+    cpVect pos, impulse;
+
+    if (vect(self, args, &impulse.x, &impulse.y, &pos.x, &pos.y))
+        return NULL;
+
+    cpBodyApplyImpulseAtLocalPoint(self -> body, impulse, pos);
     Py_RETURN_NONE;
 }
 
@@ -480,6 +511,8 @@ static PyGetSetDef BaseGetSetters[] = {
     {"angular_velocity", (getter) Base_getAngularVelocity, (setter) Base_setAngularVelocity, "physics rotation speed of the object", NULL},
     {"rotate_speed", (getter) Base_getAngularVelocity, (setter) Base_setAngularVelocity, "physics rotation speed of the object", NULL},
     {"rotate", (getter) Base_getRotate, (setter) Base_setRotate, "the object is able to rotate in a physics engine", NULL},
+    {"torque", (getter) Base_getTorque, (setter) Base_setTorque, "rotational force for the next physics frame", NULL},
+    {"grounded", (getter) Base_getGrounded, NULL, "the physics body is touching the ground", NULL},
     {NULL}
 };
 
@@ -489,13 +522,21 @@ static PyMethodDef BaseMethods[] = {
     {"look_at", (PyCFunction) Base_lookAt, METH_O, "rotate the object so that it points to another object"},
     {"move_toward", (PyCFunction) Base_moveToward, METH_VARARGS, "move the object toward another object"},
     {"move_smooth", (PyCFunction) Base_moveSmooth, METH_VARARGS, "move the object smoothly toward another object"},
-    {"force", (PyCFunction) Base_force, METH_VARARGS, "apply a force to the object physics"},
+    {"force", (PyCFunction) Base_force, METH_VARARGS, "apply a force to the object body"},
+    {"impulse", (PyCFunction) Base_impulse, METH_VARARGS, "apply an impulse to the object body"},
     {NULL}
 };
 
 void baseUniform(mat matrix, vec4 vec) {
     glUniformMatrix4fv(uniform[obj], 1, GL_FALSE, matrix);
     glUniform4f(uniform[color], (GLfloat) vec[r], (GLfloat) vec[g], (GLfloat) vec[b], (GLfloat) vec[a]);
+}
+
+void baseDealloc(Base *self) {
+    cpBodyFree(self -> body);
+    free(self -> shapes);
+
+    Py_TYPE(self) -> tp_free((PyObject *) self);
 }
 
 int baseToward(vec2 this, PyObject *args) {
@@ -547,34 +588,46 @@ void baseInit(Base *self) {
     self -> color[r] = self -> color[g] = self -> color[b] = 0;
     self -> color[a] = 1;
 
-    self -> mass = 1;
-    self -> angle = 0;
-    self -> angular = 0;
     self -> rotate = 1;
     self -> elasticity = .5;
     self -> friction = .5;
-    self -> type = DYNAMIC;
+}
+
+void baseStart(Base *self, double angle) {
+    cpBodySetMass(self -> body, 1);
+    cpBodySetAngle(self -> body, angle);
+    cpBodySetAngularVelocity(self -> body, 0);
+    cpBodySetType(self -> body, CP_BODY_TYPE_DYNAMIC);
 }
 
 void baseMatrix(Base *self, double px, double py) {
-    const double sine = sin(self -> angle * M_PI / 180);
-    const double cosine = cos(self -> angle * M_PI / 180);
+    const double sine = sin(cpBodyGetAngle(self -> body));
+    const double cosine = cos(cpBodyGetAngle(self -> body));
     const double sx = px * self -> scale[x];
     const double sy = py * self -> scale[y];
 
     mat matrix = {
-        (GLfloat) (sx * cosine), (GLfloat) (sx * sine), 0, 0,
-        (GLfloat) (sy * -sine), (GLfloat) (sy * cosine), 0, 0, 0, 0, 1, 0,
-        (GLfloat) (self -> anchor[x] * cosine + self -> anchor[y] * -sine + self -> pos[x]),
-        (GLfloat) (self -> anchor[x] * sine + self -> anchor[y] * cosine + self -> pos[y]), 0, 1
+        sx * cosine, sx * sine, 0, 0,
+        sy * -sine, sy * cosine, 0, 0, 0, 0, 1, 0,
+        self -> anchor[x] * cosine + self -> anchor[y] * -sine + self -> pos[x],
+        self -> anchor[x] * sine + self -> anchor[y] * cosine + self -> pos[y], 0, 1
     };
 
     baseUniform(matrix, self -> color);
 }
 
 void baseMoment(Base *self) {
-    if (self -> body && self -> type == DYNAMIC)
+    if (cpBodyGetType(self -> body) == CP_BODY_TYPE_DYNAMIC)
         cpBodySetMoment(self -> body, self -> rotate ? self -> moment(self) : INFINITY);
+}
+
+PyObject *baseNew(PyTypeObject *type, size_t length) {
+    Base *self = (Base *) type -> tp_alloc(type, 0);
+
+    self -> body = cpBodyNew(0, 0);
+    self -> shapes = malloc(length * sizeof NULL);
+
+    return (PyObject *) self;
 }
 
 PyTypeObject BaseType = {
@@ -585,6 +638,7 @@ PyTypeObject BaseType = {
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_new = PyType_GenericNew,
+    .tp_dealloc = (destructor) baseDealloc,
     .tp_getset = BaseGetSetters,
     .tp_methods = BaseMethods
 };

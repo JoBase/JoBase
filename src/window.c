@@ -110,8 +110,8 @@ static int Window_setBlue(Window *self, PyObject *value, void *Py_UNUSED(closure
     return ERR(self -> color[b]) ? -1 : clear(), 0;
 }
 
-static vec Window_vecColor(Window *self) {
-    return self -> color;
+static double Window_vecColor(Window *self, uint8_t index) {
+    return self -> color[index];
 }
 
 static PyObject *Window_getColor(Window *self, void *Py_UNUSED(closure)) {
@@ -161,8 +161,12 @@ static int Window_setHeight(Window *Py_UNUSED(self), PyObject *value, void *Py_U
     return end(), 0;
 }
 
+static double Window_vecSize(Window *Py_UNUSED(self), uint8_t index) {
+    return windowSize()[index];
+}
+
 static PyObject *Window_getSize(Window *self, void *Py_UNUSED(closure)) {
-    Vector *size = vectorNew((PyObject *) self, (Getter) windowSize, 2);
+    Vector *size = vectorNew((PyObject *) self, (Getter) Window_vecSize, 2);
 
     size -> data[x].name = "x";
     size -> data[y].name = "y";
@@ -239,6 +243,7 @@ static PyObject *Window_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObj
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_SAMPLES, 4);
 
     if (!(window -> glfw = glfwCreateWindow(640, 480, "JoBase", NULL, NULL))) {
         const char *buffer;

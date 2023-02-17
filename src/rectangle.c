@@ -3,30 +3,23 @@
 #include <chipmunk/chipmunk_unsafe.h>
 
 static void new(Rectangle *self) {
-    self -> base.shape = cpBoxShapeNew(
-        self -> base.body,
-        self -> size[x] * self -> base.scale[x],
-        self -> size[y] * self -> base.scale[y], 0);
+    *self -> base.shapes = cpBoxShapeNew(self -> base.body, self -> size[x], self -> size[y], 0);
+    self -> base.length = 1;
 }
 
 static void base(Rectangle *self) {
-    if (!self -> base.shape) return;
+    if (!self -> base.length) return;
 
     const double sx = self -> size[x] / 2;
     const double sy = self -> size[y] / 2;
 
-    cpTransform shift = cpTransformNew(self -> base.scale[x], 0, 0, self -> base.scale[y], 0, 0);
     cpVect data[4] = {{-sx, sy}, {sx, sy}, {sx, -sy}, {-sx, -sy}};
-
-    cpPolyShapeSetVerts(self -> base.shape, 4, data, shift);
+    cpPolyShapeSetVerts(*self -> base.shapes, 4, data, cpTransformNew(1, 0, 0, 1, 0, 0));
     baseMoment((Base *) self);
 }
 
 static cpFloat moment(Rectangle *self) {
-    return cpMomentForBox(
-        self -> base.mass,
-        self -> size[x] * self -> base.scale[x],
-        self -> size[y] * self -> base.scale[y]);
+    return cpMomentForBox(cpBodyGetMass(self -> base.body), self -> size[x], self -> size[y]);
 }
 
 static double top(Rectangle *self) {
@@ -71,8 +64,8 @@ static int Rectangle_setHeight(Rectangle *self, PyObject *value, void *Py_UNUSED
     return ERR(self -> size[y]) ? -1 : base(self), 0;
 }
 
-static vec Rectangle_vecSize(Rectangle *self) {
-    return self -> size;
+static double Rectangle_vecSize(Rectangle *self, uint8_t index) {
+    return self -> size[index];
 }
 
 static PyObject *Rectangle_getSize(Rectangle *self, void *Py_UNUSED(closure)) {
@@ -95,12 +88,9 @@ static PyObject *Rectangle_draw(Rectangle *self, PyObject *Py_UNUSED(ignored)) {
     Py_RETURN_NONE;
 }
 
-static PyObject *Rectangle_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
-    return rectangleNew(type);
-}
-
 static int Rectangle_init(Rectangle *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"x", "y", "width", "height", "angle", "color", NULL};
+    double angle = 0;
 
     PyObject *color = NULL;
     baseInit((Base *) self);
@@ -110,9 +100,9 @@ static int Rectangle_init(Rectangle *self, PyObject *args, PyObject *kwds) {
 
     int status = PyArg_ParseTupleAndKeywords(
         args, kwds, "|dddddO", kwlist, &self -> base.pos[x], &self -> base.pos[y],
-        &self -> size[x], &self -> size[y], &self -> base.angle, &color);
+        &self -> size[x], &self -> size[y], &angle, &color);
 
-    return !status || (color && vectorSet(color, self -> base.color, 4)) ? -1 : 0;
+    return !status || (color && vectorSet(color, self -> base.color, 4)) ? -1 : baseStart((Base *) self, angle), 0;
 }
 
 static PyGetSetDef RectangleGetSetters[] = {
@@ -127,11 +117,10 @@ static PyMethodDef RectangleMethods[] = {
     {NULL}
 };
 
-PyObject *rectangleNew(PyTypeObject *type) {
-    Rectangle *self = (Rectangle *) type -> tp_alloc(type, 0);
+PyObject *rectangleNew(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
+    Rectangle *self = (Rectangle *) baseNew(type, 1);
 
     self -> base.new = (void *)(Base *) new;
-    self -> base.base = (void *)(Base *) base;
     self -> base.moment = (cpFloat (*)(Base *)) moment;
     self -> base.top = (double (*)(Base *)) top;
     self -> base.bottom = (double (*)(Base *)) bottom;
@@ -151,15 +140,15 @@ void rectangleDraw(Rectangle *self, uint8_t type) {
 }
 
 void rectanglePoly(Rectangle *self, poly poly) {
-    const double px = self -> size[x] * self -> base.scale[x] / 2;
-    const double py = self -> size[y] * self -> base.scale[y] / 2;
+    const double px = self -> size[x] / 2;
+    const double py = self -> size[y] / 2;
 
     poly[0][x] = poly[3][x] = self -> base.anchor[x] - px;
     poly[0][y] = poly[1][y] = self -> base.anchor[y] + py;
     poly[1][x] = poly[2][x] = self -> base.anchor[x] + px;
     poly[2][y] = poly[3][y] = self -> base.anchor[y] - py;
 
-    rotate(poly, 4, self -> base.angle, self -> base.pos);
+    rotate(poly, 4, cpBodyGetAngle(self -> base.body), self -> base.pos);
 }
 
 PyTypeObject RectangleType = {
@@ -170,7 +159,7 @@ PyTypeObject RectangleType = {
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_base = &BaseType,
-    .tp_new = Rectangle_new,
+    .tp_new = rectangleNew,
     .tp_init = (initproc) Rectangle_init,
     .tp_getset = RectangleGetSetters,
     .tp_methods = RectangleMethods

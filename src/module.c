@@ -50,14 +50,19 @@ static PyObject *Module_tan(PyObject *Py_UNUSED(self), PyObject *value) {
     return PyFloat_FromDouble(tan(angle));
 }
 
+static PyObject *Module_sqrt(PyObject *Py_UNUSED(self), PyObject *value) {
+    double number = PyFloat_AsDouble(value);
+
+    if (ERR(number)) return NULL;
+    return PyFloat_FromDouble(sqrt(number));
+}
+
 static PyObject *Module_run(PyObject *Py_UNUSED(self), PyObject *Py_UNUSED(ignored)) {
     PyObject *module = PyDict_GetItemString(PySys_GetObject("modules"), "__main__");
     glfwShowWindow(window -> glfw);
 
-    if (PyObject_HasAttrString(module, "loop")) {
-        loop = PyObject_GetAttrString(module, "loop");
-        if (!loop) return NULL;
-    }
+    if (PyObject_HasAttrString(module, "loop") && !(loop = PyObject_GetAttrString(module, "loop")))
+        return NULL;
 
     while (!glfwWindowShouldClose(window -> glfw)) {
         if (PyErr_CheckSignals() || PyErr_Occurred() || update()) return NULL;
@@ -114,9 +119,15 @@ static int Module_exec(PyObject *self) {
     BUILD("Line", (PyObject *) &LineType)
     BUILD("Shape", (PyObject *) &ShapeType)
     BUILD("Physics", (PyObject *) &PhysicsType)
+    BUILD("Joint", (PyObject *) &JointType)
+    BUILD("Pin", (PyObject *) &PinType)
+    BUILD("Pivot", (PyObject *) &PivotType)
+    BUILD("Motor", (PyObject *) &MotorType)
+    BUILD("Spring", (PyObject *) &SpringType)
+    BUILD("Groove", (PyObject *) &GrooveType)
 
-    BUILD("DYNAMIC", PyLong_FromLong(DYNAMIC))
-    BUILD("STATIC", PyLong_FromLong(STATIC))
+    BUILD("DYNAMIC", PyLong_FromLong(CP_BODY_TYPE_DYNAMIC))
+    BUILD("STATIC", PyLong_FromLong(CP_BODY_TYPE_KINEMATIC))
     BUILD("PI", PyFloat_FromDouble(M_PI))
 
     PATH("MAN", "images/man.png")
@@ -228,7 +239,9 @@ static int Module_exec(PyObject *self) {
     glBindVertexArray(0);
     glDeleteBuffers(1, &buffer);
 
+    glEnable(GL_MULTISAMPLE);
     glEnable(GL_BLEND);
+
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glUniform1i(glGetUniformLocation(program, "sampler"), 0);
@@ -274,6 +287,7 @@ static PyMethodDef ModuleMethods[] = {
     {"sin", Module_sin, METH_O, "sine function of an angle"},
     {"cos", Module_cos, METH_O, "cosine function of an angle"},
     {"tan", Module_tan, METH_O, "tangent function of an angle"},
+    {"sqrt", Module_sqrt, METH_O, "find the square root"},
     {"run", Module_run, METH_NOARGS, "activate the main game loop"},
     {NULL}
 };
@@ -310,6 +324,12 @@ PyMODINIT_FUNC PyInit_JoBase() {
     READY(LineType)
     READY(ShapeType)
     READY(PhysicsType)
+    READY(JointType)
+    READY(PinType)
+    READY(PivotType)
+    READY(MotorType)
+    READY(SpringType)
+    READY(GrooveType)
 
     return PyModuleDef_Init(&Module);
 }

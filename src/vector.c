@@ -1,4 +1,4 @@
-#define GET(e, i) e->get(e->parent)[i]
+#define GET(e, i) e->get(e->parent, i)
 #include <main.h>
 
 enum {add, subtract, multiply, divide};

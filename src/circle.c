@@ -5,7 +5,7 @@
 #include <chipmunk/chipmunk_unsafe.h>
 
 static size_t vertices(Circle *self) {
-    return (int) (sqrt(fabs(self -> radius * AVR(self -> base.scale))) * 4) + 4;
+    return (int) (sqrt(fabs(self -> radius)) * 4) + 4;
 }
 
 static void data(Circle *self) {
@@ -24,41 +24,43 @@ static void data(Circle *self) {
     }
 
     glBindVertexArray(self -> vao);
+    glBindBuffer(GL_ARRAY_BUFFER, self -> vbo);
     glBufferData(GL_ARRAY_BUFFER, size, data, GL_DYNAMIC_DRAW);
     glBindVertexArray(0);
 }
 
 static void new(Circle *self) {
-    self -> base.shape = cpCircleShapeNew(self -> base.body, self -> radius * AVR(self -> base.scale), cpv(0, 0));
+    *self -> base.shapes = cpCircleShapeNew(self -> base.body, self -> radius, cpv(0, 0));
+    self -> base.length = 1;
 }
 
 static void base(Circle *self) {
     data(self);
 
-    if (self -> base.shape) {
+    if (self -> base.length) {
+        cpCircleShapeSetRadius(*self -> base.shapes, self -> radius);
         baseMoment((Base *) self);
-        cpCircleShapeSetRadius(self -> base.shape, self -> radius * AVR(self -> base.scale));
     }
 }
 
 static cpFloat moment(Circle *self) {
-    return cpMomentForCircle(self -> base.mass, 0, self -> radius * AVR(self -> base.scale), cpv(0, 0));
+    return cpMomentForCircle(cpBodyGetMass(self -> base.body), 0, self -> radius * 2, cpv(0, 0));
 }
 
 static double top(Circle *self) {
-    return circleY(self) + self -> radius * AVR(self -> base.scale);
+    return circleY(self) + self -> radius;
 }
 
 static double bottom(Circle *self) {
-    return circleY(self) - self -> radius * AVR(self -> base.scale);
+    return circleY(self) - self -> radius;
 }
 
 static double left(Circle *self) {
-    return circleX(self) - self -> radius * AVR(self -> base.scale);
+    return circleX(self) - self -> radius;
 }
 
 static double right(Circle *self) {
-    return circleX(self) + self -> radius * AVR(self -> base.scale);
+    return circleX(self) + self -> radius;
 }
 
 static PyObject *Circle_getDiameter(Circle *self, void *Py_UNUSED(closure)) {
@@ -72,7 +74,7 @@ static int Circle_setDiameter(Circle *self, PyObject *value, void *Py_UNUSED(clo
     if (ERR(diameter)) return -1;
 
     self -> radius = diameter / 2;
-    return data(self), 0;
+    return base(self), 0;
 }
 
 static PyObject *Circle_getRadius(Circle *self, void *Py_UNUSED(closure)) {
@@ -83,7 +85,7 @@ static int Circle_setRadius(Circle *self, PyObject *value, void *Py_UNUSED(closu
     DEL(value)
 
     self -> radius = PyFloat_AsDouble(value);
-    return ERR(self -> radius) ? -1 : data(self), 0;
+    return ERR(self -> radius) ? -1 : base(self), 0;
 }
 
 static PyObject *Circle_draw(Circle *self, PyObject *Py_UNUSED(ignored)) {
@@ -98,10 +100,9 @@ static PyObject *Circle_draw(Circle *self, PyObject *Py_UNUSED(ignored)) {
 }
 
 static PyObject *Circle_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
-    Circle *self = (Circle *) type -> tp_alloc(type, 0);
+    Circle *self = (Circle *) baseNew(type, 1);
 
     self -> base.new = (void *)(Base *) new;
-    self -> base.base = (void *)(Base *) base;
     self -> base.moment = (cpFloat (*)(Base *)) moment;
     self -> base.top = (double (*)(Base *)) top;
     self -> base.bottom = (double (*)(Base *)) bottom;
@@ -135,14 +136,13 @@ static int Circle_init(Circle *self, PyObject *args, PyObject *kwds) {
         return -1;
 
     self -> radius = diameter / 2;
-    return data(self), 0;
+    return baseStart((Base *) self, 0), data(self), 0;
 }
 
 static void Circle_dealloc(Circle *self) {
     glDeleteBuffers(1, &self -> vbo);
     glDeleteVertexArrays(1, &self -> vao);
-
-    Py_TYPE(self) -> tp_free((PyObject *) self);
+    baseDealloc((Base *) self);
 }
 
 static PyGetSetDef CircleGetSetters[] = {
@@ -157,12 +157,12 @@ static PyMethodDef CircleMethods[] = {
 };
 
 double circleX(Circle *self) {
-    const double angle = self -> base.angle * M_PI / 180;
+    const double angle = cpBodyGetAngle(self -> base.body);
     return self -> base.pos[x] + self -> base.anchor[x] * cos(angle) - self -> base.anchor[y] * sin(angle);
 }
 
 double circleY(Circle *self) {
-    const double angle = self -> base.angle * M_PI / 180;
+    const double angle = cpBodyGetAngle(self -> base.body);
     return self -> base.pos[y] + self -> base.anchor[y] * cos(angle) + self -> base.anchor[x] * sin(angle);
 }
 

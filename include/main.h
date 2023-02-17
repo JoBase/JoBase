@@ -1,16 +1,13 @@
 #define DEL(e) if(!e){return PyErr_SetString(PyExc_AttributeError,"can't delete attribute"),-1;}
 #define SEQ(e) return format(PyExc_TypeError,"must be sequence, not %s",Py_TYPE(e)->tp_name),-1;
+#define BASE(e, t) PyObject_IsInstance(e,(PyObject*)&t)
 
 #define NEW(t, e) t*i=malloc(sizeof(t));i->next=e;e=i;
 #define ERR(e) ((e)==-1&&PyErr_Occurred())
 #define FOR(t, e) for(t i=0;i<e;i++)
-#define AVR(e) (e[x]+e[y])/2
 #define MIN(a, b) (a<b?a:b)
 #define MAX(a, b) (a>b?a:b)
 #define IDX(e) (e-2)*3
-
-#define DYNAMIC CP_BODY_TYPE_DYNAMIC
-#define STATIC CP_BODY_TYPE_STATIC
 
 #define SHAPE 0
 #define IMAGE 1
@@ -31,7 +28,7 @@ typedef double *vec;
 typedef double vec2[2];
 typedef double vec3[3];
 typedef double vec4[4];
-typedef vec (*Getter)(PyObject *);
+typedef double (*Getter)(PyObject *, uint8_t);
 typedef GLfloat mat[16];
 typedef vec2 *poly;
 
@@ -99,18 +96,14 @@ typedef struct Base {
     vec2 scale;
     vec2 anchor;
     vec4 color;
-    double angle;
-    double mass;
     double elasticity;
     double friction;
-    double angular;
-    int type;
-    cpShape *shape;
+    size_t length;
+    cpShape **shapes;
     cpBody *body;
     bool rotate;
     cpFloat (*moment)(struct Base *);
     void (*new)(struct Base *);
-    void (*base)(struct Base *);
     double (*top)(struct Base *);
     double (*bottom)(struct Base *);
     double (*left)(struct Base *);
@@ -170,7 +163,6 @@ typedef struct Shape {
     Base base;
     size_t vertex;
     poly points;
-    GLuint *indices;
     GLuint vao;
     GLuint vbo;
     GLuint ibo;
@@ -178,14 +170,25 @@ typedef struct Shape {
 
 typedef struct Line {
     Shape shape;
-    poly base;
     double width;
 } Line;
+
+typedef struct Joint {
+    PyObject_HEAD
+    double width;
+    cpConstraint *joint;
+    vec4 color;
+    Base *a;
+    Base *b;
+    GLuint vao;
+    GLuint vbo;
+    GLuint ibo;
+} Joint;
 
 typedef struct Physics {
     PyObject_HEAD
     cpSpace *space;
-    Base **data;
+    PyObject **data;
     size_t length;
 } Physics;
 
@@ -203,6 +206,12 @@ extern PyTypeObject CircleType;
 extern PyTypeObject LineType;
 extern PyTypeObject ShapeType;
 extern PyTypeObject PhysicsType;
+extern PyTypeObject JointType;
+extern PyTypeObject PinType;
+extern PyTypeObject PivotType;
+extern PyTypeObject MotorType;
+extern PyTypeObject SpringType;
+extern PyTypeObject GrooveType;
 
 extern Window *window;
 extern Cursor *cursor;
@@ -228,20 +237,28 @@ extern void rectangleDraw(Rectangle *, uint8_t);
 extern void rectanglePoly(Rectangle *, poly);
 extern void rotate(poly, size_t, double, vec2);
 extern void format(PyObject *, const char *, ...);
+extern void lineCreate(poly, size_t, double);
+extern void jointDraw(Joint *, poly, size_t);
+extern void buffers(GLuint *, GLuint *, GLuint *);
 extern void baseMatrix(Base *, double, double);
+extern void baseStart(Base *, double);
 extern void baseUniform(mat, vec4);
 extern void baseMoment(Base *);
 extern void baseInit(Base *);
+extern void baseDealloc(Base *);
 extern void shapeDealloc(Shape *);
-extern void shapeBase(Shape *);
+extern void jointDealloc(Joint *);
+extern void jointInit(Joint *);
 
 extern const char *filepath(const char *);
+extern Base *shapeNew(PyTypeObject *);
 extern Button *buttonNew(Set *);
 extern Vector *vectorNew(PyObject *, Getter, uint8_t);
 extern PyObject *collide(PyObject *, PyObject *);
-extern PyObject *rectangleNew(PyTypeObject *);
 extern PyObject *shapeDraw(Shape *, PyObject *);
-extern PyObject *shapeNew(PyTypeObject *, PyObject *, PyObject *);
+extern PyObject *rectangleNew(PyTypeObject *, PyObject *, PyObject *);
+extern PyObject *baseNew(PyTypeObject *, size_t);
+extern PyObject *jointNew(PyTypeObject *, cpConstraint *);
 extern poly shapePoly(Shape *);
 
 extern vec cursorPos();
@@ -250,8 +267,14 @@ extern vec windowSize();
 extern int baseToward(vec2, PyObject *);
 extern int baseSmooth(vec2, PyObject *);
 extern int vectorSet(PyObject *, vec, uint8_t);
+extern int shapeParse(Shape *, PyObject *);
+extern int jointStart(Joint *, PyObject *);
 extern int update();
 
+extern double shapeLeft(Shape *);
+extern double shapeTop(Shape *);
+extern double shapeRight(Shape *);
+extern double shapeBottom(Shape *);
 extern double getLeft(poly, size_t);
 extern double getTop(poly, size_t);
 extern double getRight(poly, size_t);

@@ -1,17 +1,39 @@
 #define _USE_MATH_DEFINES
 #include <main.h>
 
-static void delete(Physics *self, size_t index) {
-    Base *object = self -> data[index];
+static void delete(Physics *self, PyObject *value) {
+    if (BASE(value, BaseType)) {
+        Base *base = (Base *) value;
 
-    cpSpaceRemoveBody(self -> space, object -> body);
-    cpSpaceRemoveShape(self -> space, object -> shape);
-    cpBodyFree(object -> body);
-    cpShapeFree(object -> shape);
+        FOR(size_t, base -> length) {
+            cpSpaceRemoveShape(self -> space, base -> shapes[i]);
+            cpShapeFree(base -> shapes[i]);
+        }
 
-    object -> body = NULL;
-    object -> shape = NULL;
-    Py_DECREF(object);
+        cpSpaceRemoveBody(self -> space, base -> body);
+        base -> length = 0;
+        Py_DECREF(base);
+    }
+
+    else {
+        Joint *joint = (Joint *) value;
+        cpSpaceRemoveConstraint(self -> space, joint -> joint);
+        Py_DECREF(joint);
+    }
+}
+
+static int array(Physics *self, PyObject *check) {
+    FOR(size_t, self -> length) {
+        if (self -> data[i] != check) continue;
+        delete(self, check);
+        self -> length --;
+
+        memmove(&self -> data[i], &self -> data[i + 1], sizeof NULL * (self -> length - i));
+        return 0;
+    }
+
+    PyErr_SetString(PyExc_ValueError, "can't remove because it doesn't exist in physics engine");
+    return -1;
 }
 
 static Py_ssize_t Physics_len(Physics *self) {
@@ -19,19 +41,13 @@ static Py_ssize_t Physics_len(Physics *self) {
 }
 
 static PyObject *Physics_item(Physics *self, Py_ssize_t index) {
-    if (index >= (Py_ssize_t) self -> length) {
+    if (index >= (signed) self -> length) {
         PyErr_SetString(PyExc_IndexError, "index out of range");
         return NULL;
     }
 
-    Py_INCREF(self -> data[index]);
-    return (PyObject *) self -> data[index];
+    return Py_INCREF(self -> data[index]), self -> data[index];
 }
-
-static PySequenceMethods PhysicsSequenceMethods = {
-    .sq_length = (lenfunc) Physics_len,
-    .sq_item = (ssizeargfunc) Physics_item
-};
 
 static int Physics_setGravityX(Physics *self, PyObject *value, void *Py_UNUSED(closure)) {
     DEL(value)
@@ -53,13 +69,10 @@ static int Physics_setGravityY(Physics *self, PyObject *value, void *Py_UNUSED(c
     return 0;
 }
 
-static vec Physics_vecGravity(Physics *self) {
-    static vec2 gravity;
-    cpVect vect = cpSpaceGetGravity(self -> space);
-
-    gravity[x] = vect.x;
-    gravity[y] = vect.y;
-    return gravity;
+static double Physics_vecGravity(Physics *self, uint8_t index) {
+    const cpVect vect = cpSpaceGetGravity(self -> space);
+    const vec2 gravity = {vect.x, vect.y};
+    return gravity[index];
 }
 
 static PyObject *Physics_getGravity(Physics *self, void *Py_UNUSED(closure)) {
@@ -74,84 +87,82 @@ static PyObject *Physics_getGravity(Physics *self, void *Py_UNUSED(closure)) {
 }
 
 static int Physics_setGravity(Physics *self, PyObject *value, void *Py_UNUSED(closure)) {
-    vec vect = Physics_vecGravity(self);
-
-    if (vectorSet(value, vect, 2)) return -1;
-    return cpSpaceSetGravity(self -> space, cpv(vect[x], vect[y])), 0;
+    const cpVect gravity = cpSpaceGetGravity(self -> space);
+    vec2 vect = {gravity.x, gravity.y};
+    return vectorSet(value, vect, 2) ? -1 : cpSpaceSetGravity(self -> space, cpv(vect[x], vect[y])), 0;
 }
 
 static PyObject *Physics_add(Physics *self, PyObject *args) {
-    Base *base;
+    ssize_t length = PyTuple_GET_SIZE(args);
+    self -> data = realloc(self -> data, sizeof NULL * (self -> length + length));
 
-    if (!PyArg_ParseTuple(args, "O!", &BaseType, &base))
-        return NULL;
+    FOR(ssize_t, length) {
+        PyObject *value = PyTuple_GET_ITEM(args, i);
 
-    if (base -> shape) {
-        PyErr_SetString(PyExc_ValueError, "already added to a physics engine");
-        return NULL;
+        if (BASE(value, BaseType)) {
+            Base *base = (Base *) value;
+
+            if (base -> length) {
+                PyErr_SetString(PyExc_ValueError, "already added to a physics engine");
+                return NULL;
+            }
+
+            cpBodySetPosition(base -> body, cpv(base -> pos[x], base -> pos[y]));
+            cpBodySetVelocity(base -> body, cpv(base -> vel[x], base -> vel[y]));
+            cpSpaceAddBody(self -> space, base -> body);
+
+            base -> new(base);
+            baseMoment(base);
+
+            FOR(size_t, base -> length) {
+                cpShapeSetElasticity(base -> shapes[i], base -> elasticity);
+                cpShapeSetFriction(base -> shapes[i], base -> friction);
+                cpSpaceAddShape(self -> space, base -> shapes[i]);
+            }
+        }
+
+        else if (BASE(value, JointType)) {
+            Joint *joint = (Joint *) value;
+            cpSpaceAddConstraint(self -> space, joint -> joint);
+        }
+
+        else {
+            PyErr_SetString(PyExc_ValueError, "object must be Base or Joint");
+            return NULL;
+        }
+
+        self -> data[self -> length] = value;
+        self -> length ++;
+
+        Py_INCREF(value);
     }
 
-    if (base -> type == DYNAMIC)
-        base -> body = cpBodyNew(base -> mass, base -> rotate ? base -> moment(base) : INFINITY);
-
-    else base -> body = cpBodyNewKinematic();
-    cpBodySetAngle(base -> body, base -> angle * M_PI / 180);
-    cpBodySetPosition(base -> body, cpv(base -> pos[x], base -> pos[y]));
-    cpBodySetVelocity(base -> body, cpv(base -> vel[x], base -> vel[y]));
-    cpBodySetAngularVelocity(base -> body, base -> angular * M_PI / 180);
-
-    base -> new(base);
-    cpShapeSetElasticity(base -> shape, base -> elasticity);
-    cpShapeSetFriction(base -> shape, base -> friction);
-
-    cpSpaceAddBody(self -> space, base -> body);
-    cpSpaceAddShape(self -> space, base -> shape);
-
-    self -> data = realloc(self -> data, sizeof(Base *) * (self -> length + 1));
-    self -> data[self -> length] = base;
-    self -> length ++;
-
-    Py_INCREF(base);
     Py_RETURN_NONE;
 }
 
 static PyObject *Physics_remove(Physics *self, PyObject *args) {
-    Base *other;
+    FOR(ssize_t, PyTuple_GET_SIZE(args))
+        if (array(self, PyTuple_GET_ITEM(args, i)))
+            return NULL;
 
-    if (!PyArg_ParseTuple(args, "O!", &BaseType, &other))
-        return NULL;
-
-    FOR(size_t, self -> length)
-        if (self -> data[i] == other) {
-            delete(self, i);
-            self -> length --;
-
-            for (size_t j = i; j < self -> length; j ++)
-                self -> data[j] = self -> data[j + 1];
-
-            self -> data = realloc(self -> data, sizeof(Base *) * self -> length);
-            Py_RETURN_NONE;
-        }
-
-    PyErr_SetString(PyExc_ValueError, "can't remove because it doesn't exist in physics engine");
-    return NULL;
+    self -> data = realloc(self -> data, sizeof NULL * self -> length);
+    Py_RETURN_NONE;
 }
 
 static PyObject *Physics_update(Physics *self, PyObject *Py_UNUSED(ignored)) {
     cpSpaceStep(self -> space, 1. / 60);
 
-    for (size_t i = 0; i < self -> length; i ++) {
-        cpVect pos = cpBodyGetPosition(self -> data[i] -> body);
-        cpVect vel = cpBodyGetVelocity(self -> data[i] -> body);
-        cpFloat angle = cpBodyGetAngle(self -> data[i] -> body);
-        cpFloat angular = cpBodyGetAngularVelocity(self -> data[i] -> body);
+    FOR(size_t, self -> length) {
+        if (BASE(self -> data[i], JointType)) continue;
+        Base *base = (Base *) self -> data[i];
 
-        self -> data[i] -> pos[x] = pos.x;
-        self -> data[i] -> pos[y] = pos.y;
-        self -> data[i] -> vel[x] = vel.x;
-        self -> data[i] -> vel[y] = vel.y;
-        self -> data[i] -> angle = angle * 180 / M_PI;
-        self -> data[i] -> angular = angular * 180 / M_PI;
+        cpVect pos = cpBodyGetPosition(base -> body);
+        cpVect vel = cpBodyGetVelocity(base -> body);
+
+        base -> pos[x] = pos.x;
+        base -> pos[y] = pos.y;
+        base -> vel[x] = vel.x;
+        base -> vel[y] = vel.y;
     }
     
     Py_RETURN_NONE;
@@ -160,7 +171,7 @@ static PyObject *Physics_update(Physics *self, PyObject *Py_UNUSED(ignored)) {
 static PyObject *Physics_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
     Physics *self = (Physics *) type -> tp_alloc(type, 0);
 
-    self -> data = realloc(self -> data, 0);
+    self -> data = malloc(0);
     self -> space = cpSpaceNew();
 
     return (PyObject *) self;
@@ -173,7 +184,7 @@ static int Physics_init(Physics *self, PyObject *args, PyObject *kwds) {
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "|dd", kwlist, &vector.x, &vector.y))
         return -1;
 
-    FOR(size_t, self -> length) delete(self, i);
+    FOR(size_t, self -> length) delete(self, self -> data[i]);
     self -> data = realloc(self -> data, 0);
     self -> length = 0;
 
@@ -181,12 +192,17 @@ static int Physics_init(Physics *self, PyObject *args, PyObject *kwds) {
 }
 
 static void Physics_dealloc(Physics *self) {
-    FOR(size_t, self -> length) delete(self, i);
+    FOR(size_t, self -> length) delete(self, self -> data[i]);
     cpSpaceFree(self -> space);
     free(self -> data);
 
     Py_TYPE(self) -> tp_free((PyObject *) self);
 }
+
+static PySequenceMethods PhysicsSequenceMethods = {
+    .sq_length = (lenfunc) Physics_len,
+    .sq_item = (ssizeargfunc) Physics_item
+};
 
 static PyGetSetDef PhysicsGetSetters[] = {
     {"gravity", (getter) Physics_getGravity, (setter) Physics_setGravity, "the gravity of the physics engine", NULL},

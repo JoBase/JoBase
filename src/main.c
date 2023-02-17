@@ -1,5 +1,4 @@
 #define OBJ(e) return format(PyExc_TypeError,"must be Base or cursor, not %s",Py_TYPE(e)->tp_name),NULL;
-#define BASE(e, t) PyObject_IsInstance(e,(PyObject*)&t)
 #define _USE_MATH_DEFINES
 
 #include <glad/glad.h>
@@ -30,15 +29,15 @@ static bool circlePoint(vec2 pos, double radius, vec2 point) {
     return hypot(point[x] - pos[x], point[y] - pos[y]) < radius;
 }
 
-static bool linePoint(vec2 p1, vec2 p2, vec2 point) {
+static bool segmentPoint(vec2 p1, vec2 p2, vec2 point) {
     const double d1 = hypot(point[x] - p1[x], point[y] - p1[y]);
     const double d2 = hypot(point[x] - p2[x], point[y] - p2[y]);
     const double length = hypot(p1[x] - p2[x], p1[y] - p2[y]);
 
-    return d1 + d2 >= length - .1 && d1 + d2 <= length + .1;
+    return d1 + d2 >= length - 0.1 && d1 + d2 <= length + 0.1;
 }
 
-static bool lineLine(vec2 p1, vec2 p2, vec2 p3, vec2 p4) {
+static bool segmentSegment(vec2 p1, vec2 p2, vec2 p3, vec2 p4) {
     const double value = (p4[y] - p3[y]) * (p2[x] - p1[x]) - (p4[x] - p3[x]) * (p2[y] - p1[y]);
     const double u1 = ((p4[x] - p3[x]) * (p1[y] - p3[y]) - (p4[y] - p3[y]) * (p1[x] - p3[x])) / value;
     const double u2 = ((p2[x] - p1[x]) * (p1[y] - p3[y]) - (p2[y] - p1[y]) * (p1[x] - p3[x])) / value;
@@ -46,7 +45,7 @@ static bool lineLine(vec2 p1, vec2 p2, vec2 p3, vec2 p4) {
     return u1 >= 0 && u1 <= 1 && u2 >= 0 && u2 <= 1;
 }
 
-static bool lineCircle(vec2 p1, vec2 p2, vec2 pos, double radius) {
+static bool segmentCircle(vec2 p1, vec2 p2, vec2 pos, double radius) {
     if (circlePoint(pos, radius, p1) || circlePoint(pos, radius, p2))
         return true;
 
@@ -54,11 +53,11 @@ static bool lineCircle(vec2 p1, vec2 p2, vec2 pos, double radius) {
     const double dot = ((pos[x] - p1[x]) * (p2[x] - p1[x]) + (pos[y] - p1[y]) * (p2[y] - p1[y])) / pow(length, 2);
 
     vec2 point = {p1[x] + dot * (p2[x] - p1[x]), p1[y] + dot * (p2[y] - p1[y])};
-    return !linePoint(p1, p2, point) ? 0 : hypot(point[x] - pos[x], point[y] - pos[y]) <= radius;
+    return segmentPoint(p1, p2, point) ? hypot(point[x] - pos[x], point[y] - pos[y]) <= radius : 0;
 }
 
-static bool polyLine(poly poly, size_t size, vec2 p1, vec2 p2) {
-    FOR(size_t, size) if (lineLine(p1, p2, poly[i], poly[i + 1 == size ? 0 : i + 1]))
+static bool polySegment(poly poly, size_t size, vec2 p1, vec2 p2) {
+    FOR(size_t, size) if (segmentSegment(p1, p2, poly[i], poly[i + 1 == size ? 0 : i + 1]))
         return true;
 
     return false;
@@ -83,22 +82,56 @@ static bool polyPoly(poly p1, size_t s1, poly p2, size_t s2) {
     if (polyPoint(p1, s1, p2[0]) || polyPoint(p2, s2, p1[0]))
         return true;
 
-    FOR(size_t, s1) if (polyLine(p2, s2, p1[i], p1[i + 1 == s1 ? 0 : i + 1]))
+    FOR(size_t, s1) if (polySegment(p2, s2, p1[i], p1[i + 1 == s1 ? 0 : i + 1]))
         return true;
 
     return false;
 }
 
 static bool polyCircle(poly poly, size_t size, vec2 pos, double radius) {
-    FOR(size_t, size) if (lineCircle(poly[i], poly[i + 1 == size ? 0 : i + 1], pos, radius))
+    FOR(size_t, size) if (segmentCircle(poly[i], poly[i + 1 == size ? 0 : i + 1], pos, radius))
         return true;
     
     return false;
 }
 
+static bool linePoint(poly line, size_t size, double radius, vec2 point) {
+    FOR(size_t, size - 1) if (segmentCircle(line[i], line[i + 1], point, radius))
+        return true;
+
+    return false;
+}
+
+static bool linePoly(poly line, size_t s1, double radius, poly poly, size_t s2) {
+    if (polyPoint(poly, s1, line[0]))
+        return true;
+
+    for (size_t j = 1; j < s1; j ++)
+        FOR(size_t, s2) {
+            const bool a = segmentCircle(line[j], line[j - 1], poly[i], radius);
+            const bool b = segmentCircle(poly[i], poly[i + 1 == s2 ? 0 : i + 1], line[j], radius);
+            if (a || b) return true;
+        }
+
+    return false;
+}
+
+void buffers(GLuint *vao, GLuint *vbo, GLuint *ibo) {
+    glGenVertexArrays(1, vao);
+    glBindVertexArray(*vao);
+    glGenBuffers(1, vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, *vbo);
+    glGenBuffers(1, ibo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, *ibo);
+
+    glVertexAttribPointer(uniform[vert], 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(uniform[vert]);
+    glBindVertexArray(0);
+}
+
 void rotate(poly poly, size_t size, double angle, vec2 pos) {
-    const double cosine = cos(angle * M_PI / 180);
-    const double sine = sin(angle * M_PI / 180);
+    const double cosine = cos(angle);
+    const double sine = sin(angle);
 
     FOR(size_t, size) {
         const double px = poly[i][x];
@@ -150,10 +183,10 @@ int update() {
     const vec size = windowSize();
 
     mat matrix = {
-        (GLfloat) (2 / size[x]), 0, 0, 0, 0,
-        (GLfloat) (2 / size[y]), 0, 0, 0, 0, -2, 0,
-        (GLfloat) (-camera -> pos[x] * 2 / size[x]),
-        (GLfloat) (-camera -> pos[y] * 2 / size[y]), -1, 1
+        2 / size[x], 0, 0, 0, 0,
+        2 / size[y], 0, 0, 0, 0, -2, 0,
+        -camera -> pos[x] * 2 / size[x],
+        -camera -> pos[y] * 2 / size[y], -1, 1
     };
     
     glUniformMatrix4fv(uniform[view], 1, GL_FALSE, matrix);
@@ -205,14 +238,22 @@ PyObject *collide(PyObject *self, PyObject *other) {
         else if (BASE(other, CircleType)) {
             Circle *circle = (Circle *) other;
             vec2 pos = {circleX(circle), circleY(circle)};
-            result = polyCircle(rect, 4, pos, circle -> radius * AVR(circle -> base.scale));
+            result = polyCircle(rect, 4, pos, circle -> radius);
         }
 
-        else if (BASE(other, ShapeType) || BASE(other, LineType)) {
+        else if (BASE(other, ShapeType)) {
             Shape *shape = (Shape *) other;
             vec2 *poly = shapePoly(shape);
 
             result = polyPoly(rect, 4, poly, shape -> vertex);
+            free(poly);
+        }
+
+        else if (BASE(other, LineType)) {
+            Line *line = (Line *) other;
+            vec2 *poly = shapePoly((Shape *) line);
+
+            result = linePoly(poly, line -> shape.vertex, line -> width / 2, rect, 4);
             free(poly);
         }
 
@@ -225,7 +266,7 @@ PyObject *collide(PyObject *self, PyObject *other) {
     else if (BASE(self, CircleType)) {
         Circle *circle = (Circle *) self;
         vec2 pos = {circleX(circle), circleY(circle)};
-        const double size = circle -> radius * AVR(circle -> base.scale);
+        const double size = circle -> radius;
 
         if (BASE(other, RectangleType)) {
             vec2 rect[4];
@@ -237,14 +278,22 @@ PyObject *collide(PyObject *self, PyObject *other) {
         else if (BASE(other, CircleType)) {
             Circle *object = (Circle *) other;
             vec2 point = {circleX(object), circleY(object)};
-            result = circleCircle(pos, size, point, object -> radius * AVR(object -> base.scale));
+            result = circleCircle(pos, size, point, object -> radius);
         }
 
-        else if (BASE(other, ShapeType) || BASE(other, LineType)) {
+        else if (BASE(other, ShapeType)) {
             Shape *shape = (Shape *) other;
             vec2 *poly = shapePoly(shape);
 
             result = polyCircle(poly, shape -> vertex, pos, size);
+            free(poly);
+        }
+
+        else if (BASE(other, LineType)) {
+            Line *line = (Line *) other;
+            vec2 *poly = shapePoly((Shape *) line);
+
+            result = linePoint(poly, line -> shape.vertex, line -> width / 2 + size, pos);
             free(poly);
         }
 
@@ -254,7 +303,7 @@ PyObject *collide(PyObject *self, PyObject *other) {
         else OBJ(other)
     }
 
-    else if (BASE(self, ShapeType) || BASE(self, LineType)) {
+    else if (BASE(self, ShapeType)) {
         Shape *shape = (Shape *) self;
         vec2 *poly = shapePoly(shape);
 
@@ -268,10 +317,10 @@ PyObject *collide(PyObject *self, PyObject *other) {
         else if (BASE(other, CircleType)) {
             Circle *circle = (Circle *) other;
             vec2 pos = {circleX(circle), circleY(circle)};
-            result = polyCircle(poly, shape -> vertex, pos, circle -> radius * AVR(circle -> base.scale));
+            result = polyCircle(poly, shape -> vertex, pos, circle -> radius);
         }
 
-        else if (BASE(other, ShapeType) || BASE(other, LineType)) {
+        else if (BASE(other, ShapeType)) {
             Shape *object = (Shape *) other;
             vec2 *mesh = shapePoly(object);
 
@@ -279,8 +328,52 @@ PyObject *collide(PyObject *self, PyObject *other) {
             free(mesh);
         }
 
+        else if (BASE(other, LineType)) {
+            Line *line = (Line *) other;
+            vec2 *mesh = shapePoly((Shape *) line);
+
+            result = linePoly(mesh, line -> shape.vertex, line -> width / 2, poly, shape -> vertex);
+            free(poly);
+        }
+
         else if (other == (PyObject *) cursor)
             result = polyPoint(poly, shape -> vertex, cursorPos());
+
+        else {
+            free(poly);
+            OBJ(other)
+        }
+
+        free(poly);
+    }
+
+    else if (BASE(self, LineType)) {
+        Line *line = (Line *) self;
+        vec2 *poly = shapePoly((Shape *) line);
+
+        if (BASE(other, RectangleType)) {
+            vec2 rect[4];
+
+            rectanglePoly((Rectangle *) other, rect);
+            result = linePoly(poly, line -> shape.vertex, line -> width / 2, rect, 4);
+        }
+
+        else if (BASE(other, CircleType)) {
+            Circle *circle = (Circle *) other;
+            vec2 pos = {circleX(circle), circleY(circle)};
+            result = linePoint(poly, line -> shape.vertex, line -> width / 2 + circle -> radius, pos);
+        }
+
+        else if (BASE(other, ShapeType)) {
+            Shape *object = (Shape *) other;
+            vec2 *mesh = shapePoly(object);
+
+            result = linePoly(poly, line -> shape.vertex, line -> width / 2, mesh, object -> vertex);
+            free(mesh);
+        }
+
+        else if (other == (PyObject *) cursor)
+            result = linePoint(poly, line -> shape.vertex, line -> width / 2, cursorPos());
 
         else {
             free(poly);
@@ -301,14 +394,22 @@ PyObject *collide(PyObject *self, PyObject *other) {
         else if (BASE(other, CircleType)) {
             Circle *circle = (Circle *) other;
             vec2 pos = {circleX(circle), circleY(circle)};
-            result = circlePoint(pos, circle -> radius * AVR(circle -> base.scale), cursorPos());
+            result = circlePoint(pos, circle -> radius, cursorPos());
         }
 
-        else if (BASE(other, ShapeType) || BASE(other, LineType)) {
+        else if (BASE(other, ShapeType)) {
             Shape *shape = (Shape *) other;
             vec2 *poly = shapePoly(shape);
 
             result = polyPoint(poly, shape -> vertex, cursorPos());
+            free(poly);
+        }
+
+        else if (BASE(self, LineType)) {
+            Line *line = (Line *) other;
+            vec2 *poly = shapePoly((Shape *) line);
+
+            result = linePoint(poly, line -> shape.vertex, line -> width / 2, cursorPos());
             free(poly);
         }
 

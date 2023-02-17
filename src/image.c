@@ -13,22 +13,17 @@ static PyObject *Image_draw(Image *self, PyObject *Py_UNUSED(ignored)) {
     Py_RETURN_NONE;
 }
 
-static PyObject *Image_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
-    return rectangleNew(type);
-}
-
 static int Image_init(Image *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"name", "x", "y", "angle", "width", "height", "color", NULL};
     const char *name = filepath("images/man.png");
-    double sx = 0, sy = 0;
+    double sx = 0, sy = 0, angle = 0;
 
     PyObject *color = NULL;
     baseInit((Base *) self);
 
     if (!PyArg_ParseTupleAndKeywords(
         args, kwds, "|sdddddO", kwlist, &name, &self -> rect.base.pos[x],
-        &self -> rect.base.pos[y], &self -> rect.base.angle,
-        &sx, &sy, &color)) return -1;
+        &self -> rect.base.pos[y], &angle, &sx, &sy, &color)) return -1;
 
     self -> rect.base.color[r] = 1;
     self -> rect.base.color[g] = 1;
@@ -65,7 +60,7 @@ static int Image_init(Image *self, PyObject *args, PyObject *kwds) {
     textures -> size.y = height;
     textures -> name = strdup(name);
 
-    return 0;
+    return baseStart((Base *) self, angle), 0;
 }
 
 static PyMethodDef ImageMethods[] = {
@@ -81,7 +76,7 @@ PyTypeObject ImageType = {
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_base = &RectangleType,
-    .tp_new = Image_new,
+    .tp_new = rectangleNew,
     .tp_init = (initproc) Image_init,
     .tp_methods = ImageMethods
 };

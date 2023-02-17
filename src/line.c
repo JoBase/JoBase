@@ -8,27 +8,156 @@ static void normalize(vec2 value) {
     value[y] /= length;
 }
 
-static void alloc(Line *self) {
-    self -> base = realloc(self -> base, self -> shape.vertex / 3 * sizeof(vec2));
-    self -> shape.points = realloc(self -> shape.points, self -> shape.vertex * sizeof(vec2));
+static void new(Line *self) {
+    self -> shape.base.length = self -> shape.vertex - 1;
+    self -> shape.base.shapes = realloc(self -> shape.base.shapes, self -> shape.base.length * sizeof NULL);
+
+    FOR(size_t, self -> shape.base.length) {
+        cpVect a = cpv(self -> shape.points[i][x], self -> shape.points[i][y]);
+        cpVect b = cpv(self -> shape.points[i + 1][x], self -> shape.points[i + 1][y]);
+
+        self -> shape.base.shapes[i] = cpSegmentShapeNew(self -> shape.base.body, a, b, self -> width / 2);
+    }
 }
 
-static void parse(Line *self, size_t size) {
-    size_t index = 0, start = 0;
-    size_t end = self -> shape.vertex - 1;
-    size_t length = self -> shape.vertex / 3;
+static cpFloat moment(Line *self) {
+    const double mass = cpBodyGetMass(self -> shape.base.body) / self -> shape.base.length;
+    double moment = 0;
+
+    FOR(size_t, self -> shape.base.length) {
+        cpVect a = cpv(self -> shape.points[i][x], self -> shape.points[i][y]);
+        cpVect b = cpv(self -> shape.points[i + 1][x], self -> shape.points[i + 1][y]);
+
+        moment += cpMomentForSegment(mass, a, b, self -> width / 2);
+    }
+
+    return moment;
+}
+
+static void base(Line *self) {
+    // if (!self -> base.shape) return;
+    // cpVect *verts = vertices(self);
+
+    // cpPolyShapeSetVerts(self -> base.shape, self -> vertex, verts, transform(self));
+    // baseMoment((Base *) self);
+    // free(verts);
+}
+
+static double top(Line *self) {
+    return shapeTop((Shape *) self) + self -> width / 2;
+}
+
+static double bottom(Line *self) {
+    return shapeBottom((Shape *) self) - self -> width / 2;
+}
+
+static double left(Line *self) {
+    return shapeLeft((Shape *) self) - self -> width / 2;
+}
+
+static double right(Line *self) {
+    return shapeRight((Shape *) self) + self -> width / 2;
+}
+
+static void parse(Line *self) {
+    glBindVertexArray(self -> shape.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, self -> shape.vbo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self -> shape.ibo);
+
+    lineCreate(self -> shape.points, self -> shape.vertex, self -> width);
+    glBindVertexArray(0);
+}
+
+static PyObject *Line_getWidth(Line *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> width);
+}
+
+static int Line_setWidth(Line *self, PyObject *value, void *Py_UNUSED(closure)) {
+    DEL(value)
+
+    self -> width = PyFloat_AsDouble(value);
+    return ERR(self -> width) ? -1 : parse(self), base(self), 0;
+}
+
+static PyObject *Line_draw(Shape *self, PyObject *Py_UNUSED(ignored)) {
+    baseMatrix((Base *) self, 1, 1);
+
+    glBindVertexArray(self -> vao);
+    glUniform1i(uniform[img], SHAPE);
+    glDrawElements(GL_TRIANGLES, IDX(self -> vertex * 3 - 2), GL_UNSIGNED_INT, 0);
+
+    glBindVertexArray(0);
+    Py_RETURN_NONE;
+}
+
+static PyObject *Line_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
+    Base *self = shapeNew(type);
+
+    self -> new = (void *)(Base *) new;
+    self -> moment = (cpFloat (*)(Base *)) moment;
+    self -> top = (double (*)(Base *)) top;
+    self -> bottom = (double (*)(Base *)) bottom;
+    self -> left = (double (*)(Base *)) left;
+    self -> right = (double (*)(Base *)) right;
+
+    return (PyObject *) self;
+}
+
+static int Line_init(Line *self, PyObject *args, PyObject *kwds) {
+    static char *kwlist[] = {"points", "width", "x", "y", "angle", "color", NULL};
+    double angle = 0;
+    self -> width = 2;
+
+    PyObject *color = NULL;
+    PyObject *points = NULL;
+    baseInit((Base *) self);
+
+    int state = PyArg_ParseTupleAndKeywords(
+        args, kwds, "|OddddO", kwlist, &points, &self -> width, &self -> shape.base.pos[x],
+        &self -> shape.base.pos[y], &angle, &color);
+
+    if (!state || (color && vectorSet(color, self -> shape.base.color, 4)) || shapeParse((Shape *) self, points))
+        return -1;
+
+    if (!points) {
+        self -> shape.vertex = 2;
+        self -> shape.points = realloc(self -> shape.points, self -> shape.vertex * sizeof(vec2));
+
+        self -> shape.points[0][x] = self -> shape.points[0][y] = -25;
+        self -> shape.points[1][x] = self -> shape.points[1][y] = 25;
+    }
+
+    return baseStart((Base *) self, angle), parse(self), 0;
+}
+
+static PyGetSetDef LineGetSetters[] = {
+    {"width", (getter) Line_getWidth, (setter) Line_setWidth, "thickness of the line", NULL},
+    {NULL}
+};
+
+static PyMethodDef LineMethods[] = {
+    {"draw", (PyCFunction) Line_draw, METH_NOARGS, "draw the line on the screen"},
+    {NULL}
+};
+
+void lineCreate(poly base, size_t length, double width) {
+    size_t verts = length * 3 - 2;
+    size_t index = 0, start = 0, end = verts - 1;
+
+    GLfloat *points = malloc(verts * 2 * sizeof(GLfloat));
+    GLuint *indices = malloc(IDX(verts) * sizeof(GLuint));
 
     FOR(size_t, length) {
-        vec e = self -> base[i];
+        vec e = base[i];
 
         vec2 prev = {
-            i ? self -> base[i - 1][x] : e[x],
-            i ? self -> base[i - 1][y] : e[y]
+            i ? base[i - 1][x] : e[x],
+            i ? base[i - 1][y] : e[y]
         };
 
         vec2 next = {
-            i < length - 1 ? self -> base[i + 1][x] : e[x],
-            i < length - 1 ? self -> base[i + 1][y] : e[y]
+            i < length - 1 ? base[i + 1][x] : e[x],
+            i < length - 1 ? base[i + 1][y] : e[y]
         };
 
         if (e[x] == prev[x] && e[y] == prev[y]) {
@@ -49,6 +178,7 @@ static void parse(Line *self, size_t size) {
 
         vec2 ab = {e[x] - prev[x], e[y] - prev[y]};
         vec2 bc = {next[x] - e[x], next[y] - e[y]};
+        vec2 pass = {hypot(hypot(ab[x], ab[y]), width / 2), hypot(hypot(bc[x], bc[y]),  width / 2)};
 
         normalize(ab);
         normalize(bc);
@@ -62,146 +192,62 @@ static void parse(Line *self, size_t size) {
         vec2 miter = {-tangent[y], tangent[x]};
         vec2 normal = {-ab[y], ab[x]};
 
-        const uint8_t inside = miter[x] * point[x] + miter[y] * point[y] > 0;
-        size_t a, b, c, inner = start, outer = end;
+        const bool inside = miter[x] * point[x] + miter[y] * point[y] > 0;
+        const size_t inner = start, outer = end;
+        const char invert = inside ? 1 : -1;
+        size_t a, b, c;
 
         if (inside) {
             a = start, b = end, c = end - 1;
-            end -= 2;
+            end -= i ? 2 : 1;
             start ++;
         }
 
         else {
             a = end, b = start, c = start + 1;
-            start += 2;
+            start += i ? 2 : 1;
             end --;
         }
 
         const double dot = miter[x] * normal[x] + miter[y] * normal[y];
-        const double line = self -> width / 2 * (inside ? 1 : -1);
+        const double line = width / 2 * invert;
+        const double pro = line / dot * invert;
+        const double min = MIN(pass[x], pass[y]);
 
-        self -> shape.points[a][x] = e[x] - miter[x] * line / dot;
-        self -> shape.points[a][y] = e[y] - miter[y] * line / dot;
-        self -> shape.points[b][x] = e[x] + normal[x] * line;
-        self -> shape.points[b][y] = e[y] + normal[y] * line;
-        self -> shape.points[c][x] = e[x] - (normal[x] - 2 * dot * miter[x]) * line;
-        self -> shape.points[c][y] = e[y] - (normal[y] - 2 * dot * miter[y]) * line;
+        vec2 left = {normal[x] * line, normal[y] * line};
+        vec2 right = {-(normal[x] - 2 * dot * miter[x]) * line, -(normal[y] - 2 * dot * miter[y]) * line};
+        vec2 mid = {miter[x] * line / dot, miter[y] * line / dot};
 
-        if (size) {
-            self -> shape.indices[index] = a;
-            self -> shape.indices[index + 1] = b;
-            self -> shape.indices[index + 2] = c;
+        points[a * 2] = e[x] - (pro > min && min == pass[x] ? right[x] : pro > min && min == pass[y] ? left[x] : mid[x]);
+        points[a * 2 + 1] = e[y] - (pro > min && min == pass[x] ? right[y] : pro > min && min == pass[y] ? left[y] : mid[y]);
+        points[b * 2] = e[x] + left[x];
+        points[b * 2 + 1] = e[y] + left[y];
 
-            index += 3;
+        if (i) {
+            indices[index] = indices[index + 5] = inner - 1;
+            indices[index + 1] = inner;
+            indices[index + 2] = indices[index + 3] = outer;
+            indices[index + 4] = outer + 1;
 
-            if (i) {
-                self -> shape.indices[index] = self -> shape.indices[index + 5] = inner - 1;
-                self -> shape.indices[index + 1] = inside ? a : b;
-                self -> shape.indices[index + 2] = self -> shape.indices[index + 3] = inside ? b : a;
-                self -> shape.indices[index + 4] = outer + 1;
-                index += 6;
+            if (i < length - 1) {
+                points[c * 2] = e[x] + right[x];
+                points[c * 2 + 1] = e[y] + right[y];
+
+                indices[index + 6] = a;
+                indices[index + 7] = b;
+                indices[index + 8] = c;
             }
+
+            index += 9;
         }
     }
 
-    glBindVertexArray(self -> shape.vao);
-    glBufferData(GL_ARRAY_BUFFER, self -> shape.vertex * sizeof(vec2), self -> shape.points, GL_DYNAMIC_DRAW);
-    if (size) glBufferData(GL_ELEMENT_ARRAY_BUFFER, size, self -> shape.indices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, verts * 2 * sizeof(GLfloat), points, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, IDX(verts) * sizeof(GLuint), indices, GL_DYNAMIC_DRAW);
 
-    glBindVertexArray(0);
+    free(points);
+    free(indices);
 }
-
-static PyObject *Line_getWidth(Line *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> width);
-}
-
-static int Line_setWidth(Line *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> width = PyFloat_AsDouble(value);
-    return ERR(self -> width) ? -1 : parse(self, 0), shapeBase((Shape *) self), 0;
-}
-
-static PyObject *Line_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
-    Line *self = (Line *) shapeNew(type, args, kwds);
-    return self -> base = malloc(0), (PyObject *) self;
-}
-
-static int Line_init(Line *self, PyObject *args, PyObject *kwds) {
-    static char *kwlist[] = {"points", "width", "color", NULL};
-
-    PyObject *color = NULL;
-    PyObject *points = NULL;
-
-    baseInit((Base *) self);
-    self -> width = 1;
-
-    int state = PyArg_ParseTupleAndKeywords(
-        args, kwds, "|OdO", kwlist, &points, &self -> width, &color);
-
-    if (!state || (color && vectorSet(color, self -> shape.base.color, 4)))
-        return -1;
-
-    if (points) {
-        if (!PySequence_Check(points)) SEQ(points)
-        PyObject *seq = PySequence_Fast(points, NULL);
-
-        self -> shape.vertex = PySequence_Fast_GET_SIZE(seq) * 3;
-        alloc(self);
-
-        FOR(size_t, self -> shape.vertex / 3) {
-            PyObject *point = PySequence_Fast_GET_ITEM(seq, i);
-
-            if (!PySequence_Check(point)) SEQ(point)
-            PyObject *value = PySequence_Fast(point, NULL);
-
-            if (PySequence_Fast_GET_SIZE(value) < 2) {
-                PyErr_SetString(PyExc_ValueError, "point must contain 2 values");
-                Py_DECREF(value);
-                Py_DECREF(seq);
-                return -1;
-            }
-
-            self -> base[i][x] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(value, x));
-            self -> base[i][y] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(value, y));
-            Py_DECREF(value);
-
-            if (ERR(self -> base[i][x]) || ERR(self -> base[i][y])) {
-                Py_DECREF(seq);
-                return -1;
-            }
-        }
-
-        Py_DECREF(seq);
-    }
-
-    else {
-        self -> shape.vertex = 6;
-        alloc(self);
-
-        self -> base[0][x] = self -> base[0][y] = -25;
-        self -> base[1][x] = self -> base[1][y] = 25;
-    }
-
-    size_t size = IDX(self -> shape.vertex) * sizeof(GLuint);
-    self -> shape.indices = realloc(self -> shape.indices, size);
-    return parse(self, size), 0;
-}
-
-static void Line_dealloc(Line *self) {
-    free(self -> base);
-    shapeDealloc((Shape *) self);
-}
-
-static PyGetSetDef LineGetSetters[] = {
-    {"width", (getter) Line_getWidth, (setter) Line_setWidth, "thickness of the line", NULL},
-    {NULL}
-};
-
-static PyMethodDef LineMethods[] = {
-    {"draw", (PyCFunction) shapeDraw, METH_NOARGS, "draw the line on the screen"},
-    {NULL}
-};
 
 PyTypeObject LineType = {
     PyVarObject_HEAD_INIT(NULL, 0)
@@ -213,7 +259,7 @@ PyTypeObject LineType = {
     .tp_base = &BaseType,
     .tp_new = Line_new,
     .tp_init = (initproc) Line_init,
-    .tp_dealloc = (destructor) Line_dealloc,
+    .tp_dealloc = (destructor) shapeDealloc,
     .tp_getset = LineGetSetters,
     .tp_methods = LineMethods
 };

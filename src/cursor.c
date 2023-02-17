@@ -30,8 +30,12 @@ static int Cursor_setY(Cursor *Py_UNUSED(self), PyObject *value, void *Py_UNUSED
     return end(), 0;
 }
 
+static double Cursor_vecPos(Cursor *Py_UNUSED(self), uint8_t index) {
+    return cursorPos()[index];
+}
+
 static PyObject *Cursor_getPos(Cursor *self, void *Py_UNUSED(closure)) {
-    Vector *pos = vectorNew((PyObject *) self, (Getter) cursorPos, 2);
+    Vector *pos = vectorNew((PyObject *) self, (Getter) Cursor_vecPos, 2);
 
     pos -> data[x].name = "x";
     pos -> data[y].name = "y";
@@ -40,8 +44,8 @@ static PyObject *Cursor_getPos(Cursor *self, void *Py_UNUSED(closure)) {
 }
 
 static int Cursor_setPos(Cursor *Py_UNUSED(self), PyObject *value, void *Py_UNUSED(closure)) {
-    vec pos = cursorPos();
-    vec size = windowSize();
+    const vec pos = cursorPos();
+    const vec size = windowSize();
 
     if (vectorSet(value, pos, 2))
         return -1;

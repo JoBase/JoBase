@@ -22,8 +22,8 @@ static int Camera_setY(Camera *self, PyObject *value, void *Py_UNUSED(closure)) 
     return ERR(self -> pos[y]) ? -1 : 0;
 }
 
-static vec Camera_vecPos(Camera *self) {
-    return self -> pos;
+static double Camera_vecPos(Camera *self, uint8_t index) {
+    return self -> pos[index];
 }
 
 static PyObject *Camera_getPos(Camera *self, void *Py_UNUSED(closure)) {
