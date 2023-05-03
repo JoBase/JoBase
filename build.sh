@@ -27,9 +27,7 @@ then
         apk update
         apk add libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libpng-dev
     else
-        apt-get clean
-        apt-get update
-        apt-get install -y xorg-dev
+        yum install libxcursor-devel libxi-devel libxinerama-devel libxrandr-devel libpng-devel
     fi
 fi
 
