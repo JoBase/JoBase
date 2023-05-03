@@ -27,8 +27,8 @@ then
         apk update
         apk add libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libpng-dev
     else
-        apt update
-        apt install -y xorg-dev
+        apt-get update
+        apt-get install -y xorg-dev
     fi
 fi
 
