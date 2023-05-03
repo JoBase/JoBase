@@ -27,6 +27,8 @@ then
         apk update
         apk add libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libpng-dev
     else
+        rm -r /var/lib/apt/lists
+        apt-get autoclean
         apt-get clean
         apt-get update
         apt-get install -y xorg-dev
