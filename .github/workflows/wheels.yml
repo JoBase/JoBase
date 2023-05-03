@@ -37,7 +37,7 @@ jobs:
           platforms: all
 
       - name: Build
-        uses: pypa/cibuildwheel@v2.3.1
+        uses: pypa/cibuildwheel@v2.12.3
         env:
           CIBW_BUILD: ${{matrix.plat[2]}}
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
