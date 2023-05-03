@@ -46,7 +46,7 @@ setuptools.setup(
     python_requires = ">=3.6",
     license = "GPL-3.0-or-later",
     packages = ["JoBase"],
-    package_data = {"JoBase": ["images/*.png", "fonts/*.ttf", "examples/**/*.py"]},
+    package_data = {"JoBase": ["**/*.{py,png,ttf,md}"]},
     include_package_data = True,
 
     keywords = [
