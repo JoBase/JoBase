@@ -27,10 +27,9 @@ then
         apk update
         apk add libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libpng-dev
     else
-        yum install libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libpng-dev
-        # apt-get dist-upgrade
-        # apt-get update
-        # apt-get install -y xorg-dev
+        sed -i -e 's/archive.ubuntu.com\|security.ubuntu.com/old-releases.ubuntu.com/g' /etc/apt/sources.list
+        apt-get update
+        apt-get install -y xorg-dev
     fi
 fi
 
