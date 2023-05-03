@@ -29,7 +29,7 @@ then
     else
         # apt update
         # apt install xorg-dev
-        yum install -y libXcursor-devel libXi-devel libXinerama-devel libXrandr-devel
+        yum install -y libXcursor-devel libXi-devel libXinerama-devel libXrandr-devel libpng-devel
     fi
 fi
 
