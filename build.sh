@@ -27,7 +27,7 @@ then
         apk update
         apk add libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libpng-dev
     else
-        sed -i -e 's/archive.ubuntu.com\|security.ubuntu.com/old-releases.ubuntu.com/g' /etc/apt/sources.list
+        apt-get clean
         apt-get update
         apt-get install -y xorg-dev
     fi
