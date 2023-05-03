@@ -125,8 +125,8 @@ static PyGetSetDef CursorGetSetters[] = {
 };
 
 static PyMethodDef CursorMethods[] = {
-    {"collides_with", (PyCFunction) collide, METH_O, "check if the cursor collides with another object"},
-    {"collide", (PyCFunction) collide, METH_O, "check if the cursor collides with another object"},
+    {"collides_with", collide, METH_O, "check if the cursor collides with another object"},
+    {"collide", collide, METH_O, "check if the cursor collides with another object"},
     {NULL}
 };
 

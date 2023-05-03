@@ -1,4 +1,3 @@
-#include <glad/glad.h>
 #include <main.h>
 
 static int Groove_setStartX(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {

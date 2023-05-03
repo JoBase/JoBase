@@ -1,4 +1,3 @@
-#include <glad/glad.h>
 #include <main.h>
 
 static PyObject *Motor_getSpeed(Joint *self, void *Py_UNUSED(closure)) {

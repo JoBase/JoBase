@@ -18,6 +18,7 @@ static PyObject *print(Vector *self, char a, char b) {
     }
 
     buffer[count] = b;
+    buffer[count + 1] = 0;
     PyObject *result = PyUnicode_FromString(buffer);
 
     return free(buffer), result;

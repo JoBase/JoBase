@@ -5,7 +5,11 @@ extra_link_args = []
 library_dirs = []
 libraries = []
 
-if sys.platform == "win32":
+if os.environ.get("PYODIDE"):
+    library_dirs = ["freetype/build", "Chipmunk2D/build/src"]
+    libraries = ["glfw3", "freetype", "chipmunk"]
+
+elif sys.platform == "win32":
     libraries = [
         "glfw3", "opengl32", "kernel32", "user32", "gdi32", "winspool", "shell32",
         "ole32", "oleaut32", "uuid", "comdlg32", "advapi32", "freetype", "chipmunk"
@@ -32,7 +36,7 @@ elif sys.platform == "darwin":
 
 setuptools.setup(
     name = "JoBase",
-    version = "2.6",
+    version = "2.7",
     author = "Reuben Ford",
     author_email = "hello@jobase.org",
     description = "Fast Python Game Library",
@@ -61,19 +65,15 @@ setuptools.setup(
         "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
         "Operating System :: OS Independent",
     ],
-    
+
     ext_modules = [
         setuptools.Extension(
             "JoBase.__init__",
             [os.path.join("src", e) for e in os.listdir("src")],
+            ["include", "glfw/include", "freetype/include", "Chipmunk2D/include"],
 
             extra_compile_args = extra_compile_args,
             extra_link_args = extra_link_args,
             library_dirs = library_dirs,
-            libraries = libraries,
-
-            include_dirs = [
-                "include", "glfw/include", "freetype/include",
-                "Chipmunk2D/include"
-            ])
+            libraries = libraries)
     ])

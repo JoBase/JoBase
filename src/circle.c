@@ -1,6 +1,3 @@
-#define _USE_MATH_DEFINES
-
-#include <glad/glad.h>
 #include <main.h>
 #include <chipmunk/chipmunk_unsafe.h>
 

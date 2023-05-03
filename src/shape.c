@@ -1,4 +1,3 @@
-#include <glad/glad.h>
 #include <main.h>
 
 static cpVect *vertices(Shape *self) {

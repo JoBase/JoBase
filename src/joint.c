@@ -1,4 +1,3 @@
-#include <glad/glad.h>
 #include <main.h>
 
 static PyObject *Joint_getRed(Joint *self, void *Py_UNUSED(closure)) {

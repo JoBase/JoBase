@@ -1,4 +1,3 @@
-#include <glad/glad.h>
 #include <main.h>
 
 static void normalize(vec2 value) {

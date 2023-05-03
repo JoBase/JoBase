@@ -1,7 +1,4 @@
 #define OBJ(e) return format(PyExc_TypeError,"must be Base or cursor, not %s",Py_TYPE(e)->tp_name),NULL;
-#define _USE_MATH_DEFINES
-
-#include <glad/glad.h>
 #include <main.h>
 
 Window *window;

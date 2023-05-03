@@ -1,6 +1,3 @@
-#define _USE_MATH_DEFINES
-
-#include <glad/glad.h>
 #include <main.h>
 
 static void arbiter(cpBody *body, cpArbiter *arbiter, bool *data) {
@@ -517,8 +514,8 @@ static PyGetSetDef BaseGetSetters[] = {
 };
 
 static PyMethodDef BaseMethods[] = {
-    {"collides_with", (PyCFunction) collide, METH_O, "check if the object collides with another object"},
-    {"collide", (PyCFunction) collide, METH_O, "check if the object collides with another object"},
+    {"collides_with", collide, METH_O, "check if the object collides with another object"},
+    {"collide", collide, METH_O, "check if the object collides with another object"},
     {"look_at", (PyCFunction) Base_lookAt, METH_O, "rotate the object so that it points to another object"},
     {"move_toward", (PyCFunction) Base_moveToward, METH_VARARGS, "move the object toward another object"},
     {"move_smooth", (PyCFunction) Base_moveSmooth, METH_VARARGS, "move the object smoothly toward another object"},

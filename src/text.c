@@ -1,6 +1,3 @@
-#define _USE_MATH_DEFINES
-
-#include <glad/glad.h>
 #include <main.h>
 
 static int reset(Text *text) {
@@ -40,7 +37,7 @@ static int reset(Text *text) {
             glBindTexture(GL_TEXTURE_2D, glyph -> src);
 
             glTexImage2D(
-                GL_TEXTURE_2D, 0, GL_RED, glyph -> size.x, glyph -> size.y,
+                GL_TEXTURE_2D, 0, GL_R8, glyph -> size.x, glyph -> size.y,
                 0, GL_RED, GL_UNSIGNED_BYTE, buffer);
 
             parameters();

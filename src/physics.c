@@ -1,4 +1,3 @@
-#define _USE_MATH_DEFINES
 #include <main.h>
 
 static void delete(Physics *self, PyObject *value) {

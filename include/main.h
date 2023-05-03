@@ -9,9 +9,17 @@
 #define MAX(a, b) (a>b?a:b)
 #define IDX(e) (e-2)*3
 
+#define _USE_MATH_DEFINES
 #define SHAPE 0
 #define IMAGE 1
 #define TEXT 2
+
+#ifdef __EMSCRIPTEN__
+#define GL_GLEXT_PROTOTYPES
+#include <emscripten.h>
+#else
+#include <glad/glad.h>
+#endif
 
 #include <chipmunk/chipmunk.h>
 #include <GLFW/glfw3.h>

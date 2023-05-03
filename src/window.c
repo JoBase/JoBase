@@ -1,4 +1,3 @@
-#include <glad/glad.h>
 #include <main.h>
 
 static void clear() {
@@ -185,28 +184,6 @@ static int Window_setSize(Window *Py_UNUSED(self), PyObject *value, void *Py_UNU
     return end(), 0;
 }
 
-static PyObject *Window_getResizable(Window *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(glfwGetWindowAttrib(self -> glfw, GLFW_RESIZABLE));
-}
-
-static int Window_setResizable(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    const int type = PyObject_IsTrue(value);
-    return type == -1 ? -1 : glfwSetWindowAttrib(self -> glfw, GLFW_RESIZABLE, type), 0;
-}
-
-static PyObject *Window_getDecorated(Window *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(glfwGetWindowAttrib(self -> glfw, GLFW_DECORATED));
-}
-
-static int Window_setDecorated(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    const int type = PyObject_IsTrue(value);
-    return type == -1 ? -1 : glfwSetWindowAttrib(self -> glfw, GLFW_DECORATED, type), 0;
-}
-
 static PyObject *Window_getResize(Window *self, void *Py_UNUSED(closure)) {
     return PyBool_FromLong(self -> resize);
 }
@@ -241,15 +218,11 @@ static PyObject *Window_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObj
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     glfwWindowHint(GLFW_SAMPLES, 4);
 
     if (!(window -> glfw = glfwCreateWindow(640, 480, "JoBase", NULL, NULL))) {
-        const char *buffer;
-        glfwGetError(&buffer);
-
-        PyErr_SetString(PyExc_OSError, buffer);
+        PyErr_SetString(PyExc_OSError, "failed to create window");
         return glfwTerminate(), NULL;
     }
 
@@ -263,10 +236,12 @@ static PyObject *Window_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObj
     glfwSetKeyCallback(window -> glfw, keyCallback);
     glfwSwapInterval(1);
 
+#ifndef __EMSCRIPTEN__
     if (!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress)) {
         PyErr_SetString(PyExc_OSError, "failed to load OpenGL");
         return glfwTerminate(), NULL;
     }
+#endif
 
     Py_XINCREF(window);
     return (PyObject *) window;
@@ -309,8 +284,6 @@ static PyGetSetDef WindowGetSetters[] = {
     {"width", (getter) Window_getWidth, (setter) Window_setWidth, "width of the window", NULL},
     {"height", (getter) Window_getHeight, (setter) Window_setHeight, "height of the window", NULL},
     {"size", (getter) Window_getSize, (setter) Window_setSize, "dimensions of the window", NULL},
-    {"resizable", (getter) Window_getResizable, (setter) Window_setResizable, "the window is resizable", NULL},
-    {"decorated", (getter) Window_getDecorated, (setter) Window_setDecorated, "the window is decorated", NULL},
     {"resize", (getter) Window_getResize, NULL, "the window is resized", NULL},
     {NULL}
 };
