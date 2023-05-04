@@ -14,6 +14,7 @@ then
 
 elif [[ "$RUNNER_OS" == macOS ]]
 then
+    # brew uninstall bzip2
     extra=" -DCMAKE_OSX_ARCHITECTURES=$BASE"
 
     glfw+=${extra}
