@@ -52,6 +52,7 @@ jobs:
           CIBW_BEFORE_ALL: bash build.sh
           CIBW_ARCHS_MACOS: x86_64 arm64
           CIBW_ARCHS_LINUX: x86_64 aarch64 ppc64le s390x
+          CIBW_SKIP: cp37-macosx_x86_64
 
       - name: Upload
         uses: actions/upload-artifact@v3
