@@ -14,7 +14,7 @@ then
 
 elif [[ "$RUNNER_OS" == macOS ]]
 then
-    brew uninstall --ignore-dependencies brotli
+    brew uninstall --ignore-dependencies brotli harfbuzz
     extra=" -DCMAKE_OSX_ARCHITECTURES=$BASE"
 
     glfw+=${extra}
