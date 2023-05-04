@@ -16,12 +16,12 @@ jobs:
     strategy:
       matrix:
         plat:
-          - [macos-latest, MacOS Silicon, "cp311-macosx_arm64", arm64]
-          # - [macos-latest, MacOS Intel, "*-macosx_x86_64", x86_64]
-          # - [ubuntu-latest, Musl Linux, "*-musllinux_*", Musl]
-          # - [ubuntu-latest, Manylinux, "*-manylinux_*", Linux]
-          # - [windows-latest, Windows 64-bit, "*64", x64]
-          # - [windows-latest, Windows 32-bit, "*32", Win32]
+          - [macos-latest, MacOS Silicon, "*-macosx_arm64", arm64]
+          - [macos-latest, MacOS Intel, "*-macosx_x86_64", x86_64]
+          - [ubuntu-latest, Musl Linux, "*-musllinux_*", Musl]
+          - [ubuntu-latest, Manylinux, "*-manylinux_*", Linux]
+          - [windows-latest, Windows 64-bit, "*64", x64]
+          - [windows-latest, Windows 32-bit, "*32", Win32]
 
     env:
       BASE: ${{matrix.plat[3]}}
