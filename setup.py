@@ -46,8 +46,12 @@ setuptools.setup(
     python_requires = ">=3.6",
     license = "GPL-3.0-or-later",
     packages = ["JoBase"],
-    package_data = {"JoBase": ["fonts/*.ttf", "images/*.png", "examples/**/*.{py,md}"]},
     include_package_data = True,
+
+    package_data = {"JoBase": [
+        "fonts/*.ttf", "images/*.png", "examples/*.py",
+        "examples/*/__main__.py", "examples/*/README.md"
+    ]},
 
     keywords = [
         "fast", "beginner", "extension",
