@@ -16,7 +16,7 @@ jobs:
     strategy:
       matrix:
         plat:
-          - [self-hosted, MacOS Silicon, "*-macosx_arm64", arm64]
+          - [macos-latest, MacOS Silicon, "*-macosx_arm64", arm64]
           # - [macos-latest, MacOS Intel, "*-macosx_x86_64", x86_64]
           # - [ubuntu-latest, Musl Linux, "*-musllinux_*", Musl]
           # - [ubuntu-latest, Manylinux, "*-manylinux_*", Linux]
