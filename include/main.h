@@ -92,8 +92,9 @@ typedef struct Camera {
 typedef struct Window {
     PyObject_HEAD
     GLFWwindow *glfw;
-    char *caption;
     vec3 color;
+    vec2 size;
+    char *caption;
     bool resize;
 } Window;
 
@@ -233,7 +234,6 @@ extern Font *fonts;
 
 extern char *path;
 extern size_t length;
-extern bool ready;
 extern GLuint program;
 extern GLuint mesh;
 extern GLint uniform[7];
@@ -289,3 +289,9 @@ extern double getRight(poly, size_t);
 extern double getBottom(poly, size_t);
 extern double circleX(Circle *);
 extern double circleY(Circle *);
+
+extern int jsWidth();
+extern int jsHeight();
+extern int jsWait();
+extern void jsStart();
+extern void jsEnd();

@@ -163,13 +163,14 @@ void format(PyObject *error, const char *format, ...) {
 }
 
 void start() {
-    ready = false;
-    glfwPollEvents();
+    //ready = false;
+    //glfwPollEvents();
 }
 
 void end() {
-    glfwWaitEventsTimeout(.1);
-    ready = true;
+    //glfwWaitEventsTimeout(0);
+    //glfwPollEvents();
+    //ready = true;
 }
 
 const char *filepath(const char *file) {
@@ -177,13 +178,11 @@ const char *filepath(const char *file) {
 }
 
 int update() {
-    const vec size = windowSize();
-
     mat matrix = {
-        (GLfloat) 2 / size[x], 0, 0, 0, 0,
-        (GLfloat) 2 / size[y], 0, 0, 0, 0, -2, 0,
-        (GLfloat) -camera -> pos[x] * 2 / size[x],
-        (GLfloat) -camera -> pos[y] * 2 / size[y], -1, 1
+        2 / window -> size[x], 0, 0, 0, 0,
+        2 / window -> size[y], 0, 0, 0, 0, -2, 0,
+        -camera -> pos[x] * 2 / window -> size[x],
+        -camera -> pos[y] * 2 / window -> size[y], -1, 1
     };
     
     glUniformMatrix4fv(uniform[view], 1, GL_FALSE, matrix);

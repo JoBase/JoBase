@@ -16,11 +16,11 @@ PyMODINIT_FUNC PyInit___init__;
 #define VERSION "300 es"
 
 static void run() {
-    if (update() || emscripten_run_script_int("wait()")) {
+    if (update() || jsWait()) {
         Py_FinalizeEx();
+        jsEnd();
 
         emscripten_cancel_main_loop();
-        emscripten_run_script("end()");
     }
 }
 #else
@@ -107,7 +107,7 @@ static PyObject *Module_run(PyObject *Py_UNUSED(self), PyObject *Py_UNUSED(ignor
         return NULL;
 
 #ifdef __EMSCRIPTEN__
-    emscripten_run_script("start()");
+    jsStart();
     emscripten_set_main_loop(run, 0, true);
 #endif
 
@@ -297,6 +297,26 @@ static int Module_exec(PyObject *self) {
     return 0;
 }
 
+static int Module_traverse(PyObject *Py_UNUSED(self), visitproc visit, void *arg) {
+    Py_VISIT(window);
+    Py_VISIT(cursor);
+    Py_VISIT(camera);
+    Py_VISIT(key);
+    Py_VISIT(loop);
+
+    return 0;
+}
+
+static int Module_clear(PyObject *Py_UNUSED(self)) {
+    Py_CLEAR(window);
+    Py_CLEAR(cursor);
+    Py_CLEAR(camera);
+    Py_CLEAR(key);
+    Py_CLEAR(loop);
+
+    return 0;
+}
+
 static PyMethodDef ModuleMethods[] = {
     {"random", Module_random, METH_VARARGS, "find a random number between two numbers"},
     {"randint", Module_randint, METH_VARARGS, "find a random integer between two integers"},
@@ -317,6 +337,8 @@ static struct PyModuleDef Module = {
     .m_base = PyModuleDef_HEAD_INIT,
     .m_name = "JoBase",
     .m_size = 0,
+    .m_traverse = Module_traverse,
+    .m_clear = Module_clear,
     .m_methods = ModuleMethods,
     .m_slots = ModuleSlots
 };

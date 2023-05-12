@@ -1,23 +1,28 @@
 #include <main.h>
 
 static void clear() {
-    glClearColor(
-        (GLfloat) window -> color[r],
-        (GLfloat) window -> color[g],
-        (GLfloat) window -> color[b], 1);
+    glClearColor(window -> color[r], window -> color[g], window -> color[b], 1);
 }
 
-static void windowRefreshCallback(GLFWwindow *Py_UNUSED(window)) {
-    if (ready && !PyErr_Occurred()) update();
+static void resize() {
+    window -> size[x] = 600;
+    window -> size[y] = 400;
+
+#ifdef __EMSCRIPTEN__
+    window -> size[x] = jsWidth();
+    window -> size[y] = jsHeight();
+#endif
 }
 
-static void windowSizeCallback(GLFWwindow *Py_UNUSED(window), int Py_UNUSED(width), int Py_UNUSED(height)) {
+static void windowSizeCallback(GLFWwindow *Py_UNUSED(window), int width, int height) {
     window -> resize = true;
+    window -> size[x] = width;
+    window -> size[y] = height;
 }
 
-static void framebufferSizeCallback(GLFWwindow *Py_UNUSED(window), int width, int height) {
-    glViewport(0, 0, width, height);
-}
+// static void framebufferSizeCallback(GLFWwindow *Py_UNUSED(window), int width, int height) {
+//     glViewport(0, 0, width, height);
+// }
 
 static void cursorPosCallback(GLFWwindow *Py_UNUSED(window), double Py_UNUSED(x), double Py_UNUSED(y)) {
     cursor -> move = true;
@@ -130,57 +135,57 @@ static int Window_setColor(Window *self, PyObject *value, void *Py_UNUSED(closur
     return vectorSet(value, self -> color, 3) ? -1 : clear(), 0;
 }
 
-static PyObject *Window_getWidth(Window *Py_UNUSED(self), void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(windowSize()[x]);
+static PyObject *Window_getWidth(Window *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> size[x]);
 }
 
-static int Window_setWidth(Window *Py_UNUSED(self), PyObject *value, void *Py_UNUSED(closure)) {
+static int Window_setWidth(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
     DEL(value)
 
-    const int width = (int) PyFloat_AsDouble(value);
-    if (ERR(width)) return -1;
+    self -> size[x] = PyFloat_AsDouble(value);
+    if (ERR(self -> size[x])) return -1;
 
     start();
-    glfwSetWindowSize(window -> glfw, width, (int) windowSize()[y]);
+    glfwSetWindowSize(window -> glfw, self -> size[x], self -> size[y]);
     return end(), 0;
 }
 
-static PyObject *Window_getHeight(Window *Py_UNUSED(self), void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(windowSize()[y]);
+static PyObject *Window_getHeight(Window *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> size[y]);
 }
 
-static int Window_setHeight(Window *Py_UNUSED(self), PyObject *value, void *Py_UNUSED(closure)) {
+static int Window_setHeight(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
     DEL(value)
 
-    const int height = (int) PyFloat_AsDouble(value);
-    if (ERR(height)) return -1;
+    self -> size[y] = PyFloat_AsDouble(value);
+    if (ERR(self -> size[y])) return -1;
 
     start();
-    glfwSetWindowSize(window -> glfw, (int) windowSize()[x], height);
+    glfwSetWindowSize(window -> glfw, self -> size[x], self -> size[y]);
     return end(), 0;
 }
 
-static double Window_vecSize(Window *Py_UNUSED(self), uint8_t index) {
-    return windowSize()[index];
+static double Window_vecSize(Window *self, uint8_t index) {
+    return self -> size[index];
 }
 
 static PyObject *Window_getSize(Window *self, void *Py_UNUSED(closure)) {
     Vector *size = vectorNew((PyObject *) self, (Getter) Window_vecSize, 2);
 
+    size -> data[x].set = (setter) Window_setWidth;
+    size -> data[y].set = (setter) Window_setHeight;
     size -> data[x].name = "x";
     size -> data[y].name = "y";
 
     return (PyObject *) size;
 }
 
-static int Window_setSize(Window *Py_UNUSED(self), PyObject *value, void *Py_UNUSED(closure)) {
-    const vec size = windowSize();
-
-    if (vectorSet(value, size, 2))
+static int Window_setSize(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
+    if (vectorSet(value, self -> size, 2))
         return -1;
 
     start();
-    glfwSetWindowSize(window -> glfw, (int) size[x], (int) size[y]);
+    glfwSetWindowSize(window -> glfw, self -> size[x], self -> size[y]);
     return end(), 0;
 }
 
@@ -216,20 +221,20 @@ static PyObject *Window_focus(Window *self, PyObject *Py_UNUSED(ignored)) {
 static PyObject *Window_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
     window = (Window *) type -> tp_alloc(type, 0);
 
+    resize();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_ALPHA_BITS, 0);
     glfwWindowHint(GLFW_SAMPLES, 4);
 
-    if (!(window -> glfw = glfwCreateWindow(640, 480, "JoBase", NULL, NULL))) {
+    if (!(window -> glfw = glfwCreateWindow(window -> size[x], window -> size[y], "JoBase", NULL, NULL))) {
         PyErr_SetString(PyExc_OSError, "failed to create window");
         return glfwTerminate(), NULL;
     }
 
     glfwMakeContextCurrent(window -> glfw);
-    glfwSetWindowRefreshCallback(window -> glfw, windowRefreshCallback);
     glfwSetWindowSizeCallback(window -> glfw, windowSizeCallback);
-    glfwSetFramebufferSizeCallback(window -> glfw, framebufferSizeCallback);
     glfwSetCursorPosCallback(window -> glfw, cursorPosCallback);
     glfwSetCursorEnterCallback(window -> glfw, cursorEnterCallback);
     glfwSetMouseButtonCallback(window -> glfw, mouseButtonCallback);
@@ -251,8 +256,8 @@ static int Window_init(Window *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"caption", "width", "height", "color", NULL};
     const char *caption = "JoBase";
 
-    int width = 640, height = 480;
     PyObject *color = NULL;
+    resize();
 
     self -> color[r] = 1;
     self -> color[g] = 1;
@@ -260,12 +265,12 @@ static int Window_init(Window *self, PyObject *args, PyObject *kwds) {
     self -> resize = true;
 
     if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|siiO", kwlist, &caption,  &width, &height, &color) ||
+        args, kwds, "|siiO", kwlist, &caption,  &self -> size[x], &self -> size[y], &color) ||
         (color && vectorSet(color, self -> color, 3))) return -1;
 
     self -> caption = strdup(caption);
     glfwSetWindowTitle(self -> glfw, self -> caption);
-    glfwSetWindowSize(self -> glfw, width, height);
+    glfwSetWindowSize(self -> glfw, self -> size[x], self -> size[y]);
 
     return clear(), 0;
 }
