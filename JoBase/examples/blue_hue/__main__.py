@@ -963,7 +963,7 @@ window.color = (.2, .5, .9)
 
 hero = Hero(0, 0)
 RECT = Rectangle(0, 0, 1, 1)
-TEXT = Text('', 0, 0, 1, 1)
+TEXT = Text()
 CAM = Camera()
 
 UP = 0
