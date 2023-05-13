@@ -25,15 +25,13 @@ static void pos(Base *self) {
 
 static int other(PyObject *other, vec2 pos) {
     if (Py_TYPE(other) == &CursorType) {
-        vec value = cursorPos();
-
-        pos[0] = value[x];
-        pos[1] = value[y];
+        pos[x] = cursor -> pos[x];
+        pos[y] = cursor -> pos[y];
     }
 
     else if (PyObject_IsInstance(other, (PyObject *) &BaseType)) {
-        pos[0] = ((Base *) other) -> pos[x];
-        pos[1] = ((Base *) other) -> pos[y];
+        pos[x] = ((Base *) other) -> pos[x];
+        pos[y] = ((Base *) other) -> pos[y];
     }
 
     else if (PySequence_Check(other)) {
@@ -524,9 +522,9 @@ static PyMethodDef BaseMethods[] = {
     {NULL}
 };
 
-void baseUniform(mat matrix, vec4 vec) {
-    glUniformMatrix4fv(uniform[obj], 1, GL_FALSE, matrix);
-    glUniform4f(uniform[color], (GLfloat) vec[r], (GLfloat) vec[g], (GLfloat) vec[b], (GLfloat) vec[a]);
+void baseUniform(mat matrix, vec4 vector) {
+    glUniformMatrix3fv(uniform[obj], 1, GL_FALSE, matrix);
+    glUniform4f(uniform[color], vector[r], vector[g], vector[b], vector[a]);
 }
 
 void baseDealloc(Base *self) {
@@ -604,10 +602,10 @@ void baseMatrix(Base *self, double px, double py) {
     const double sy = py * self -> scale[y];
 
     mat matrix = {
-        (GLfloat) sx * cosine, (GLfloat) sx * sine, 0, 0,
-        (GLfloat) sy * -sine, (GLfloat) sy * cosine, 0, 0, 0, 0, 1, 0,
-        (GLfloat) self -> anchor[x] * cosine + self -> anchor[y] * -sine + self -> pos[x],
-        (GLfloat) self -> anchor[x] * sine + self -> anchor[y] * cosine + self -> pos[y], 0, 1
+        sx * cosine, sx * -sine, 0,
+        sy * sine, sy * cosine, 0,
+        self -> anchor[x] * cosine + self -> anchor[y] * sine + self -> pos[x],
+        self -> anchor[x] * -sine + self -> anchor[y] * cosine + self -> pos[y], 1
     };
 
     baseUniform(matrix, self -> color);

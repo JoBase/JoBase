@@ -13,7 +13,6 @@ Font *fonts;
 
 char *path;
 size_t length;
-bool ready;
 GLuint program;
 GLuint mesh;
 GLint uniform[7];
@@ -134,8 +133,8 @@ void rotate(poly poly, size_t size, double angle, vec2 pos) {
         const double px = poly[i][x];
         const double py = poly[i][y];
 
-        poly[i][x] = px * cosine - py * sine + pos[x];
-        poly[i][y] = px * sine + py * cosine + pos[y];
+        poly[i][x] = px * cosine + py * sine + pos[x];
+        poly[i][y] = py * cosine - px * sine + pos[y];
     }
 }
 
@@ -162,30 +161,20 @@ void format(PyObject *error, const char *format, ...) {
     free(buffer);
 }
 
-void start() {
-    //ready = false;
-    //glfwPollEvents();
-}
-
-void end() {
-    //glfwWaitEventsTimeout(0);
-    //glfwPollEvents();
-    //ready = true;
-}
-
 const char *filepath(const char *file) {
     return path[length] = 0, strcat(path, file);
 }
 
 int update() {
+    const double sx = 2 / window -> size[x];
+    const double sy = 2 / window -> size[y];
+
     mat matrix = {
-        2 / window -> size[x], 0, 0, 0, 0,
-        2 / window -> size[y], 0, 0, 0, 0, -2, 0,
-        -camera -> pos[x] * 2 / window -> size[x],
-        -camera -> pos[y] * 2 / window -> size[y], -1, 1
+        sx, 0, 0, 0, sy, 0,
+        -camera -> pos[x] * sx, -camera -> pos[y] * sy, -1
     };
     
-    glUniformMatrix4fv(uniform[view], 1, GL_FALSE, matrix);
+    glUniformMatrix3fv(uniform[view], 1, GL_FALSE, matrix);
     glClear(GL_COLOR_BUFFER_BIT);
 
     if (loop && !PyObject_CallObject(loop, NULL)) {
@@ -254,7 +243,7 @@ PyObject *collide(PyObject *self, PyObject *other) {
         }
 
         else if (other == (PyObject *) cursor)
-            result = polyPoint(rect, 4, cursorPos());
+            result = polyPoint(rect, 4, cursor -> pos);
 
         else OBJ(other)
     }
@@ -294,7 +283,7 @@ PyObject *collide(PyObject *self, PyObject *other) {
         }
 
         else if (other == (PyObject *) cursor)
-            result = circlePoint(pos, size, cursorPos());
+            result = circlePoint(pos, size, cursor -> pos);
 
         else OBJ(other)
     }
@@ -333,7 +322,7 @@ PyObject *collide(PyObject *self, PyObject *other) {
         }
 
         else if (other == (PyObject *) cursor)
-            result = polyPoint(poly, shape -> vertex, cursorPos());
+            result = polyPoint(poly, shape -> vertex, cursor -> pos);
 
         else {
             free(poly);
@@ -369,7 +358,7 @@ PyObject *collide(PyObject *self, PyObject *other) {
         }
 
         else if (other == (PyObject *) cursor)
-            result = linePoint(poly, line -> shape.vertex, line -> width / 2, cursorPos());
+            result = linePoint(poly, line -> shape.vertex, line -> width / 2, cursor -> pos);
 
         else {
             free(poly);
@@ -384,28 +373,28 @@ PyObject *collide(PyObject *self, PyObject *other) {
             vec2 rect[4];
 
             rectanglePoly((Rectangle *) other, rect);
-            result = polyPoint(rect, 4, cursorPos());
+            result = polyPoint(rect, 4, cursor -> pos);
         }
 
         else if (BASE(other, CircleType)) {
             Circle *circle = (Circle *) other;
             vec2 pos = {circleX(circle), circleY(circle)};
-            result = circlePoint(pos, circle -> radius, cursorPos());
+            result = circlePoint(pos, circle -> radius, cursor -> pos);
         }
 
         else if (BASE(other, ShapeType)) {
             Shape *shape = (Shape *) other;
             vec2 *poly = shapePoly(shape);
 
-            result = polyPoint(poly, shape -> vertex, cursorPos());
+            result = polyPoint(poly, shape -> vertex, cursor -> pos);
             free(poly);
         }
 
-        else if (BASE(self, LineType)) {
+        else if (BASE(other, LineType)) {
             Line *line = (Line *) other;
             vec2 *poly = shapePoly((Shape *) line);
 
-            result = linePoint(poly, line -> shape.vertex, line -> width / 2, cursorPos());
+            result = linePoint(poly, line -> shape.vertex, line -> width / 2, cursor -> pos);
             free(poly);
         }
 

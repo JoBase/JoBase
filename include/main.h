@@ -37,7 +37,7 @@ typedef double vec2[2];
 typedef double vec3[3];
 typedef double vec4[4];
 typedef double (*Getter)(PyObject *, uint8_t);
-typedef GLfloat mat[16];
+typedef GLfloat mat[9];
 typedef vec2 *poly;
 
 typedef struct Item {
@@ -69,6 +69,7 @@ typedef struct Button {
 typedef struct Cursor {
     PyObject_HEAD
     Set buttons[GLFW_MOUSE_BUTTON_LAST + 1];
+    vec2 pos;
     bool move;
     bool enter;
     bool leave;
@@ -238,8 +239,8 @@ extern GLuint program;
 extern GLuint mesh;
 extern GLint uniform[7];
 
-extern void start();
-extern void end();
+// extern void start();
+// extern void end();
 extern void parameters();
 extern void rectangleDraw(Rectangle *, uint8_t);
 extern void rectanglePoly(Rectangle *, poly);
@@ -269,8 +270,8 @@ extern PyObject *baseNew(PyTypeObject *, size_t);
 extern PyObject *jointNew(PyTypeObject *, cpConstraint *);
 extern poly shapePoly(Shape *);
 
-extern vec cursorPos();
-extern vec windowSize();
+// extern vec cursorPos();
+// extern vec windowSize();
 
 extern int baseToward(vec2, PyObject *);
 extern int baseSmooth(vec2, PyObject *);

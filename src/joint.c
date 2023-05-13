@@ -102,7 +102,7 @@ static PyGetSetDef JointGetSetters[] = {
 };
 
 void jointDraw(Joint *self, poly base, size_t size) {
-    mat matrix = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    mat matrix = {1, 0, 0, 0, 1, 0, 0, 0, 1};
     baseUniform(matrix, self -> color);
 
     glBindVertexArray(self -> vao);

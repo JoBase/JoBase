@@ -42,19 +42,19 @@ static int Camera_setPos(Camera *self, PyObject *value, void *Py_UNUSED(closure)
 }
 
 static PyObject *Camera_getTop(Camera *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> pos[y] + windowSize()[y] / 2);
+    return PyFloat_FromDouble(self -> pos[y] + window -> size[y] / 2);
 }
 
 static PyObject *Camera_getBottom(Camera *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> pos[y] - windowSize()[y] / 2);
+    return PyFloat_FromDouble(self -> pos[y] - window -> size[y] / 2);
 }
 
 static PyObject *Camera_getLeft(Camera *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> pos[x] - windowSize()[x] / 2);
+    return PyFloat_FromDouble(self -> pos[x] - window -> size[x] / 2);
 }
 
 static PyObject *Camera_getRight(Camera *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> pos[x] + windowSize()[x] / 2);
+    return PyFloat_FromDouble(self -> pos[x] + window -> size[x] / 2);
 }
 
 static PyObject *Camera_moveToward(Camera *self, PyObject *args) {

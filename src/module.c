@@ -227,11 +227,11 @@ static int Module_exec(PyObject *self) {
         "in vec2 coord;"
         "out vec2 pos;"
 
-        "uniform mat4 view;"
-        "uniform mat4 obj;"
+        "uniform mat3 view;"
+        "uniform mat3 obj;"
 
         "void main() {"
-            "gl_Position = view * obj * vec4(vert, 0, 1);"
+            "gl_Position = vec4(view * obj * vec3(vert, 1), 1);"
             "pos = coord;"
         "}";
 

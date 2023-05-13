@@ -132,11 +132,6 @@ PyObject *rectangleNew(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *
 void rectangleDraw(Rectangle *self, uint8_t type) {
     baseMatrix((Base *) self, self -> size[x], self -> size[y]);
 
-    // printf(
-    //     "%f, %f, %f, %f\n",
-    //     self -> base.pos[x], self -> base.pos[y],
-    //     self -> size[x], self -> size[y]);
-
     glBindVertexArray(mesh);
     glUniform1i(uniform[img], type);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);

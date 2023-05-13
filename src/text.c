@@ -148,10 +148,9 @@ static PyObject *Text_draw(Text *self, PyObject *Py_UNUSED(ignored)) {
         glBindTexture(GL_TEXTURE_2D, glyph.src);
 
         mat matrix = {
-            (GLfloat) (glyph.size.x * sx * cosine), (GLfloat) (glyph.size.x * sx * sine), 0, 0,
-            (GLfloat) (glyph.size.y * sy * -sine), (GLfloat) (glyph.size.y * sy * cosine), 0, 0, 0, 0, 1, 0,
-            (GLfloat) (ax * sx * cosine + ay * sy * -sine + px),
-            (GLfloat) (ax * sx * sine + ay * sy * cosine + py), 0, 1
+            glyph.size.x * sx * cosine, glyph.size.x * sx * sine, 0,
+            glyph.size.y * sy * -sine, glyph.size.y * sy * cosine, 0,
+            ax * sx * cosine + ay * sy * -sine + px, ax * sx * sine + ay * sy * cosine + py, 1
         };
 
         baseUniform(matrix, self -> rect.base.color);

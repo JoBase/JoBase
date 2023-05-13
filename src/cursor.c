@@ -1,58 +1,48 @@
 #include <main.h>
 
-static PyObject *Cursor_getX(Cursor *Py_UNUSED(self), void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(cursorPos()[x]);
+static void pos(Cursor *self) {
+    glfwSetCursorPos(window -> glfw, self -> pos[x] + window -> size[x] / 2, window -> size[y] / 2 - self -> pos[y]);
 }
 
-static int Cursor_setX(Cursor *Py_UNUSED(self), PyObject *value, void *Py_UNUSED(closure)) {
+static PyObject *Cursor_getX(Cursor *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> pos[x]);
+}
+
+static int Cursor_setX(Cursor *self, PyObject *value, void *Py_UNUSED(closure)) {
     DEL(value)
 
-    const double pos = PyFloat_AsDouble(value);
-    if (ERR(pos)) return -1;
-
-    start();
-    glfwSetCursorPos(window -> glfw, pos + windowSize()[x] / 2, windowSize()[y]);
-    return end(), 0;
+    self -> pos[x] = PyFloat_AsDouble(value);
+    return ERR(self -> pos[x]) ? -1 : pos(self), 0;
 }
 
-static PyObject *Cursor_getY(Cursor *Py_UNUSED(self), void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(cursorPos()[1]);
+static PyObject *Cursor_getY(Cursor *self, void *Py_UNUSED(closure)) {
+    return PyFloat_FromDouble(self -> pos[y]);
 }
 
-static int Cursor_setY(Cursor *Py_UNUSED(self), PyObject *value, void *Py_UNUSED(closure)) {
+static int Cursor_setY(Cursor *self, PyObject *value, void *Py_UNUSED(closure)) {
     DEL(value)
 
-    const double pos = PyFloat_AsDouble(value);
-    if (ERR(pos)) return -1;
-
-    start();
-    glfwSetCursorPos(window -> glfw, cursorPos()[x], windowSize()[y] / 2 - pos);
-    return end(), 0;
+    self -> pos[y] = PyFloat_AsDouble(value);
+    return ERR(self -> pos[y]) ? -1 : pos(self), 0;
 }
 
-static double Cursor_vecPos(Cursor *Py_UNUSED(self), uint8_t index) {
-    return cursorPos()[index];
+static double Cursor_vecPos(Cursor *self, uint8_t index) {
+    return self -> pos[index];
 }
 
 static PyObject *Cursor_getPos(Cursor *self, void *Py_UNUSED(closure)) {
     Vector *pos = vectorNew((PyObject *) self, (Getter) Cursor_vecPos, 2);
 
+    pos -> data[x].set = (setter) Cursor_setX;
+    pos -> data[y].set = (setter) Cursor_setY;
     pos -> data[x].name = "x";
     pos -> data[y].name = "y";
 
     return (PyObject *) pos;
 }
 
-static int Cursor_setPos(Cursor *Py_UNUSED(self), PyObject *value, void *Py_UNUSED(closure)) {
-    const vec pos = cursorPos();
-    const vec size = windowSize();
-
-    if (vectorSet(value, pos, 2))
-        return -1;
-
-    start();
-    glfwSetCursorPos(window -> glfw, pos[x] + size[x] / 2, size[y] / 2 - pos[y]);
-    return end(), 0;
+static int Cursor_setPos(Cursor *self, PyObject *value, void *Py_UNUSED(closure)) {
+    return vectorSet(value, self -> pos, 2) ? -1 : pos(self), 0;
 }
 
 static PyObject *Cursor_getMove(Cursor *self, void *Py_UNUSED(closure)) {
@@ -129,17 +119,6 @@ static PyMethodDef CursorMethods[] = {
     {"collide", collide, METH_O, "check if the cursor collides with another object"},
     {NULL}
 };
-
-vec cursorPos() {
-    static vec2 pos;
-    glfwGetCursorPos(window -> glfw, &pos[x], &pos[y]);
-
-    vec size = windowSize();
-    pos[x] -= size[x] / 2;
-    pos[y] = size[y] / 2 - pos[y];
-
-    return pos;
-}
 
 PyTypeObject CursorType = {
     PyVarObject_HEAD_INIT(NULL, 0)
