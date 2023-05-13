@@ -239,8 +239,6 @@ extern GLuint program;
 extern GLuint mesh;
 extern GLint uniform[7];
 
-// extern void start();
-// extern void end();
 extern void parameters();
 extern void rectangleDraw(Rectangle *, uint8_t);
 extern void rectanglePoly(Rectangle *, poly);
@@ -269,9 +267,6 @@ extern PyObject *rectangleNew(PyTypeObject *, PyObject *, PyObject *);
 extern PyObject *baseNew(PyTypeObject *, size_t);
 extern PyObject *jointNew(PyTypeObject *, cpConstraint *);
 extern poly shapePoly(Shape *);
-
-// extern vec cursorPos();
-// extern vec windowSize();
 
 extern int baseToward(vec2, PyObject *);
 extern int baseSmooth(vec2, PyObject *);
