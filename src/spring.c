@@ -1,191 +1,167 @@
 #include <main.h>
 
-static int Spring_setFirstX(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    cpVect anchor = cpDampedSpringGetAnchorA(self -> joint);
-    return ERR(anchor.x = PyFloat_AsDouble(value)) ? -1 : cpDampedSpringSetAnchorA(self -> joint, anchor), 0;
+static void unsafe(Spring *self) {
+    cpDampedSpringSetAnchorA(self -> base.joint, Joint_rotate(self -> base.a, self -> start));
+    cpDampedSpringSetAnchorB(self -> base.joint, Joint_rotate(self -> base.b, self -> end));
 }
 
-static int Spring_setFirstY(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    cpVect anchor = cpDampedSpringGetAnchorA(self -> joint);
-    return ERR(anchor.y = PyFloat_AsDouble(value)) ? -1 : cpDampedSpringSetAnchorA(self -> joint, anchor), 0;
+static int anchor(Spring *self) {
+    if (self -> base.parent) unsafe(self);
+    return 0;
 }
 
-static double Spring_vecFirst(Joint *self, uint8_t index) {
-    const cpVect anchor = cpDampedSpringGetAnchorA(self -> joint);
-    const vec2 vector = {anchor.x, anchor.y};
-    return vector[index];
+static void create(Spring *self) {
+    cpBody *a = self -> base.a -> body -> body;
+    cpBody *b = self -> base.b -> body -> body;
+
+    cpDampedSpringInit((cpDampedSpring *) self -> base.joint, a, b, cpv(0, 0), cpv(0, 0), self -> length, self -> stiffness, self -> damping);
 }
 
-static PyObject *Spring_getFirst(Joint *self, void *Py_UNUSED(closure)) {
-    Vector *offset = vectorNew((PyObject *) self, (Getter) Spring_vecFirst, 2);
-
-    offset -> data[x].set = (setter) Spring_setFirstX;
-    offset -> data[y].set = (setter) Spring_setFirstY;
-    offset -> data[x].name = "x";
-    offset -> data[y].name = "y";
-
-    return (PyObject *) offset;
+static PyObject *Spring_get_length(Spring *self, void *closure) {
+    return PyFloat_FromDouble(self -> length);
 }
 
-static int Spring_setFirst(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {
-    const cpVect anchor = cpDampedSpringGetAnchorA(self -> joint);
-    vec2 vect = {anchor.x, anchor.y};
-    return vectorSet(value, vect, 2) ? -1 : cpDampedSpringSetAnchorA(self -> joint, cpv(vect[x], vect[y])), 0;
+static int Spring_set_length(Spring *self, PyObject *value, void *closure) {
+    DEL(value, "length")
+    INIT(ERR(self -> length = PyFloat_AsDouble(value)))
+
+    return self -> base.parent ? (cpDampedSpringSetRestLength(self -> base.joint, self -> length), 0) : 0;
 }
 
-static int Spring_setLastX(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    cpVect anchor = cpDampedSpringGetAnchorB(self -> joint);
-    return ERR(anchor.x = PyFloat_AsDouble(value)) ? -1 : cpDampedSpringSetAnchorB(self -> joint, anchor), 0;
+static PyObject *Spring_get_stiffness(Spring *self, void *closure) {
+    return PyFloat_FromDouble(self -> stiffness);
 }
 
-static int Spring_setLastY(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
+static int Spring_set_stiffness(Spring *self, PyObject *value, void *closure) {
+    DEL(value, "stiffness")
+    INIT(ERR(self -> stiffness = PyFloat_AsDouble(value)))
 
-    cpVect anchor = cpDampedSpringGetAnchorB(self -> joint);
-    return ERR(anchor.y = PyFloat_AsDouble(value)) ? -1 : cpDampedSpringSetAnchorB(self -> joint, anchor), 0;
+    return self -> base.parent ? (cpDampedSpringSetStiffness(self -> base.joint, self -> stiffness), 0) : 0;
 }
 
-static double Spring_vecLast(Joint *self, uint8_t index) {
-    const cpVect anchor = cpDampedSpringGetAnchorB(self -> joint);
-    const vec2 vector = {anchor.x, anchor.y};
-    return vector[index];
+static PyObject *Spring_get_damping(Spring *self, void *closure) {
+    return PyFloat_FromDouble(self -> damping);
 }
 
-static PyObject *Spring_getLast(Joint *self, void *Py_UNUSED(closure)) {
-    Vector *offset = vectorNew((PyObject *) self, (Getter) Spring_vecLast, 2);
+static int Spring_set_damping(Spring *self, PyObject *value, void *closure) {
+    DEL(value, "damping")
+    INIT(ERR(self -> damping = PyFloat_AsDouble(value)))
 
-    offset -> data[x].set = (setter) Spring_setLastX;
-    offset -> data[y].set = (setter) Spring_setLastY;
-    offset -> data[x].name = "x";
-    offset -> data[y].name = "y";
-
-    return (PyObject *) offset;
+    return self -> base.parent ? (cpDampedSpringSetDamping(self -> base.joint, self -> damping), 0) : 0;
 }
 
-static int Spring_setLast(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {
-    const cpVect anchor = cpDampedSpringGetAnchorB(self -> joint);
-    vec2 vect = {anchor.x, anchor.y};
-    return vectorSet(value, vect, 2) ? -1 : cpDampedSpringSetAnchorB(self -> joint, cpv(vect[x], vect[y])), 0;
+static Vector *Spring_get_start(Spring *self, void *closure) {
+    Vector *vector = Vector_new((PyObject *) self, (vec) &self -> start, 2, (set) anchor);
+
+    if (vector) {
+        vector -> names[x] = 'x';
+        vector -> names[y] = 'y';
+    }
+
+    return vector;
 }
 
-static PyObject *Spring_getLength(Joint *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(cpDampedSpringGetRestLength(self -> joint));
+static int Spring_set_start(Spring *self, PyObject *value, void *closure) {
+    DEL(value, "start")
+    return Vector_set(value, (vec) &self -> start, 2) ? -1 : anchor(self);
 }
 
-static int Spring_setLength(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
+static Vector *Spring_get_end(Spring *self, void *closure) {
+    Vector *vector = Vector_new((PyObject *) self, (vec) &self -> end, 2, (set) anchor);
 
-    const double length = PyFloat_AsDouble(value);
-    return ERR(length) ? -1 : cpDampedSpringSetRestLength(self -> joint, length), 0;
+    if (vector) {
+        vector -> names[x] = 'x';
+        vector -> names[y] = 'y';
+    }
+
+    return vector;
 }
 
-static PyObject *Spring_getStiffness(Joint *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(cpDampedSpringGetStiffness(self -> joint));
+static int Spring_set_end(Spring *self, PyObject *value, void *closure) {
+    DEL(value, "end")
+    return Vector_set(value, (vec) &self -> end, 2) ? -1 : anchor(self);
 }
 
-static int Spring_setStiffness(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
+static PyObject *Spring_draw(Spring *self, PyObject *args) {
+    const double length = sqrt(self -> length);
+    const size_t verts = MAX(length * 2, 2);
 
-    const double length = PyFloat_AsDouble(value);
-    return ERR(length) ? -1 : cpDampedSpringSetStiffness(self -> joint, length), 0;
-}
+    Vec2 a = Body_get(self -> base.a -> body, Joint_rotate(self -> base.a, self -> start));
+    Vec2 b = Body_get(self -> base.b -> body, Joint_rotate(self -> base.b, self -> end));
 
-static PyObject *Spring_getDamping(Joint *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(cpDampedSpringGetDamping(self -> joint));
-}
+    Vec2 vector = {b.x - a.x, b.y - a.y};
+    Vec2 *base = malloc(verts * sizeof(Vec2));
 
-static int Spring_setDamping(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    const double length = PyFloat_AsDouble(value);
-    return ERR(length) ? -1 : cpDampedSpringSetDamping(self -> joint, length), 0;
-}
-
-static PyObject *Spring_draw(Joint *self, PyObject *Py_UNUSED(ignored)) {
-    const double length = sqrt(cpDampedSpringGetRestLength(self -> joint));
-    const size_t verts = MAX(length, 2);
-
-    cpVect first = cpDampedSpringGetAnchorA(self -> joint);
-    cpVect last = cpDampedSpringGetAnchorB(self -> joint);
-
-    vec2 a[] = {{first.x, first.y}};
-    vec2 b[] = {{last.x, last.y}};
-
-    rotate(a, 1, cpBodyGetAngle(self -> a -> body), self -> a -> pos);
-    rotate(b, 1, cpBodyGetAngle(self -> b -> body), self -> b -> pos);
-
-    vec2 vector = {(*b)[x] - (*a)[x], (*b)[y] - (*a)[y]};
-    poly base = malloc(verts * sizeof(vec2));
-
-    const double dist = hypot(vector[x], vector[y]);
+    const double dist = hypot(vector.x, vector.y);
     const double space = dist / (verts - 1);
 
-    vector[x] /= dist;
-    vector[y] /= dist;
+    vector.x /= dist;
+    vector.y /= dist;
 
-    FOR(size_t, verts) {
+    for (size_t i = 0; i < verts; i ++) {
         if (i > 1 && i < verts - 2) {
             const double invert = i % 2 ? length : -length;
 
-            base[i][x] = (*a)[x] + vector[x] * space * i - vector[y] * invert;
-            base[i][y] = (*a)[y] + vector[y] * space * i + vector[x] * invert;
+            base[i].x = a.x + vector.x * space * i - vector.y * invert;
+            base[i].y = a.y + vector.y * space * i + vector.x * invert;
         }
 
         else {
-            base[i][x] = (*a)[x] + i * space * vector[x];
-            base[i][y] = (*a)[y] + i * space * vector[y];
+            base[i].x = a.x + i * space * vector.x;
+            base[i].y = a.y + i * space * vector.y;
         }
     }
 
-    jointDraw(self, base, verts);
+    Joint_draw(&self -> base, base, verts);
     free(base);
 
     Py_RETURN_NONE;
 }
 
-static PyObject *Spring_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
-    return jointNew(type, (cpConstraint *) cpDampedSpringAlloc());
+static Joint *Spring_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
+    return Joint_new(type, (joint) create, (move) unsafe, (cpConstraint *) cpDampedSpringAlloc());
 }
 
-static int Spring_init(Joint *self, PyObject *args, PyObject *kwds) {
+static int Spring_init(Spring *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"a", "b", "length", "stiffness", "damping", "width", "color", NULL};
 
-    jointInit(self);
     PyObject *color = NULL;
-    double length = 0, stiffness = 10, damping = .5;
+    JointType.tp_init((PyObject *) self, NULL, NULL);
 
-    if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "O!O!|ddddO", kwlist, &BaseType, &self -> a,
-        &BaseType, &self -> b, &length, &stiffness, &damping,
-        &self -> width, &color)) return -1;
+    self -> length = 0;
+    self -> stiffness = 10;
+    self -> damping = .5;
 
-    if (!length) {
-        const double a = self -> a -> pos[x] - self -> b -> pos[x];
-        const double b = self -> a -> pos[y] - self -> b -> pos[y];
+    self -> start.x = 0;
+    self -> start.y = 0;
+    self -> end.x = 0;
+    self -> end.y = 0;
 
-        length = hypot(a, b);
+    INIT(!PyArg_ParseTupleAndKeywords(
+        args, kwds, "O!O!|ddddO:Spring", kwlist, &BaseType, &self -> base.a, &BaseType,
+        &self -> base.b, &self -> length, &self -> stiffness, &self -> damping, &self -> base.width,
+        &color) || Vector_set(color, (vec) &self -> base.color, 4))
+
+    if (!self -> length) {
+        const double a = self -> base.a -> pos.x - self -> base.b -> pos.x;
+        const double b = self -> base.a -> pos.y - self -> base.b -> pos.y;
+
+        self -> length = hypot(a, b);
     }
 
-    cpDampedSpringInit((cpDampedSpring *) self -> joint, self -> a -> body, self -> b -> body, cpv(0, 0), cpv(0, 0), length, stiffness, damping);
-    return jointStart(self, color);
+    return Joint_add(&self -> base), 0;
 }
 
-static PyGetSetDef SpringGetSetters[] = {
-    {"a", (getter) Spring_getFirst, (setter) Spring_setFirst, "offset of the first attached body", NULL},
-    {"b", (getter) Spring_getLast, (setter) Spring_setLast, "offset of the last attached body", NULL},
-    {"length", (getter) Spring_getLength, (setter) Spring_setLength, "resting length of the spring", NULL},
-    {"stiffness", (getter) Spring_getStiffness, (setter) Spring_setStiffness, "strength of the spring", NULL},
-    {"damping", (getter) Spring_getDamping, (setter) Spring_setDamping, "force momentum of the spring", NULL},
+static PyGetSetDef Spring_getset[] = {
+    {"start", (getter) Spring_get_start, (setter) Spring_set_start, "the offset of the spring relative to the first body", NULL},
+    {"end", (getter) Spring_get_end, (setter) Spring_set_end, "the offset of the spring relative to the last body", NULL},
+    {"length", (getter) Spring_get_length, (setter) Spring_set_length, "the resting length of the spring", NULL},
+    {"stiffness", (getter) Spring_get_stiffness, (setter) Spring_set_stiffness, "the strength of the spring", NULL},
+    {"damping", (getter) Spring_get_damping, (setter) Spring_set_damping, "the bounciness of the spring", NULL},
     {NULL}
 };
 
-static PyMethodDef SpringMethods[] = {
+static PyMethodDef Spring_methods[] = {
     {"draw", (PyCFunction) Spring_draw, METH_NOARGS, "draw the spring joint on the screen"},
     {NULL}
 };
@@ -193,13 +169,13 @@ static PyMethodDef SpringMethods[] = {
 PyTypeObject SpringType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "Spring",
-    .tp_doc = "constrain two bodies with a spring",
-    .tp_basicsize = sizeof(Joint),
+    .tp_doc = "create a spring between two bodies",
+    .tp_basicsize = sizeof(Spring),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_base = &JointType,
-    .tp_new = Spring_new,
+    .tp_new = (newfunc) Spring_new,
     .tp_init = (initproc) Spring_init,
-    .tp_getset = SpringGetSetters,
-    .tp_methods = SpringMethods
+    .tp_methods = Spring_methods,
+    .tp_getset = Spring_getset
 };

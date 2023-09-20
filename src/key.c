@@ -1,167 +1,172 @@
 #include <main.h>
 
-static PyObject *Key_getPress(Key *self, void *Py_UNUSED(closure)) {
+static PyObject *Key_get_press(Key *self, void *closure) {
     return PyBool_FromLong(self -> press);
 }
 
-static PyObject *Key_getRelease(Key *self, void *Py_UNUSED(closure)) {
+static PyObject *Key_get_release(Key *self, void *closure) {
     return PyBool_FromLong(self -> release);
 }
 
-static PyObject *Key_getRepeat(Key *self, void *Py_UNUSED(closure)) {
+static PyObject *Key_get_repeat(Key *self, void *closure) {
     return PyBool_FromLong(self -> repeat);
 }
 
-static PyObject *Key_getHold(Key *self, void *Py_UNUSED(closure)) {
-    FOR(uint16_t, GLFW_KEY_LAST)
+static PyObject *Key_get_hold(Key *self, void *closure) {
+    for (uint16_t i = 0; i < GLFW_KEY_LAST; i ++)
         if (self -> keys[i].hold) Py_RETURN_TRUE;
 
     Py_RETURN_FALSE;
 }
 
-static PyObject *Key_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
-    key = (Key *) type -> tp_alloc(type, 0);
-    Set *e = key -> keys;
+static Key *Key_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
+    Key *self = (Key *) type -> tp_alloc(type, 0);
 
-    e[GLFW_KEY_SPACE].key = "space";
-    e[GLFW_KEY_APOSTROPHE].key = "apostrophe";
-    e[GLFW_KEY_COMMA].key = "comma";
-    e[GLFW_KEY_MINUS].key = "minus";
-    e[GLFW_KEY_PERIOD].key = "period";
-    e[GLFW_KEY_SLASH].key = "slash";
-    e[GLFW_KEY_0].key = "_0";
-    e[GLFW_KEY_1].key = "_1";
-    e[GLFW_KEY_2].key = "_2";
-    e[GLFW_KEY_3].key = "_3";
-    e[GLFW_KEY_4].key = "_4";
-    e[GLFW_KEY_5].key = "_5";
-    e[GLFW_KEY_6].key = "_6";
-    e[GLFW_KEY_7].key = "_7";
-    e[GLFW_KEY_8].key = "_8";
-    e[GLFW_KEY_9].key = "_9";
-    e[GLFW_KEY_SEMICOLON].key = "semicolon";
-    e[GLFW_KEY_EQUAL].key = "equal";
-    e[GLFW_KEY_A].key = "a";
-    e[GLFW_KEY_B].key = "b";
-    e[GLFW_KEY_C].key = "c";
-    e[GLFW_KEY_D].key = "d";
-    e[GLFW_KEY_E].key = "e";
-    e[GLFW_KEY_F].key = "f";
-    e[GLFW_KEY_G].key = "g";
-    e[GLFW_KEY_H].key = "h";
-    e[GLFW_KEY_I].key = "i";
-    e[GLFW_KEY_J].key = "j";
-    e[GLFW_KEY_K].key = "k";
-    e[GLFW_KEY_L].key = "l";
-    e[GLFW_KEY_M].key = "m";
-    e[GLFW_KEY_N].key = "n";
-    e[GLFW_KEY_O].key = "o";
-    e[GLFW_KEY_P].key = "p";
-    e[GLFW_KEY_Q].key = "q";
-    e[GLFW_KEY_R].key = "r";
-    e[GLFW_KEY_S].key = "s";
-    e[GLFW_KEY_T].key = "t";
-    e[GLFW_KEY_U].key = "u";
-    e[GLFW_KEY_V].key = "v";
-    e[GLFW_KEY_W].key = "w";
-    e[GLFW_KEY_X].key = "x";
-    e[GLFW_KEY_Y].key = "y";
-    e[GLFW_KEY_Z].key = "z";
-    e[GLFW_KEY_LEFT_BRACKET].key = "left_bracket";
-    e[GLFW_KEY_BACKSLASH].key = "backslash";
-    e[GLFW_KEY_RIGHT_BRACKET].key = "right_bracket";
-    e[GLFW_KEY_GRAVE_ACCENT].key = "backquote";
-    e[GLFW_KEY_ESCAPE].key = "escape";
-    e[GLFW_KEY_ENTER].key = "enter";
-    e[GLFW_KEY_TAB].key = "tab";
-    e[GLFW_KEY_BACKSPACE].key = "backspace";
-    e[GLFW_KEY_INSERT].key = "insert";
-    e[GLFW_KEY_DELETE].key = "delete";
-    e[GLFW_KEY_RIGHT].key = "right";
-    e[GLFW_KEY_LEFT].key = "left";
-    e[GLFW_KEY_DOWN].key = "down";
-    e[GLFW_KEY_UP].key = "up";
-    e[GLFW_KEY_PAGE_UP].key = "page_up";
-    e[GLFW_KEY_PAGE_DOWN].key = "page_down";
-    e[GLFW_KEY_HOME].key = "home";
-    e[GLFW_KEY_END].key = "end";
-    e[GLFW_KEY_CAPS_LOCK].key = "caps_lock";
-    e[GLFW_KEY_SCROLL_LOCK].key = "scroll_lock";
-    e[GLFW_KEY_NUM_LOCK].key = "num_lock";
-    e[GLFW_KEY_PRINT_SCREEN].key = "print_screen";
-    e[GLFW_KEY_PAUSE].key = "pause";
-    e[GLFW_KEY_F1].key = "f1";
-    e[GLFW_KEY_F2].key = "f2";
-    e[GLFW_KEY_F3].key = "f3";
-    e[GLFW_KEY_F4].key = "f4";
-    e[GLFW_KEY_F5].key = "f5";
-    e[GLFW_KEY_F6].key = "f6";
-    e[GLFW_KEY_F7].key = "f7";
-    e[GLFW_KEY_F8].key = "f8";
-    e[GLFW_KEY_F9].key = "f9";
-    e[GLFW_KEY_F10].key = "f10";
-    e[GLFW_KEY_F11].key = "f11";
-    e[GLFW_KEY_F12].key = "f12";
-    e[GLFW_KEY_F13].key = "f13";
-    e[GLFW_KEY_F14].key = "f14";
-    e[GLFW_KEY_F15].key = "f15";
-    e[GLFW_KEY_F16].key = "f16";
-    e[GLFW_KEY_F17].key = "f17";
-    e[GLFW_KEY_F18].key = "f18";
-    e[GLFW_KEY_F19].key = "f19";
-    e[GLFW_KEY_F20].key = "f20";
-    e[GLFW_KEY_F21].key = "f21";
-    e[GLFW_KEY_F22].key = "f22";
-    e[GLFW_KEY_F23].key = "f23";
-    e[GLFW_KEY_F24].key = "f24";
-    e[GLFW_KEY_F25].key = "f25";
-    e[GLFW_KEY_KP_0].key = "pad_0";
-    e[GLFW_KEY_KP_1].key = "pad_1";
-    e[GLFW_KEY_KP_2].key = "pad_2";
-    e[GLFW_KEY_KP_3].key = "pad_3";
-    e[GLFW_KEY_KP_4].key = "pad_4";
-    e[GLFW_KEY_KP_5].key = "pad_5";
-    e[GLFW_KEY_KP_6].key = "pad_6";
-    e[GLFW_KEY_KP_7].key = "pad_7";
-    e[GLFW_KEY_KP_8].key = "pad_8";
-    e[GLFW_KEY_KP_9].key = "pad_9";
-    e[GLFW_KEY_KP_DECIMAL].key = "pad_decimal";
-    e[GLFW_KEY_KP_DIVIDE].key = "pad_divide";
-    e[GLFW_KEY_KP_MULTIPLY].key = "pad_multiply";
-    e[GLFW_KEY_KP_SUBTRACT].key = "pad_subtract";
-    e[GLFW_KEY_KP_ADD].key = "pad_add";
-    e[GLFW_KEY_KP_ENTER].key = "pad_enter";
-    e[GLFW_KEY_KP_EQUAL].key = "pad_equal";
-    e[GLFW_KEY_LEFT_SHIFT].key = "left_shift";
-    e[GLFW_KEY_LEFT_CONTROL].key = "left_ctrl";
-    e[GLFW_KEY_LEFT_ALT].key = "left_alt";
-    e[GLFW_KEY_LEFT_SUPER].key = "left_super";
-    e[GLFW_KEY_RIGHT_SHIFT].key = "right_shift";
-    e[GLFW_KEY_RIGHT_CONTROL].key = "right_ctrl";
-    e[GLFW_KEY_RIGHT_ALT].key = "right_alt";
-    e[GLFW_KEY_RIGHT_SUPER].key = "right_super";
-    e[GLFW_KEY_MENU].key = "menu";
+    if (self) {
+        Set *key = self -> keys;
 
-    Py_XINCREF(key);
-    return (PyObject *) key;
+        key[GLFW_KEY_SPACE].name = "space";
+        key[GLFW_KEY_APOSTROPHE].name = "apostrophe";
+        key[GLFW_KEY_COMMA].name = "comma";
+        key[GLFW_KEY_MINUS].name = "minus";
+        key[GLFW_KEY_PERIOD].name = "period";
+        key[GLFW_KEY_SLASH].name = "slash";
+        key[GLFW_KEY_0].name = "_0";
+        key[GLFW_KEY_1].name = "_1";
+        key[GLFW_KEY_2].name = "_2";
+        key[GLFW_KEY_3].name = "_3";
+        key[GLFW_KEY_4].name = "_4";
+        key[GLFW_KEY_5].name = "_5";
+        key[GLFW_KEY_6].name = "_6";
+        key[GLFW_KEY_7].name = "_7";
+        key[GLFW_KEY_8].name = "_8";
+        key[GLFW_KEY_9].name = "_9";
+        key[GLFW_KEY_SEMICOLON].name = "semicolon";
+        key[GLFW_KEY_EQUAL].name = "equal";
+        key[GLFW_KEY_A].name = "a";
+        key[GLFW_KEY_B].name = "b";
+        key[GLFW_KEY_C].name = "c";
+        key[GLFW_KEY_D].name = "d";
+        key[GLFW_KEY_E].name = "e";
+        key[GLFW_KEY_F].name = "f";
+        key[GLFW_KEY_G].name = "g";
+        key[GLFW_KEY_H].name = "h";
+        key[GLFW_KEY_I].name = "i";
+        key[GLFW_KEY_J].name = "j";
+        key[GLFW_KEY_K].name = "k";
+        key[GLFW_KEY_L].name = "l";
+        key[GLFW_KEY_M].name = "m";
+        key[GLFW_KEY_N].name = "n";
+        key[GLFW_KEY_O].name = "o";
+        key[GLFW_KEY_P].name = "p";
+        key[GLFW_KEY_Q].name = "q";
+        key[GLFW_KEY_R].name = "r";
+        key[GLFW_KEY_S].name = "s";
+        key[GLFW_KEY_T].name = "t";
+        key[GLFW_KEY_U].name = "u";
+        key[GLFW_KEY_V].name = "v";
+        key[GLFW_KEY_W].name = "w";
+        key[GLFW_KEY_X].name = "x";
+        key[GLFW_KEY_Y].name = "y";
+        key[GLFW_KEY_Z].name = "z";
+        key[GLFW_KEY_LEFT_BRACKET].name = "left_bracket";
+        key[GLFW_KEY_BACKSLASH].name = "backslash";
+        key[GLFW_KEY_RIGHT_BRACKET].name = "right_bracket";
+        key[GLFW_KEY_GRAVE_ACCENT].name = "backquote";
+        key[GLFW_KEY_ESCAPE].name = "escape";
+        key[GLFW_KEY_ENTER].name = "enter";
+        key[GLFW_KEY_TAB].name = "tab";
+        key[GLFW_KEY_BACKSPACE].name = "backspace";
+        key[GLFW_KEY_INSERT].name = "insert";
+        key[GLFW_KEY_DELETE].name = "delete";
+        key[GLFW_KEY_RIGHT].name = "right";
+        key[GLFW_KEY_LEFT].name = "left";
+        key[GLFW_KEY_DOWN].name = "down";
+        key[GLFW_KEY_UP].name = "up";
+        key[GLFW_KEY_PAGE_UP].name = "page_up";
+        key[GLFW_KEY_PAGE_DOWN].name = "page_down";
+        key[GLFW_KEY_HOME].name = "home";
+        key[GLFW_KEY_END].name = "end";
+        key[GLFW_KEY_CAPS_LOCK].name = "caps_lock";
+        key[GLFW_KEY_SCROLL_LOCK].name = "scroll_lock";
+        key[GLFW_KEY_NUM_LOCK].name = "num_lock";
+        key[GLFW_KEY_PRINT_SCREEN].name = "print_screen";
+        key[GLFW_KEY_PAUSE].name = "pause";
+        key[GLFW_KEY_F1].name = "f1";
+        key[GLFW_KEY_F2].name = "f2";
+        key[GLFW_KEY_F3].name = "f3";
+        key[GLFW_KEY_F4].name = "f4";
+        key[GLFW_KEY_F5].name = "f5";
+        key[GLFW_KEY_F6].name = "f6";
+        key[GLFW_KEY_F7].name = "f7";
+        key[GLFW_KEY_F8].name = "f8";
+        key[GLFW_KEY_F9].name = "f9";
+        key[GLFW_KEY_F10].name = "f10";
+        key[GLFW_KEY_F11].name = "f11";
+        key[GLFW_KEY_F12].name = "f12";
+        key[GLFW_KEY_F13].name = "f13";
+        key[GLFW_KEY_F14].name = "f14";
+        key[GLFW_KEY_F15].name = "f15";
+        key[GLFW_KEY_F16].name = "f16";
+        key[GLFW_KEY_F17].name = "f17";
+        key[GLFW_KEY_F18].name = "f18";
+        key[GLFW_KEY_F19].name = "f19";
+        key[GLFW_KEY_F20].name = "f20";
+        key[GLFW_KEY_F21].name = "f21";
+        key[GLFW_KEY_F22].name = "f22";
+        key[GLFW_KEY_F23].name = "f23";
+        key[GLFW_KEY_F24].name = "f24";
+        key[GLFW_KEY_F25].name = "f25";
+        key[GLFW_KEY_KP_0].name = "pad_0";
+        key[GLFW_KEY_KP_1].name = "pad_1";
+        key[GLFW_KEY_KP_2].name = "pad_2";
+        key[GLFW_KEY_KP_3].name = "pad_3";
+        key[GLFW_KEY_KP_4].name = "pad_4";
+        key[GLFW_KEY_KP_5].name = "pad_5";
+        key[GLFW_KEY_KP_6].name = "pad_6";
+        key[GLFW_KEY_KP_7].name = "pad_7";
+        key[GLFW_KEY_KP_8].name = "pad_8";
+        key[GLFW_KEY_KP_9].name = "pad_9";
+        key[GLFW_KEY_KP_DECIMAL].name = "pad_decimal";
+        key[GLFW_KEY_KP_DIVIDE].name = "pad_divide";
+        key[GLFW_KEY_KP_MULTIPLY].name = "pad_multiply";
+        key[GLFW_KEY_KP_SUBTRACT].name = "pad_subtract";
+        key[GLFW_KEY_KP_ADD].name = "pad_add";
+        key[GLFW_KEY_KP_ENTER].name = "pad_enter";
+        key[GLFW_KEY_KP_EQUAL].name = "pad_equal";
+        key[GLFW_KEY_LEFT_SHIFT].name = "left_shift";
+        key[GLFW_KEY_LEFT_CONTROL].name = "left_ctrl";
+        key[GLFW_KEY_LEFT_ALT].name = "left_alt";
+        key[GLFW_KEY_LEFT_SUPER].name = "left_super";
+        key[GLFW_KEY_RIGHT_SHIFT].name = "right_shift";
+        key[GLFW_KEY_RIGHT_CONTROL].name = "right_ctrl";
+        key[GLFW_KEY_RIGHT_ALT].name = "right_alt";
+        key[GLFW_KEY_RIGHT_SUPER].name = "right_super";
+        key[GLFW_KEY_MENU].name = "menu";
+    }
+
+    return self;
 }
 
 static PyObject *Key_getattro(Key *self, PyObject *attr) {
     const char *name = PyUnicode_AsUTF8(attr);
-    if (!name) return NULL;
-    
-    FOR(uint16_t, GLFW_KEY_LAST)
-        if (self -> keys[i].key && !strcmp(self -> keys[i].key, name))
-            return (PyObject *) buttonNew(&self -> keys[i]);
 
-    return PyObject_GenericGetAttr((PyObject *) self, attr);
+    if (name) {
+        for (uint16_t i = 0; i < GLFW_KEY_LAST; i ++)
+            if (self -> keys[i].name && !strcmp(self -> keys[i].name, name))
+                return (PyObject *) Button_new(&self -> keys[i]);
+
+        return PyObject_GenericGetAttr((PyObject *) self, attr);
+    }
+
+    return NULL;
 }
 
-static PyGetSetDef KeyGetSetters[] = {
-    {"press", (getter) Key_getPress, NULL, "a key is pressed", NULL},
-    {"release", (getter) Key_getRelease, NULL, "a key is released", NULL},
-    {"repeat", (getter) Key_getRepeat, NULL, "triggered when a key is held down", NULL},
-    {"hold", (getter) Key_getHold, NULL, "a key is held down", NULL},
+static PyGetSetDef Key_getset[] = {
+    {"press", (getter) Key_get_press, NULL, "a key is pressed", NULL},
+    {"release", (getter) Key_get_release, NULL, "a key is released", NULL},
+    {"repeat", (getter) Key_get_repeat, NULL, "triggered when a key is held down", NULL},
+    {"hold", (getter) Key_get_hold, NULL, "a key is held down", NULL},
     {NULL}
 };
 
@@ -172,7 +177,7 @@ PyTypeObject KeyType = {
     .tp_basicsize = sizeof(Key),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = Key_new,
+    .tp_new = (newfunc) Key_new,
     .tp_getattro = (getattrofunc) Key_getattro,
-    .tp_getset = KeyGetSetters
+    .tp_getset = Key_getset
 };

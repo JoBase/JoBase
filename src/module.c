@@ -1,48 +1,43 @@
-#define READY(t) if(PyType_Ready(&t))return NULL;
-#define ADD(e) if(e){Py_DECREF(self);return -1;}
-#define BUILD(i, e) if(PyModule_AddObject(self,i,object=e)){Py_XDECREF(object);Py_DECREF(self);return -1;}
-#define COLOR(i, r, g, b) BUILD(i,PyTuple_Pack(3,PyFloat_FromDouble(r),PyFloat_FromDouble(g),PyFloat_FromDouble(b)))
-#define PATH(i, e) BUILD(i,PyUnicode_FromString(filepath(e)))
-
-#define EXPAND(e) #e
-#define STR(e) EXPAND(e)
 #include <main.h>
 
 #ifdef _WIN32
 PyMODINIT_FUNC PyInit___init__;
 #endif
 
-#ifdef __EMSCRIPTEN__
-#define VERSION "300 es"
+static PyObject *loop;
+FT_Library library;
 
-static void run() {
-    if (update() || jsWait()) {
-        Py_FinalizeEx();
-        jsEnd();
+Texture *textures;
+Font *fonts;
 
-        emscripten_cancel_main_loop();
-    }
-}
-#else
-#define VERSION "330 core"
-#endif
+GLint uniforms[5];
+GLuint program;
+GLuint mesh;
 
-static void clean() {
+PyObject *module;
+Window *window;
+Cursor *cursor;
+Camera *camera;
+Key *key;
+
+static void cleanup() {
     while (textures) {
         Texture *this = textures;
-        glDeleteTextures(1, &this -> src);
-        free(this -> name);
 
         textures = this -> next;
+        glDeleteTextures(1, &this -> src);
+
+        free(this -> name);
         free(this);
     }
 
     while (fonts) {
         Font *this = fonts;
-        FT_Done_Face(this -> face);
-        free(this -> name);
 
         fonts = this -> next;
+        FT_Done_Face(this -> face);
+
+        free(this -> name);
         free(this);
     }
 
@@ -53,172 +48,215 @@ static void clean() {
     glfwTerminate();
 }
 
-static void errorCallback(int code, const char *description) {
+static int update() {
+    const double sx = 2 / window -> size.x * camera -> scale.x;
+    const double sy = 2 / window -> size.y * camera -> scale.y;
+
+    GLfloat matrix[] = {
+        sx, 0, 0, 0, sy, 0,
+        -camera -> pos.x * sx, -camera -> pos.y * sy, -1
+    };
+    
+    glUniformMatrix3fv(uniforms[view], 1, GL_FALSE, matrix);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    if (PyErr_CheckSignals() || (loop && !PyObject_CallObject(loop, NULL)))
+        return -1;
+
+    window -> resize = false;
+    cursor -> move = false;
+    cursor -> enter = false;
+    cursor -> leave = false;
+    cursor -> press = false;
+    cursor -> release = false;
+    key -> press = false;
+    key -> release = false;
+    key -> repeat = false;
+
+    for (uint8_t i = 0; i < GLFW_MOUSE_BUTTON_LAST; i ++) {
+        cursor -> buttons[i].press = false;
+        cursor -> buttons[i].release = false;
+    }
+
+    for (uint16_t i = 0; i < GLFW_KEY_LAST; i ++) {
+        key -> keys[i].press = false;
+        key -> keys[i].release = false;
+        key -> keys[i].repeat = false;
+    }
+
+    glfwSwapBuffers(window -> glfw);
+    return glfwPollEvents(), 0;
+}
+
+static void init() {
+    #define PRINT(e) if(e)PyErr_Print();
+
+    PyObject *empty = PyTuple_New(0);
+    PyObject *dict = PyDict_New();
+
+    PRINT(WindowType.tp_init((PyObject *) window, empty, dict))
+    PRINT(CameraType.tp_init((PyObject *) camera, empty, dict))
+    PRINT(CursorType.tp_init((PyObject *) cursor, NULL, NULL))
+    PRINT(KeyType.tp_init((PyObject *) key, NULL, NULL))
+}
+
+#ifdef __EMSCRIPTEN__
+static void run() {
+    if (update() || render()) {
+        init();
+        end();
+        emscripten_cancel_main_loop();
+    }
+}
+#endif
+
+static const char *filepath(char *path, size_t length, const char *file) {
+    return path[length] = 0, strcat(path, file);
+}
+
+static void error_callback(int code, const char *description) {
     fprintf(stderr, "%s\n", description);
 }
 
-static PyObject *Module_random(PyObject *Py_UNUSED(self), PyObject *args) {
+static PyObject *Module_random(PyObject *self, PyObject *args) {
     double x, y;
 
-    if (!PyArg_ParseTuple(args, "dd", &x, &y)) return NULL;
-    return PyFloat_FromDouble(rand() / (RAND_MAX / fabs(y - x)) + MIN(x, y));
+    if (PyArg_ParseTuple(args, "dd:random", &x, &y))
+        return PyFloat_FromDouble(rand() / (RAND_MAX / fabs(y - x)) + MIN(x, y));
+
+    return NULL;
 }
 
-static PyObject *Module_randint(PyObject *Py_UNUSED(self), PyObject *args) {
+static PyObject *Module_randint(PyObject *self, PyObject *args) {
     int x, y;
 
-    if (!PyArg_ParseTuple(args, "ii", &x, &y)) return NULL;
-    return PyLong_FromLong(rand() / (RAND_MAX / abs(y - x + 1)) + MIN(x, y));
+    if (PyArg_ParseTuple(args, "ii:randint", &x, &y))
+        return PyLong_FromLong(rand() / (RAND_MAX / abs(y - x + 1)) + MIN(x, y));
+
+    return NULL;
 }
 
-static PyObject *Module_sin(PyObject *Py_UNUSED(self), PyObject *value) {
+static PyObject *Module_sin(PyObject *self, PyObject *value) {
     double angle = PyFloat_AsDouble(value);
-
-    if (ERR(angle)) return NULL;
-    return PyFloat_FromDouble(sin(angle));
+    return ERR(angle) ? NULL : PyFloat_FromDouble(sin(angle));
 }
 
-static PyObject *Module_cos(PyObject *Py_UNUSED(self), PyObject *value) {
+static PyObject *Module_cos(PyObject *self, PyObject *value) {
     double angle = PyFloat_AsDouble(value);
-
-    if (ERR(angle)) return NULL;
-    return PyFloat_FromDouble(cos(angle));
+    return ERR(angle) ? NULL : PyFloat_FromDouble(cos(angle));
 }
 
-static PyObject *Module_tan(PyObject *Py_UNUSED(self), PyObject *value) {
+static PyObject *Module_tan(PyObject *self, PyObject *value) {
     double angle = PyFloat_AsDouble(value);
-
-    if (ERR(angle)) return NULL;
-    return PyFloat_FromDouble(tan(angle));
+    return ERR(angle) ? NULL : PyFloat_FromDouble(tan(angle));
 }
 
-static PyObject *Module_sqrt(PyObject *Py_UNUSED(self), PyObject *value) {
+static PyObject *Module_asin(PyObject *self, PyObject *value) {
+    double angle = PyFloat_AsDouble(value);
+    return ERR(angle) ? NULL : PyFloat_FromDouble(asin(angle));
+}
+
+static PyObject *Module_acos(PyObject *self, PyObject *value) {
+    double angle = PyFloat_AsDouble(value);
+    return ERR(angle) ? NULL : PyFloat_FromDouble(acos(angle));
+}
+
+static PyObject *Module_atan(PyObject *self, PyObject *value) {
+    double angle = PyFloat_AsDouble(value);
+    return ERR(angle) ? NULL : PyFloat_FromDouble(atan(angle));
+}
+
+static PyObject *Module_sqrt(PyObject *self, PyObject *value) {
     double number = PyFloat_AsDouble(value);
-
-    if (ERR(number)) return NULL;
-    return PyFloat_FromDouble(sqrt(number));
+    return ERR(number) ? NULL : PyFloat_FromDouble(sqrt(number));
 }
 
-static PyObject *Module_run(PyObject *Py_UNUSED(self), PyObject *Py_UNUSED(ignored)) {
-    PyObject *module = PyDict_GetItemString(PySys_GetObject("modules"), "__main__");
+static PyObject *Module_cbrt(PyObject *self, PyObject *value) {
+    double number = PyFloat_AsDouble(value);
+    return ERR(number) ? NULL : PyFloat_FromDouble(cbrt(number));
+}
+
+static PyObject *Module_ceil(PyObject *self, PyObject *value) {
+    double number = PyFloat_AsDouble(value);
+    return ERR(number) ? NULL : PyFloat_FromDouble(ceil(number));
+}
+
+static PyObject *Module_floor(PyObject *self, PyObject *value) {
+    double number = PyFloat_AsDouble(value);
+    return ERR(number) ? NULL : PyFloat_FromDouble(floor(number));
+}
+
+static PyObject *Module_run(PyObject *self, PyObject *ignored) {
     glfwShowWindow(window -> glfw);
 
     if (PyObject_HasAttrString(module, "loop") && !(loop = PyObject_GetAttrString(module, "loop")))
         return NULL;
 
 #ifdef __EMSCRIPTEN__
-    jsStart();
+    start();
     emscripten_set_main_loop(run, 0, true);
 #endif
 
-    while (!glfwWindowShouldClose(window -> glfw)) {
-        if (PyErr_CheckSignals() || update())
-            return NULL;
-
-        glfwPollEvents();
-    }
+    while (!glfwWindowShouldClose(window -> glfw))
+        if (update()) return NULL;
 
     Py_RETURN_NONE;
 }
 
+static PyMethodDef Module_methods[] = {
+    {"run", Module_run, METH_NOARGS, "run the main game loop"},
+    {"random", Module_random, METH_VARARGS, "find a random number between two numbers"},
+    {"randint", Module_randint, METH_VARARGS, "find a random integer between two integers"},
+    {"sin", Module_sin, METH_O, "sine function of an angle in radians"},
+    {"cos", Module_cos, METH_O, "cosine function of an angle in radians"},
+    {"tan", Module_tan, METH_O, "tangent function of an angle in radians"},
+    {"asin", Module_asin, METH_O, "arcsine function of an angle in radians"},
+    {"acos", Module_acos, METH_O, "arccosine function of an angle in radians"},
+    {"atan", Module_atan, METH_O, "arctangent function of an angle in radians"},
+    {"sqrt", Module_sqrt, METH_O, "find the square root"},
+    {"cbrt", Module_cbrt, METH_O, "find the cube root"},
+    {"ceil", Module_ceil, METH_O, "round up to the nearest whole number"},
+    {"floor", Module_floor, METH_O, "round down to the nearest whole number"},
+    {NULL}
+};
+
 static int Module_exec(PyObject *self) {
-    glfwSetErrorCallback(errorCallback);
-    Py_AtExit(clean);
+    #define COLOR(r, g, b) PyTuple_Pack(3,PyFloat_FromDouble(r),PyFloat_FromDouble(g),PyFloat_FromDouble(b))
+    #define ADD(e, t) Py_INCREF(e);if(PyModule_AddObject(module,#t,(PyObject*)t)){Py_XDECREF(t);return -1;}
+    #define PATH(e) (path[length]=0,strcat(path,e));
+
+    PyObject *modules = PySys_GetObject("modules");
+    PyObject *file = PyObject_GetAttrString(self, "__file__");
+    INIT(!file)
+
+    Py_ssize_t size;
+    const char *string = PyUnicode_AsUTF8AndSize(file, &size);
+
+    glfwSetErrorCallback(error_callback);
+    Py_DECREF(file);
+    INIT(!string)
+
+    const char *last = strrchr(string, '/');
+    const size_t length = size - strlen(last ? last : strrchr(string, '\\')) + 1;
+    char *path = strdup(string);
 
     if (!glfwInit()) {
         PyErr_SetString(PyExc_OSError, "failed to initialize GLFW");
-        Py_DECREF(self);
         return -1;
     }
 
     if (FT_Init_FreeType(&library)) {
         PyErr_SetString(PyExc_OSError, "failed to initialize FreeType");
-        Py_DECREF(self);
-        return -1;
+        return glfwTerminate(), -1;
     }
 
-    Py_ssize_t size;
-    PyObject *file = PyObject_GetAttrString(self, "__file__"), *object;
+    Py_INCREF(module = PyDict_GetItemString(modules, "__main__"));
+    Py_AtExit(cleanup);
 
-    if (!file) {
-        Py_DECREF(self);
-        return -1;
-    }
-
-    path = (char *) PyUnicode_AsUTF8AndSize(file, &size);
-    Py_DECREF(file);
-
-    if (!path) {
-        Py_DECREF(self);
-        return -1;
-    }
-
-    const char *last = strrchr(path, '/');
-    length = size - strlen(last ? last : strrchr(path, '\\')) + 1;
-
-    ADD(PyModule_AddObject(self, "Rectangle", (PyObject *) &RectangleType))
-    ADD(PyModule_AddObject(self, "Image", (PyObject *) &ImageType))
-    ADD(PyModule_AddObject(self, "Text", (PyObject *) &TextType))
-    ADD(PyModule_AddObject(self, "Circle", (PyObject *) &CircleType))
-    ADD(PyModule_AddObject(self, "Line", (PyObject *) &LineType))
-    ADD(PyModule_AddObject(self, "Shape", (PyObject *) &ShapeType))
-    ADD(PyModule_AddObject(self, "Physics", (PyObject *) &PhysicsType))
-    ADD(PyModule_AddObject(self, "Joint", (PyObject *) &JointType))
-    ADD(PyModule_AddObject(self, "Pin", (PyObject *) &PinType))
-    ADD(PyModule_AddObject(self, "Pivot", (PyObject *) &PivotType))
-    ADD(PyModule_AddObject(self, "Motor", (PyObject *) &MotorType))
-    ADD(PyModule_AddObject(self, "Spring", (PyObject *) &SpringType))
-    ADD(PyModule_AddObject(self, "Groove", (PyObject *) &GrooveType))
-
-    ADD(PyModule_AddIntConstant(self, "DYNAMIC", CP_BODY_TYPE_DYNAMIC))
-    ADD(PyModule_AddIntConstant(self, "STATIC", CP_BODY_TYPE_KINEMATIC))
-    ADD(PyModule_AddStringConstant(self, "MAN", filepath("images/man.png")))
-    ADD(PyModule_AddStringConstant(self, "COIN", filepath("images/coin.png")))
-    ADD(PyModule_AddStringConstant(self, "ENEMY", filepath("images/enemy.png")))
-    ADD(PyModule_AddStringConstant(self, "DEFAULT", filepath("fonts/default.ttf")))
-    ADD(PyModule_AddStringConstant(self, "CODE", filepath("fonts/code.ttf")))
-    ADD(PyModule_AddStringConstant(self, "PENCIL", filepath("fonts/pencil.ttf")))
-    ADD(PyModule_AddStringConstant(self, "SERIF", filepath("fonts/serif.ttf")))
-    ADD(PyModule_AddStringConstant(self, "HANDWRITING", filepath("fonts/handwriting.ttf")))
-    ADD(PyModule_AddStringConstant(self, "TYPEWRITER", filepath("fonts/typewriter.ttf")))
-    ADD(PyModule_AddStringConstant(self, "JOINED", filepath("fonts/joined.ttf")))
-
-    BUILD("PI", PyFloat_FromDouble(M_PI))
-    BUILD("cursor", PyObject_CallFunctionObjArgs((PyObject *) &CursorType, NULL))
-    BUILD("key", PyObject_CallFunctionObjArgs((PyObject *) &KeyType, NULL))
-    BUILD("camera", PyObject_CallFunctionObjArgs((PyObject *) &CameraType, NULL))
-    BUILD("window", PyObject_CallFunctionObjArgs((PyObject *) &WindowType, NULL))
-
-    COLOR("WHITE", 1, 1, 1)
-    COLOR("BLACK", 0, 0, 0)
-    COLOR("GRAY", .5, .5, .5)
-    COLOR("DARK_GRAY", .2, .2, .2)
-    COLOR("LIGHT_GRAY", .8, .8, .8)
-    COLOR("BROWN", .6, .2, .2)
-    COLOR("TAN", .8, .7, .6)
-    COLOR("RED", 1, 0, 0)
-    COLOR("DARK_RED", .6, 0, 0)
-    COLOR("SALMON", 1, .5, .5)
-    COLOR("ORANGE", 1, .5, 0)
-    COLOR("GOLD", 1, .8, 0)
-    COLOR("YELLOW", 1, 1, 0)
-    COLOR("OLIVE", .5, .5, 0)
-    COLOR("LIME", 0, 1, 0)
-    COLOR("DARK_GREEN", 0, .4, 0)
-    COLOR("GREEN", 0, .5, 0)
-    COLOR("AQUA", 0, 1, 1)
-    COLOR("BLUE", 0, 0, 1)
-    COLOR("LIGHT_BLUE", .5, .8, 1)
-    COLOR("AZURE", .9, 1, 1)
-    COLOR("NAVY", 0, 0, .5)
-    COLOR("PURPLE", .5, 0, 1)
-    COLOR("PINK", 1, .75, .8)
-    COLOR("MAGENTA", 1, 0, 1)
-
-    GLuint vertex = glCreateShader(GL_VERTEX_SHADER);
-    GLuint fragment = glCreateShader(GL_FRAGMENT_SHADER);
-    program = glCreateProgram();
-    path[length] = 0;
+    ADD(window = (Window *) PyObject_CallObject((PyObject *) &WindowType, NULL), window)
+    ADD(cursor = (Cursor *) PyObject_CallObject((PyObject *) &CursorType, NULL), cursor)
+    ADD(camera = (Camera *) PyObject_CallObject((PyObject *) &CameraType, NULL), camera)
+    ADD(key = (Key *) PyObject_CallObject((PyObject *) &KeyType, NULL), key)
 
     const char *vs =
         "#version " VERSION "\n"
@@ -247,124 +285,175 @@ static int Module_exec(PyObject *self) {
         "uniform int img;"
 
         "void main() {"
-            "if (img == " STR(TEXT) ") frag = vec4(1, 1, 1, texture(sampler, pos).r) * color;"
-            "else if (img == " STR(IMAGE) ") frag = texture(sampler, pos) * color;"
-            "else if (img == " STR(SHAPE) ") frag = color;"
+            "frag = color * (img == 0 ? vec4(1) : img == 1 ? texture(sampler, pos) : vec4(vec3(1), texture(sampler, pos).r));"
         "}";
+
+    GLuint vertex = glCreateShader(GL_VERTEX_SHADER);
+    GLuint fragment = glCreateShader(GL_FRAGMENT_SHADER);
 
     glShaderSource(vertex, 1, &vs, NULL);
     glShaderSource(fragment, 1, &fs, NULL);
     glCompileShader(vertex);
     glCompileShader(fragment);
 
-    glAttachShader(program, vertex);
+    glAttachShader(program = glCreateProgram(), vertex);
     glAttachShader(program, fragment);
     glDeleteShader(vertex);
     glDeleteShader(fragment);
     glLinkProgram(program);
     glUseProgram(program);
 
-    uniform[vert] = glGetAttribLocation(program, "vert");
-    uniform[coord] = glGetAttribLocation(program, "coord");
-    uniform[view] = glGetUniformLocation(program, "view");
-    uniform[obj] = glGetUniformLocation(program, "obj");
-    uniform[color] = glGetUniformLocation(program, "color");
-    uniform[img] = glGetUniformLocation(program, "img");
-
     GLuint buffer;
     GLfloat data[] = {-.5, .5, 0, 0, .5, .5, 1, 0, -.5, -.5, 0, 1, .5, -.5, 1, 1};
+    GLint coord = glGetAttribLocation(program, "coord");
+
+    uniforms[vert] = glGetAttribLocation(program, "vert");
+    uniforms[view] = glGetUniformLocation(program, "view");
+    uniforms[obj] = glGetUniformLocation(program, "obj");
+    uniforms[color] = glGetUniformLocation(program, "color");
+    uniforms[img] = glGetUniformLocation(program, "img");
 
     glGenVertexArrays(1, &mesh);
     glBindVertexArray(mesh);
-
     glGenBuffers(1, &buffer);
     glBindBuffer(GL_ARRAY_BUFFER, buffer);
     glBufferData(GL_ARRAY_BUFFER, sizeof data, data, GL_STATIC_DRAW);
 
-    glVertexAttribPointer(uniform[vert], 2, GL_FLOAT, GL_FALSE, sizeof(GLfloat) * 4, 0);
-    glVertexAttribPointer(uniform[coord], 2, GL_FLOAT, GL_FALSE, sizeof(GLfloat) * 4, (void *) (sizeof(GLfloat) * 2));
-    glEnableVertexAttribArray(uniform[vert]);
-    glEnableVertexAttribArray(uniform[coord]);
+    glVertexAttribPointer(uniforms[vert], 2, GL_FLOAT, GL_FALSE, sizeof(GLfloat) * 4, 0);
+    glVertexAttribPointer(coord, 2, GL_FLOAT, GL_FALSE, sizeof(GLfloat) * 4, (void *) (sizeof(GLfloat) * 2));
+    glEnableVertexAttribArray(uniforms[vert]);
+    glEnableVertexAttribArray(coord);
 
     glBindVertexArray(0);
     glDeleteBuffers(1, &buffer);
 
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glUniform1i(glGetUniformLocation(program, "sampler"), 0);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    return 0;
+    INIT(PyModule_AddObject(module, "Rectangle", (PyObject *) &RectangleType))
+    INIT(PyModule_AddObject(module, "Image", (PyObject *) &ImageType))
+    INIT(PyModule_AddObject(module, "Text", (PyObject *) &TextType))
+    INIT(PyModule_AddObject(module, "Circle", (PyObject *) &CircleType))
+    INIT(PyModule_AddObject(module, "Shape", (PyObject *) &ShapeType))
+    INIT(PyModule_AddObject(module, "Line", (PyObject *) &LineType))
+    INIT(PyModule_AddObject(module, "Physics", (PyObject *) &PhysicsType))
+    INIT(PyModule_AddObject(module, "Pin", (PyObject *) &PinType))
+    INIT(PyModule_AddObject(module, "Spring", (PyObject *) &SpringType))
+    INIT(PyModule_AddObject(module, "Groove", (PyObject *) &GrooveType))
+
+    INIT(PyModule_AddIntConstant(module, "DYNAMIC", CP_BODY_TYPE_DYNAMIC))
+    INIT(PyModule_AddIntConstant(module, "STATIC", CP_BODY_TYPE_KINEMATIC))
+
+    INIT(PyModule_AddObject(module, "WHITE", COLOR(1, 1, 1)))
+    INIT(PyModule_AddObject(module, "BLACK", COLOR(0, 0, 0)))
+    INIT(PyModule_AddObject(module, "GRAY", COLOR(.5, .5, .5)))
+    INIT(PyModule_AddObject(module, "DARK_GRAY", COLOR(.2, .2, .2)))
+    INIT(PyModule_AddObject(module, "LIGHT_GRAY", COLOR(.8, .8, .8)))
+    INIT(PyModule_AddObject(module, "BROWN", COLOR(.6, .2, .2)))
+    INIT(PyModule_AddObject(module, "TAN", COLOR(.8, .7, .6)))
+    INIT(PyModule_AddObject(module, "RED", COLOR(1, 0, 0)))
+    INIT(PyModule_AddObject(module, "DARK_RED", COLOR(.6, 0, 0)))
+    INIT(PyModule_AddObject(module, "SALMON", COLOR(1, .5, .5)))
+    INIT(PyModule_AddObject(module, "ORANGE", COLOR(1, .5, 0)))
+    INIT(PyModule_AddObject(module, "GOLD", COLOR(1, .8, 0)))
+    INIT(PyModule_AddObject(module, "YELLOW", COLOR(1, 1, 0)))
+    INIT(PyModule_AddObject(module, "OLIVE", COLOR(.5, .5, 0)))
+    INIT(PyModule_AddObject(module, "LIME", COLOR(0, 1, 0)))
+    INIT(PyModule_AddObject(module, "DARK_GREEN", COLOR(0, .4, 0)))
+    INIT(PyModule_AddObject(module, "GREEN", COLOR(0, .5, 0)))
+    INIT(PyModule_AddObject(module, "AQUA", COLOR(0, 1, 1)))
+    INIT(PyModule_AddObject(module, "BLUE", COLOR(0, 0, 1)))
+    INIT(PyModule_AddObject(module, "LIGHT_BLUE", COLOR(.5, .8, 1)))
+    INIT(PyModule_AddObject(module, "AZURE", COLOR(.9, 1, 1)))
+    INIT(PyModule_AddObject(module, "NAVY", COLOR(0, 0, .5)))
+    INIT(PyModule_AddObject(module, "PURPLE", COLOR(.5, 0, 1)))
+    INIT(PyModule_AddObject(module, "PINK", COLOR(1, .75, .8)))
+    INIT(PyModule_AddObject(module, "MAGENTA", COLOR(1, 0, 1)))
+    INIT(PyModule_AddObject(module, "PI", PyFloat_FromDouble(M_PI)))
+
+    INIT(PyModule_AddStringConstant(module, "MAN", filepath(path, length, "images/man.png")))
+    INIT(PyModule_AddStringConstant(module, "COIN", filepath(path, length, "images/coin.png")))
+    INIT(PyModule_AddStringConstant(module, "ENEMY", filepath(path, length, "images/enemy.png")))
+    INIT(PyModule_AddStringConstant(module, "DEFAULT", filepath(path, length, "fonts/default.ttf")))
+    INIT(PyModule_AddStringConstant(module, "CODE", filepath(path, length, "fonts/code.ttf")))
+    INIT(PyModule_AddStringConstant(module, "PENCIL", filepath(path, length, "fonts/pencil.ttf")))
+    INIT(PyModule_AddStringConstant(module, "SERIF", filepath(path, length, "fonts/serif.ttf")))
+    INIT(PyModule_AddStringConstant(module, "HANDWRITING", filepath(path, length, "fonts/handwriting.ttf")))
+    INIT(PyModule_AddStringConstant(module, "TYPEWRITER", filepath(path, length, "fonts/typewriter.ttf")))
+    INIT(PyModule_AddStringConstant(module, "JOINED", filepath(path, length, "fonts/joined.ttf")))
+
+    return free(path), PyModule_AddFunctions(module, Module_methods);
 }
 
-static int Module_traverse(PyObject *Py_UNUSED(self), visitproc visit, void *arg) {
+static int Module_traverse(PyObject *self, visitproc visit, void *arg) {
     Py_VISIT(window);
     Py_VISIT(cursor);
     Py_VISIT(camera);
     Py_VISIT(key);
-    Py_VISIT(loop);
 
     return 0;
 }
 
-static int Module_clear(PyObject *Py_UNUSED(self)) {
+static int Module_clear(PyObject *self) {
     Py_CLEAR(window);
     Py_CLEAR(cursor);
     Py_CLEAR(camera);
     Py_CLEAR(key);
-    Py_CLEAR(loop);
 
     return 0;
 }
 
-static PyMethodDef ModuleMethods[] = {
-    {"random", Module_random, METH_VARARGS, "find a random number between two numbers"},
-    {"randint", Module_randint, METH_VARARGS, "find a random integer between two integers"},
-    {"sin", Module_sin, METH_O, "sine function of an angle"},
-    {"cos", Module_cos, METH_O, "cosine function of an angle"},
-    {"tan", Module_tan, METH_O, "tangent function of an angle"},
-    {"sqrt", Module_sqrt, METH_O, "find the square root"},
-    {"run", Module_run, METH_NOARGS, "activate the main game loop"},
-    {NULL}
-};
+static void Module_free(void *closure) {
+    Py_CLEAR(window);
+    Py_CLEAR(cursor);
+    Py_CLEAR(camera);
+    Py_CLEAR(key);
 
-static PyModuleDef_Slot ModuleSlots[] = {
+    Py_DECREF(module);
+    Py_XDECREF(loop);
+}
+
+static PyModuleDef_Slot Module_slots[] = {
     {Py_mod_exec, Module_exec},
     {0, NULL}
 };
 
-static struct PyModuleDef Module = {
-    .m_base = PyModuleDef_HEAD_INIT,
+static PyModuleDef Module = {
+    PyModuleDef_HEAD_INIT,
     .m_name = "JoBase",
     .m_size = 0,
+    .m_slots = Module_slots,
     .m_traverse = Module_traverse,
     .m_clear = Module_clear,
-    .m_methods = ModuleMethods,
-    .m_slots = ModuleSlots
+    .m_free = Module_free
 };
 
 PyMODINIT_FUNC PyInit_JoBase() {
+    #define READY(e) if(PyType_Ready(&e))return NULL;
+
     printf("Welcome to JoBase\n");
     srand(time(NULL));
 
+    READY(PointsType)
     READY(VectorType)
     READY(ButtonType)
-    READY(CursorType)
-    READY(KeyType)
-    READY(CameraType)
     READY(WindowType)
+    READY(CursorType)
+    READY(CameraType)
+    READY(KeyType)
     READY(BaseType)
     READY(RectangleType)
     READY(ImageType)
     READY(TextType)
     READY(CircleType)
-    READY(LineType)
     READY(ShapeType)
+    READY(LineType)
     READY(PhysicsType)
+    READY(GroupType)
+    READY(BodyType)
     READY(JointType)
     READY(PinType)
-    READY(PivotType)
-    READY(MotorType)
     READY(SpringType)
     READY(GrooveType)
 

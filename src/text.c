@@ -1,159 +1,162 @@
 #include <main.h>
 
-static int reset(Text *text) {
-    if (FT_Set_Pixel_Sizes(text -> font -> face, (FT_UInt) text -> size, 0))
-        return format(PyExc_RuntimeError, "failed to set font size"), -1;
+static int create(Text *self) {
+    if (FT_Set_Pixel_Sizes(self -> src -> face, (FT_UInt) self -> size, 0)) {
+        PyErr_Format(PyExc_RuntimeError, "failed to set font size");
+        return -1;
+    }
 
-    text -> descend = text -> font -> face -> size -> metrics.descender >> 6;
-    text -> base.y = text -> font -> face -> size -> metrics.height >> 6;
-    text -> base.x = 0;
+    self -> descend = self -> src -> face -> size -> metrics.descender >> 6;
+    self -> vect.y = self -> src -> face -> size -> metrics.height >> 6;
+    self -> vect.x = 0;
 
-    for (size_t i = 0; text -> content[i]; i ++) {
-        wchar_t item = text -> content[i];
+    for (size_t i = 0; self -> content[i]; i ++) {
+        wchar_t item = self -> content[i];
+        FT_UInt index = FT_Get_Char_Index(self -> src -> face, item);
+        Char *glyph = &self -> chars[index];
 
-        FT_UInt index = FT_Get_Char_Index(text -> font -> face, item);
-        Char *glyph = &text -> chars[index];
+        if (glyph -> font != self -> size || !glyph -> src) {
+            if (FT_Load_Glyph(self -> src -> face, index, FT_LOAD_DEFAULT)) {
+                PyErr_Format(PyExc_RuntimeError, "failed to load glyph: \"%lc\"", item);
+                return -1;
+            }
 
-        if (glyph -> font != (int) text -> size) {
-            if (FT_Load_Glyph(text -> font -> face, index, FT_LOAD_DEFAULT))
-                return format(PyExc_RuntimeError, "failed to load glyph: \"%lc\"", item), -1;
+            if (FT_Render_Glyph(self -> src -> face -> glyph, FT_RENDER_MODE_NORMAL)) {
+                PyErr_Format(PyExc_RuntimeError, "failed to render glyph: \"%lc\"", item);
+                return -1;
+            }
 
-            if (FT_Render_Glyph(text -> font -> face -> glyph, FT_RENDER_MODE_NORMAL))
-                return format(PyExc_RuntimeError, "failed to render glyph: \"%lc\"", item), -1;
+            uint8_t *buffer = self -> src -> face -> glyph -> bitmap.buffer;
+            FT_Glyph_Metrics metrics = self -> src -> face -> glyph -> metrics;
 
-            uint8_t *buffer = text -> font -> face -> glyph -> bitmap.buffer;
-            FT_Glyph_Metrics metrics = text -> font -> face -> glyph -> metrics;
-
+            glyph -> font = self -> size;
             glyph -> advance = metrics.horiAdvance >> 6;
             glyph -> size.x = metrics.width >> 6;
             glyph -> size.y = metrics.height >> 6;
             glyph -> pos.x = metrics.horiBearingX >> 6;
             glyph -> pos.y = metrics.horiBearingY >> 6;
 
-            if (glyph -> load) glDeleteTextures(1, &glyph -> src);
-            else glyph -> load = true;
-
+            if (glyph -> src) glDeleteTextures(1, &glyph -> src);
             glGenTextures(1, &glyph -> src);
+
             glBindTexture(GL_TEXTURE_2D, glyph -> src);
-
-            glTexImage2D(
-                GL_TEXTURE_2D, 0, GL_R8, glyph -> size.x, glyph -> size.y,
-                0, GL_RED, GL_UNSIGNED_BYTE, buffer);
-
-            parameters();
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, glyph -> size.x, glyph -> size.y, 0, GL_RED, GL_UNSIGNED_BYTE, buffer);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             glBindTexture(GL_TEXTURE_2D, 0);
         }
 
-        if (!i) text -> base.x += glyph -> pos.x;
-        if (text -> content[i + 1]) text -> base.x += glyph -> advance;
-        else text -> base.x += glyph -> size.x + glyph -> pos.x;
+        if (!i) self -> vect.x += glyph -> pos.x;
+        if (self -> content[i + 1]) self -> vect.x += glyph -> advance;
+        else self -> vect.x += glyph -> size.x + glyph -> pos.x;
     }
 
-    text -> rect.size[x] = text -> base.x;
-    text -> rect.size[y] = text -> base.y;
+    self -> base.size.x = self -> vect.x;
+    self -> base.size.y = self -> vect.y;
 
     return 0;
 }
 
-static void allocate(Text *text, Font *font) {
-    text -> chars = realloc(text -> chars, font -> face -> num_glyphs * sizeof(Char));
-    text -> font = font;
-
-    FOR(FT_Long, font -> face -> num_glyphs)
-        text -> chars[i].load = false;
+static void delete(Text *self) {
+    for (FT_Long i = 0; i < self -> src -> face -> num_glyphs; i ++)
+        if (self -> chars[i].src) {
+            glDeleteTextures(1, &self -> chars[i].src);
+            self -> chars[i].src = false;
+        }
 }
 
-static void delete(Text *text) {
-    FOR(FT_Long, text -> font -> face -> num_glyphs)
-        if (text -> chars[i].load) glDeleteTextures(1, &text -> chars[i].src);
+static void alloc(Text *self, Font *font) {
+    self -> chars = realloc(self -> chars, font -> face -> num_glyphs * sizeof(Char));
+    self -> src = font;
 }
 
-static int font(Text *text, const char *name) {
+static int font(Text *self, const char *name) {
     FT_Face face;
 
     for (Font *this = fonts; this; this = this -> next)
-        if (!strcmp(this -> name, name)) return allocate(text, this), 0;
+        if (!strcmp(this -> name, name))
+            return alloc(self, this), 0;
 
     if (FT_New_Face(library, name, 0, &face)) {
-        return format(PyExc_FileNotFoundError, "failed to load font: \"%s\"", name), -1;
+        PyErr_Format(PyExc_FileNotFoundError, "failed to load font: \"%s\"", name);
+        return -1;
     }
 
     NEW(Font, fonts)
     fonts -> name = strdup(name);
     fonts -> face = face;
 
-    return allocate(text, fonts), 0;
+    return alloc(self, fonts), 0;
 }
 
-static PyObject *Text_getContent(Text *self, void *Py_UNUSED(closure)) {
+static PyObject *Text_get_content(Text *self, void *closure) {
     return PyUnicode_FromWideChar(self -> content, -1);
 }
 
-static int Text_setContent(Text *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
+static int Text_set_content(Text *self, PyObject *value, void *closure) {
+    DEL(value, "content")
 
-    wchar_t *content = PyUnicode_AsWideCharString(value, NULL);
-    if (!content) return -1;
+    const wchar_t *content = PyUnicode_AsWideCharString(value, NULL);
+    INIT(!content)
 
     free(self -> content);
-    return self -> content = wcsdup(content), reset(self);
+    return self -> content = wcsdup(content), create(self);
 }
 
-static PyObject *Text_getFont(Text *self, void *Py_UNUSED(closure)) {
-    return PyUnicode_FromString(self -> font -> name);
+static PyObject *Text_get_font(Text *self, void *closure) {
+    return PyUnicode_FromString(self -> src -> name);
 }
 
-static int Text_setFont(Text *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
+static int Text_set_font(Text *self, PyObject *value, void *closure) {
+    DEL(value, "font")
     delete(self);
 
     const char *name = PyUnicode_AsUTF8(value);
-    return !name || font(self, name) ? -1 : reset(self);
+    return !name || font(self, name) ? -1 : create(self);
 }
 
-static PyObject *Text_getFontSize(Text *self, void *Py_UNUSED(closure)) {
+static PyObject *Text_get_font_size(Text *self, void *closure) {
     return PyFloat_FromDouble(self -> size);
 }
 
-static int Text_setFontSize(Text *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> size = PyFloat_AsDouble(value);
-    return ERR(self -> size) ? -1 : reset(self);
+static int Text_set_font_size(Text *self, PyObject *value, void *closure) {
+    DEL(value, "font_size")
+    return ERR(self -> size = PyFloat_AsDouble(value)) ? -1 : create(self);
 }
 
-static PyObject *Text_draw(Text *self, PyObject *Py_UNUSED(ignored)) {
-    double pen = self -> rect.base.anchor[x] - self -> base.x / 2;
+static PyObject *Text_draw(Text *self, PyObject *args) {
+    double pen = self -> base.base.anchor.x - self -> vect.x / 2;
 
-    const double sx = self -> rect.base.scale[x] + self -> rect.size[x] / self -> base.x - 1;
-    const double sy = self -> rect.base.scale[y] + self -> rect.size[y] / self -> base.y - 1;
-    const double sine = sin(cpBodyGetAngle(self -> rect.base.body) * M_PI / 180);
-	const double cosine = cos(cpBodyGetAngle(self -> rect.base.body) * M_PI / 180);
-    const double px = self -> rect.base.pos[x];
-    const double py = self -> rect.base.pos[y];
+    const double sx = self -> base.base.scale.x + self -> base.size.x / self -> vect.x - 1;
+    const double sy = self -> base.base.scale.y + self -> base.size.y / self -> vect.y - 1;
+    const double sine = sin(self -> base.base.angle * M_PI / 180);
+    const double cosine = cos(self -> base.base.angle * M_PI / 180);
 
-    glUniform1i(uniform[img], TEXT);
+    glUniform1i(uniforms[img], text);
     glBindVertexArray(mesh);
 
     for (size_t i = 0; self -> content[i]; i ++) {
         wchar_t item = self -> content[i];
 
-        Char glyph = self -> chars[FT_Get_Char_Index(self -> font -> face, item)];
+        Char glyph = self -> chars[FT_Get_Char_Index(self -> src -> face, item)];
         if (!i) pen -= glyph.pos.x;
 
         const double ax = pen + glyph.pos.x + glyph.size.x / 2;
-        const double ay = self -> rect.base.anchor[y] + glyph.pos.y - (glyph.size.y + self -> base.y) / 2 - self -> descend;
+        const double ay = self -> base.base.anchor.y + glyph.pos.y - (glyph.size.y + self -> vect.y) / 2 - self -> descend;
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, glyph.src);
 
-        mat matrix = {
+        GLfloat matrix[] = {
             glyph.size.x * sx * cosine, glyph.size.x * sx * sine, 0,
             glyph.size.y * sy * -sine, glyph.size.y * sy * cosine, 0,
-            ax * sx * cosine + ay * sy * -sine + px, ax * sx * sine + ay * sy * cosine + py, 1
+            ax * sx * cosine + ay * sy * -sine + self -> base.base.pos.x,
+            ax * sx * sine + ay * sy * cosine + self -> base.base.pos.y, 1
         };
 
-        baseUniform(matrix, self -> rect.base.color);
+        Base_uniform(matrix, self -> base.base.color, text);
         pen += glyph.advance;
 
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -166,49 +169,40 @@ static PyObject *Text_draw(Text *self, PyObject *Py_UNUSED(ignored)) {
 
 static int Text_init(Text *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"content", "x", "y", "font_size", "angle", "color", "font", NULL};
-    const char *file = filepath("fonts/default.ttf");
-    double angle = 0;
+    wchar_t *content = L"Text";
 
-    PyObject *content = NULL;
-    PyObject *color = NULL;
-
-    baseInit((Base *) self);
+    BaseType.tp_init((PyObject *) self, NULL, NULL);
     self -> size = 50;
 
-    int state = PyArg_ParseTupleAndKeywords(
-        args, kwds, "|UddddOs", kwlist, &content, &self -> rect.base.pos[x],
-        &self -> rect.base.pos[y], &self -> size, &angle, &color, &file);
+    PyObject *color = NULL;
+    PyObject *src = PyObject_GetAttrString(module, "DEFAULT");
+    INIT(!src)
 
-    if (!state || font(self, file) || (color && vectorSet(color, self -> rect.base.color, 4)))
-        return -1;
+    const char *file = PyUnicode_AsUTF8(src);
+    Py_DECREF(src);
 
-    if (content) {
-        wchar_t *text = PyUnicode_AsWideCharString(content, NULL);
-        if (!text) return -1;
+    INIT(!file || !PyArg_ParseTupleAndKeywords(
+        args, kwds, "|uddddOs:Text", kwlist, &content, &self -> base.base.pos.x,
+        &self -> base.base.pos.y, &self -> size, &self -> base.base.angle,
+        &color, &file) || font(self, file) || Vector_set(color, (vec) &self -> base.base.color, 4))
 
-        self -> content = wcsdup(text);
-    }
-
-    else self -> content = wcsdup(L"Text");
-    return baseStart((Base *) self, angle), reset(self);
+    return self -> content = wcsdup(content), create(self);
 }
 
 static void Text_dealloc(Text *self) {
-    if (self -> font) delete(self);
-
+    delete(self);
     free(self -> chars);
     free(self -> content);
-    baseDealloc((Base *) self);
 }
 
-static PyGetSetDef TextGetSetters[] = {
-    {"content", (getter) Text_getContent, (setter) Text_setContent, "message of the text", NULL},
-    {"font", (getter) Text_getFont, (setter) Text_setFont, "file path to the font family", NULL},
-    {"font_size", (getter) Text_getFontSize, (setter) Text_setFontSize, "size of the font", NULL},
+static PyGetSetDef Text_getset[] = {
+    {"content", (getter) Text_get_content, (setter) Text_set_content, "the message of the text", NULL},
+    {"font", (getter) Text_get_font, (setter) Text_set_font, "file path to the font family", NULL},
+    {"font_size", (getter) Text_get_font_size, (setter) Text_set_font_size, "size of the font", NULL},
     {NULL}
 };
 
-static PyMethodDef TextMethods[] = {
+static PyMethodDef Text_methods[] = {
     {"draw", (PyCFunction) Text_draw, METH_NOARGS, "draw the text on the screen"},
     {NULL}
 };
@@ -221,9 +215,9 @@ PyTypeObject TextType = {
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_base = &RectangleType,
-    .tp_new = rectangleNew,
+    .tp_new = (newfunc) Rectangle_new,
     .tp_init = (initproc) Text_init,
     .tp_dealloc = (destructor) Text_dealloc,
-    .tp_getset = TextGetSetters,
-    .tp_methods = TextMethods
+    .tp_methods = Text_methods,
+    .tp_getset = Text_getset
 };

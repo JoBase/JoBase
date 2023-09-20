@@ -1,154 +1,130 @@
 #include <main.h>
-#include <chipmunk/chipmunk_unsafe.h>
 
-static void new(Rectangle *self) {
-    *self -> base.shapes = cpBoxShapeNew(self -> base.body, self -> size[x], self -> size[y], 0);
-    self -> base.length = 1;
+static void poly(Rectangle *self, Vec2 *points) {
+    points[0].x = points[3].x = -self -> size.x / 2;
+    points[0].y = points[1].y = self -> size.y / 2;
+    points[1].x = points[2].x = self -> size.x / 2;
+    points[2].y = points[3].y = -self -> size.y / 2;
 }
 
-static void base(Rectangle *self) {
-    if (!self -> base.length) return;
+static void unsafe(Rectangle *self) {
+    Vec2 points[4];
 
-    const double sx = self -> size[x] / 2;
-    const double sy = self -> size[y] / 2;
-
-    cpVect data[4] = {{-sx, sy}, {sx, sy}, {sx, -sy}, {-sx, -sy}};
-    cpPolyShapeSetVerts(*self -> base.shapes, 4, data, cpTransformNew(1, 0, 0, 1, 0, 0));
-    baseMoment((Base *) self);
+    poly(self, points);
+    cpPolyShapeSetVerts(self -> base.shape, 4, (cpVect *) points, Base_transform(&self -> base));
 }
 
-static cpFloat moment(Rectangle *self) {
-    return cpMomentForBox(cpBodyGetMass(self -> base.body), self -> size[x], self -> size[y]);
+static cpShape *physics(Rectangle *self) {
+    Vec2 points[4];
+
+    poly(self, points);
+    return cpPolyShapeNew(self -> base.body -> body, 4, (cpVect *) points, Base_transform(&self -> base), 0);
 }
 
-static double top(Rectangle *self) {
-    vec2 poly[4];
-    return rectanglePoly(self, poly), getTop(poly, 4);
+static Sides sides(Rectangle *self) {
+    Vec2 points[4];
+
+    poly(self, points);
+    return Base_sides(&self -> base, points, 4);
 }
 
-static double bottom(Rectangle *self) {
-    vec2 poly[4];
-    return rectanglePoly(self, poly), getBottom(poly, 4);
+static int update(Rectangle *self) {
+    return Base_unsafe(&self -> base), 0;
 }
 
-static double left(Rectangle *self) {
-    vec2 poly[4];
-    return rectanglePoly(self, poly), getLeft(poly, 4);
+static PyObject *Rectangle_get_width(Rectangle *self, void *closure) {
+    return PyFloat_FromDouble(self -> size.x);
 }
 
-static double right(Rectangle *self) {
-    vec2 poly[4];
-    return rectanglePoly(self, poly), getRight(poly, 4);
+static int Rectangle_set_width(Rectangle *self, PyObject *value, void *closure) {
+    DEL(value, "width")
+    return ERR(self -> size.x = PyFloat_AsDouble(value)) ? -1 : update(self);
 }
 
-static PyObject *Rectangle_getWidth(Rectangle *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> size[x]);
+static PyObject *Rectangle_get_height(Rectangle *self, void *closure) {
+    return PyFloat_FromDouble(self -> size.y);
 }
 
-static int Rectangle_setWidth(Rectangle *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> size[x] = PyFloat_AsDouble(value);
-    return ERR(self -> size[x]) ? -1 : base(self), 0;
+static int Rectangle_set_height(Rectangle *self, PyObject *value, void *closure) {
+    DEL(value, "height")
+    return ERR(self -> size.y = PyFloat_AsDouble(value)) ? -1 : update(self);
 }
 
-static PyObject *Rectangle_getHeight(Rectangle *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> size[1]);
+static Vector *Rectangle_get_size(Rectangle *self, void *closure) {
+    Vector *vector = Vector_new((PyObject *) self, (vec) &self -> size, 2, (set) update);
+
+    if (vector) {
+        vector -> names[x] = 'x';
+        vector -> names[y] = 'y';
+    }
+
+    return vector;
 }
 
-static int Rectangle_setHeight(Rectangle *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> size[y] = PyFloat_AsDouble(value);
-    return ERR(self -> size[y]) ? -1 : base(self), 0;
+static int Rectangle_set_size(Rectangle *self, PyObject *value, void *closure) {
+    DEL(value, "size")
+    return Vector_set(value, (vec) &self -> size, 2) ? -1 : update(self);
 }
 
-static double Rectangle_vecSize(Rectangle *self, uint8_t index) {
-    return self -> size[index];
-}
-
-static PyObject *Rectangle_getSize(Rectangle *self, void *Py_UNUSED(closure)) {
-    Vector *size = vectorNew((PyObject *) self, (Getter) Rectangle_vecSize, 2);
-
-    size -> data[x].set = (setter) Rectangle_setWidth;
-    size -> data[y].set = (setter) Rectangle_setHeight;
-    size -> data[x].name = "x";
-    size -> data[y].name = "y";
-
-    return (PyObject *) size;
-}
-
-static int Rectangle_setSize(Rectangle *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return vectorSet(value, self -> size, 2) ? -1 : base(self), 0;
-}
-
-static PyObject *Rectangle_draw(Rectangle *self, PyObject *Py_UNUSED(ignored)) {
-    rectangleDraw(self, SHAPE);
+static PyObject *Rectangle_draw(Rectangle *self, PyObject *args) {
+    Rectangle_render(self, shape);
     Py_RETURN_NONE;
 }
 
 static int Rectangle_init(Rectangle *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"x", "y", "width", "height", "angle", "color", NULL};
-    double angle = 0;
 
     PyObject *color = NULL;
-    baseInit((Base *) self);
+    BaseType.tp_init((PyObject *) self, NULL, NULL);
 
-    self -> size[x] = 50;
-    self -> size[y] = 50;
+    self -> size.x = 50;
+    self -> size.y = 50;
 
-    int status = PyArg_ParseTupleAndKeywords(
-        args, kwds, "|dddddO", kwlist, &self -> base.pos[x], &self -> base.pos[y],
-        &self -> size[x], &self -> size[y], &angle, &color);
+    INIT(!PyArg_ParseTupleAndKeywords(
+        args, kwds, "|dddddO:Rectangle", kwlist, &self -> base.pos.x, &self -> base.pos.y,
+        &self -> size.x, &self -> size.y, &self -> base.angle, &color))
 
-    return !status || (color && vectorSet(color, self -> base.color, 4)) ? -1 : baseStart((Base *) self, angle), 0;
+    return Vector_set(color, (vec) &self -> base.color, 4);
 }
 
-static PyGetSetDef RectangleGetSetters[] = {
-    {"width", (getter) Rectangle_getWidth, (setter) Rectangle_setWidth, "width of the rectangle", NULL},
-    {"height", (getter) Rectangle_getHeight, (setter) Rectangle_setHeight, "height of the rectangle", NULL},
-    {"size", (getter) Rectangle_getSize, (setter) Rectangle_setSize, "dimentions of the rectangle", NULL},
-    {NULL}
-};
+Rectangle *Rectangle_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
+    Rectangle *self = (Rectangle *) type -> tp_alloc(type, 0);
 
-static PyMethodDef RectangleMethods[] = {
-    {"draw", (PyCFunction) Rectangle_draw, METH_NOARGS, "draw the rectangle on the screen"},
-    {NULL}
-};
+    if (self) {
+        self -> base.sides = (Sides (*)(Base *)) sides;
+        self -> base.physics = (cpShape *(*)(Base *)) physics;
+        self -> base.unsafe = (void (*)(Base *)) unsafe;
+    }
 
-PyObject *rectangleNew(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
-    Rectangle *self = (Rectangle *) baseNew(type, 1);
-
-    self -> base.new = (void *)(Base *) new;
-    self -> base.moment = (cpFloat (*)(Base *)) moment;
-    self -> base.top = (double (*)(Base *)) top;
-    self -> base.bottom = (double (*)(Base *)) bottom;
-    self -> base.left = (double (*)(Base *)) left;
-    self -> base.right = (double (*)(Base *)) right;
-
-    return (PyObject *) self;
+    return self;
 }
 
-void rectangleDraw(Rectangle *self, uint8_t type) {
-    baseMatrix((Base *) self, self -> size[x], self -> size[y]);
+void Rectangle_render(Rectangle *self, uint8_t type) {
+    Base_matrix(&self -> base, type, self -> size.x, self -> size.y);
 
     glBindVertexArray(mesh);
-    glUniform1i(uniform[img], type);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindVertexArray(0);
 }
 
-void rectanglePoly(Rectangle *self, poly poly) {
-    const double px = self -> size[x] / 2;
-    const double py = self -> size[y] / 2;
+void Rectangle_poly(Rectangle *self, Vec2 *points) {
+    Vec2 src[4];
 
-    poly[0][x] = poly[3][x] = self -> base.anchor[x] - px;
-    poly[0][y] = poly[1][y] = self -> base.anchor[y] + py;
-    poly[1][x] = poly[2][x] = self -> base.anchor[x] + px;
-    poly[2][y] = poly[3][y] = self -> base.anchor[y] - py;
-
-    rotate(poly, 4, cpBodyGetAngle(self -> base.body), self -> base.pos);
+    poly(self, src);
+    Base_poly(&self -> base, src, points, 4);
 }
+
+static PyGetSetDef Rectangle_getset[] = {
+    {"width", (getter) Rectangle_get_width, (setter) Rectangle_set_width, "width of the rectangle", NULL},
+    {"height", (getter) Rectangle_get_height, (setter) Rectangle_set_height, "height of the rectangle", NULL},
+    {"size", (getter) Rectangle_get_size, (setter) Rectangle_set_size, "dimentions of the rectangle", NULL},
+    {NULL}
+};
+
+static PyMethodDef Rectangle_methods[] = {
+    {"draw", (PyCFunction) Rectangle_draw, METH_NOARGS, "draw the rectangle on the screen"},
+    {NULL}
+};
 
 PyTypeObject RectangleType = {
     PyVarObject_HEAD_INIT(NULL, 0)
@@ -158,8 +134,8 @@ PyTypeObject RectangleType = {
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_base = &BaseType,
-    .tp_new = rectangleNew,
+    .tp_new = (newfunc) Rectangle_new,
     .tp_init = (initproc) Rectangle_init,
-    .tp_getset = RectangleGetSetters,
-    .tp_methods = RectangleMethods
+    .tp_methods = Rectangle_methods,
+    .tp_getset = Rectangle_getset
 };

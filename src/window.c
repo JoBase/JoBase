@@ -1,44 +1,43 @@
 #include <main.h>
 
-static void clear(Window *self) {
-    glClearColor(self -> color[r], self -> color[g], self -> color[b], 1);
+static int clear(Window *self) {
+    return glClearColor(self -> color.r, self -> color.g, self -> color.b, 1), 0;
 }
 
-static void size(Window *self) {
-    glfwSetWindowSize(self -> glfw, self -> size[x], self -> size[y]);
+static int size(Window *self) {
+    return glfwSetWindowSize(self -> glfw, self -> size.x, self -> size.y), 0;
 }
 
-static void resize() {
-    window -> size[x] = 600;
-    window -> size[y] = 400;
+static void resize(Window *self) {
+    self -> size.x = 640;
+    self -> size.y = 480;
 
 #ifdef __EMSCRIPTEN__
-    window -> size[x] = jsWidth();
-    window -> size[y] = jsHeight();
+    self -> size.x = width();
+    self -> size.y = height();
 #endif
 }
 
-static void windowSizeCallback(GLFWwindow *Py_UNUSED(window), int width, int height) {
-    window -> resize = true;
-    window -> size[x] = width;
-    window -> size[y] = height;
+static void cursor_pos_callback(GLFWwindow *glfw, double px, double py) {
+    cursor -> pos.x = px - window -> size.x / 2;
+    cursor -> pos.y = window -> size.y / 2 - py;
 }
 
-static void framebufferSizeCallback(GLFWwindow *Py_UNUSED(window), int width, int height) {
+static void window_size_callback(GLFWwindow *glfw, int width, int height) {
+    window -> resize = true;
+    window -> size.x = width;
+    window -> size.y = height;
+}
+
+static void framebuffer_size_callback(GLFWwindow *glfw, int width, int height) {
     glViewport(0, 0, width, height);
 }
 
-static void cursorPosCallback(GLFWwindow *Py_UNUSED(window), double px, double py) {
-    cursor -> move = true;
-    cursor -> pos[x] = px - window -> size[x] / 2;
-    cursor -> pos[y] = window -> size[y] / 2 - py;
-}
-
-static void cursorEnterCallback(GLFWwindow *Py_UNUSED(window), int entered) {
+static void cursor_enter_callback(GLFWwindow *glfw, int entered) {
     entered ? (cursor -> enter = true) : (cursor -> leave = true);
 }
 
-static void mouseButtonCallback(GLFWwindow *Py_UNUSED(window), int button, int action, int Py_UNUSED(mods)) {
+static void mouse_button_callback(GLFWwindow *glfw, int button, int action, int mods) {
     if (action == GLFW_PRESS) {
         cursor -> press = true;
         cursor -> buttons[button].press = true;
@@ -52,7 +51,7 @@ static void mouseButtonCallback(GLFWwindow *Py_UNUSED(window), int button, int a
     }
 }
 
-static void keyCallback(GLFWwindow *Py_UNUSED(window), int type, int Py_UNUSED(scancode), int action, int Py_UNUSED(mods)) {
+static void key_callback(GLFWwindow *glfw, int type, int scancode, int action, int mods) {
     if (action == GLFW_PRESS) {
         key -> press = true;
         key -> keys[type].press = true;
@@ -71,224 +70,206 @@ static void keyCallback(GLFWwindow *Py_UNUSED(window), int type, int Py_UNUSED(s
     }
 }
 
-static PyObject *Window_getCaption(Window *self, void *Py_UNUSED(closure)) {
-    return PyUnicode_FromString(self -> caption);
+static PyObject *Window_get_title(Window *self, void *closure) {
+    return PyUnicode_FromString(self -> title);
 }
 
-static int Window_setCaption(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
+static int Window_set_title(Window *self, PyObject *value, void *closure) {
+    DEL(value, "title")
 
-    const char *caption = PyUnicode_AsUTF8(value);
-    if (!caption) return -1;
+    const char *title = PyUnicode_AsUTF8(value);
+    INIT(!title)
 
-    free(self -> caption);
-    self -> caption = strdup(caption);
+    glfwSetWindowTitle(self -> glfw, title);
+    free(self -> title);
 
-    return glfwSetWindowTitle(self -> glfw, self -> caption), 0;
+    return self -> title = strdup(title), 0;
 }
 
-static PyObject *Window_getRed(Window *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> color[r]);
+static PyObject *Window_get_red(Window *self, void *closure) {
+    return PyFloat_FromDouble(self -> color.r);
 }
 
-static int Window_setRed(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> color[r] = PyFloat_AsDouble(value);
-    return ERR(self -> color[r]) ? -1 : clear(self), 0;
+static int Window_set_red(Window *self, PyObject *value, void *closure) {
+    DEL(value, "red")
+    return ERR(self -> color.r = PyFloat_AsDouble(value)) ? -1 : clear(self);
 }
 
-static PyObject *Window_getGreen(Window *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> color[g]);
+static PyObject *Window_get_green(Window *self, void *closure) {
+    return PyFloat_FromDouble(self -> color.g);
 }
 
-static int Window_setGreen(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> color[g] = PyFloat_AsDouble(value);
-    return ERR(self -> color[g]) ? -1 : clear(self), 0;
+static int Window_set_green(Window *self, PyObject *value, void *closure) {
+    DEL(value, "green")
+    return ERR(self -> color.g = PyFloat_AsDouble(value)) ? -1 : clear(self);
 }
 
-static PyObject *Window_getBlue(Window *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> color[b]);
+static PyObject *Window_get_blue(Window *self, void *closure) {
+    return PyFloat_FromDouble(self -> color.b);
 }
 
-static int Window_setBlue(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> color[b] = PyFloat_AsDouble(value);
-    return ERR(self -> color[b]) ? -1 : clear(self), 0;
+static int Window_set_blue(Window *self, PyObject *value, void *closure) {
+    DEL(value, "blue")
+    return ERR(self -> color.b = PyFloat_AsDouble(value)) ? -1 : clear(self);
 }
 
-static double Window_vecColor(Window *self, uint8_t index) {
-    return self -> color[index];
+static Vector *Window_get_color(Window *self, void *closure) {
+    Vector *vector = Vector_new((PyObject *) self, (vec) &self -> color, 3, (set) clear);
+
+    if (vector) {
+        vector -> names[r] = 'r';
+        vector -> names[g] = 'g';
+        vector -> names[b] = 'b';
+    }
+
+    return vector;
 }
 
-static PyObject *Window_getColor(Window *self, void *Py_UNUSED(closure)) {
-    Vector *color = vectorNew((PyObject *) self, (Getter) Window_vecColor, 3);
-
-    color -> data[r].set = (setter) Window_setRed;
-    color -> data[g].set = (setter) Window_setGreen;
-    color -> data[b].set = (setter) Window_setBlue;
-    color -> data[r].name = "r";
-    color -> data[g].name = "g";
-    color -> data[b].name = "b";
-
-    return (PyObject *) color;
+static int Window_set_color(Window *self, PyObject *value, void *closure) {
+    DEL(value, "color")
+    return Vector_set(value, (vec) &self -> color, 3) ? -1 : clear(self);
 }
 
-static int Window_setColor(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return vectorSet(value, self -> color, 3) ? -1 : clear(self), 0;
+static PyObject *Window_get_width(Window *self, void *closure) {
+    return PyFloat_FromDouble(self -> size.x);
 }
 
-static PyObject *Window_getWidth(Window *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> size[x]);
+static int Window_set_width(Window *self, PyObject *value, void *closure) {
+    DEL(value, "width")
+    return ERR(self -> size.x = PyFloat_AsDouble(value)) ? -1 : size(self);
 }
 
-static int Window_setWidth(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> size[x] = PyFloat_AsDouble(value);
-    return ERR(self -> size[x]) ? -1 : size(self), 0;
+static PyObject *Window_get_height(Window *self, void *closure) {
+    return PyFloat_FromDouble(self -> size.y);
 }
 
-static PyObject *Window_getHeight(Window *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> size[y]);
+static int Window_set_height(Window *self, PyObject *value, void *closure) {
+    DEL(value, "height")
+    return ERR(self -> size.y = PyFloat_AsDouble(value)) ? -1 : size(self);
 }
 
-static int Window_setHeight(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
+static Vector *Window_get_size(Window *self, void *closure) {
+    Vector *vector = Vector_new((PyObject *) self, (vec) &self -> size, 2, (set) size);
 
-    self -> size[y] = PyFloat_AsDouble(value);
-    return ERR(self -> size[y]) ? -1 : size(self), 0;
+    if (vector) {
+        vector -> names[x] = 'x';
+        vector -> names[y] = 'y';
+    }
+
+    return vector;
 }
 
-static double Window_vecSize(Window *self, uint8_t index) {
-    return self -> size[index];
+static int Window_set_size(Window *self, PyObject *value, void *closure) {
+    DEL(value, "size")
+    return Vector_set(value, (vec) &self -> size, 2) ? -1 : size(self);
 }
 
-static PyObject *Window_getSize(Window *self, void *Py_UNUSED(closure)) {
-    Vector *size = vectorNew((PyObject *) self, (Getter) Window_vecSize, 2);
-
-    size -> data[x].set = (setter) Window_setWidth;
-    size -> data[y].set = (setter) Window_setHeight;
-    size -> data[x].name = "x";
-    size -> data[y].name = "y";
-
-    return (PyObject *) size;
-}
-
-static int Window_setSize(Window *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return vectorSet(value, self -> size, 2) ? -1 : size(self), 0;
-}
-
-static PyObject *Window_getResize(Window *self, void *Py_UNUSED(closure)) {
+static PyObject *Window_get_resize(Window *self, void *closure) {
     return PyBool_FromLong(self -> resize);
 }
 
-static PyObject *Window_close(Window *self, PyObject *Py_UNUSED(ignored)) {
+static PyObject *Window_close(Window *self, PyObject *args) {
     glfwSetWindowShouldClose(self -> glfw, GLFW_TRUE);
     Py_RETURN_NONE;
 }
 
-static PyObject *Window_maximize(Window *self, PyObject *Py_UNUSED(ignored)) {
+static PyObject *Window_maximize(Window *self, PyObject *args) {
     glfwMaximizeWindow(self -> glfw);
     Py_RETURN_NONE;
 }
 
-static PyObject *Window_minimize(Window *self, PyObject *Py_UNUSED(ignored)) {
+static PyObject *Window_minimize(Window *self, PyObject *args) {
     glfwIconifyWindow(self -> glfw);
     Py_RETURN_NONE;
 }
 
-static PyObject *Window_restore(Window *self, PyObject *Py_UNUSED(ignored)) {
+static PyObject *Window_restore(Window *self, PyObject *args) {
     glfwRestoreWindow(self -> glfw);
     Py_RETURN_NONE;
 }
 
-static PyObject *Window_focus(Window *self, PyObject *Py_UNUSED(ignored)) {
+static PyObject *Window_focus(Window *self, PyObject *args) {
     glfwFocusWindow(self -> glfw);
     Py_RETURN_NONE;
 }
 
-static PyObject *Window_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
-    window = (Window *) type -> tp_alloc(type, 0);
+static Window *Window_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
+    Window *self = (Window *) type -> tp_alloc(type, 0);
 
-    resize();
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-    glfwWindowHint(GLFW_ALPHA_BITS, 0);
-    glfwWindowHint(GLFW_SAMPLES, 4);
+    if (self) {
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+        glfwWindowHint(GLFW_ALPHA_BITS, 0);
+        glfwWindowHint(GLFW_SAMPLES, 4);
+        resize(self);
 
-    if (!(window -> glfw = glfwCreateWindow(window -> size[x], window -> size[y], "JoBase", NULL, NULL))) {
-        PyErr_SetString(PyExc_OSError, "failed to create window");
-        return glfwTerminate(), NULL;
-    }
+        if (!(self -> glfw = glfwCreateWindow(self -> size.x, self -> size.y, "JoBase", NULL, NULL))) {
+            PyErr_SetString(PyExc_OSError, "failed to create the window");
+            return NULL;
+        }
 
-    glfwMakeContextCurrent(window -> glfw);
-    glfwSetWindowSizeCallback(window -> glfw, windowSizeCallback);
-    glfwSetFramebufferSizeCallback(window -> glfw, framebufferSizeCallback);
-    glfwSetCursorPosCallback(window -> glfw, cursorPosCallback);
-    glfwSetCursorEnterCallback(window -> glfw, cursorEnterCallback);
-    glfwSetMouseButtonCallback(window -> glfw, mouseButtonCallback);
-    glfwSetKeyCallback(window -> glfw, keyCallback);
-    glfwSwapInterval(1);
+        glfwMakeContextCurrent(self -> glfw);
+        glfwSetCursorPosCallback(self -> glfw, cursor_pos_callback);
+        glfwSetWindowSizeCallback(self -> glfw, window_size_callback);
+        glfwSetFramebufferSizeCallback(self -> glfw, framebuffer_size_callback);
+        glfwSetCursorEnterCallback(self -> glfw, cursor_enter_callback);
+        glfwSetMouseButtonCallback(self -> glfw, mouse_button_callback);
+        glfwSetKeyCallback(self -> glfw, key_callback);
+        glfwSwapInterval(1);
 
 #ifndef __EMSCRIPTEN__
-    if (!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress)) {
-        PyErr_SetString(PyExc_OSError, "failed to load OpenGL");
-        return glfwTerminate(), NULL;
-    }
+        if (!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress)) {
+            PyErr_SetString(PyExc_OSError, "failed to load OpenGL");
+            return NULL;
+        }
 #endif
+    }
 
-    Py_XINCREF(window);
-    return (PyObject *) window;
+    return self;
 }
 
 static int Window_init(Window *self, PyObject *args, PyObject *kwds) {
-    static char *kwlist[] = {"caption", "width", "height", "color", NULL};
-    const char *caption = "JoBase";
+    static char *kwlist[] = {"title", "width", "height", "color", NULL};
+    const char *title = "JoBase";
 
     PyObject *color = NULL;
-    resize();
+    resize(self);
 
-    self -> color[r] = 1;
-    self -> color[g] = 1;
-    self -> color[b] = 1;
-    self -> resize = true;
+    self -> color.r = 1;
+    self -> color.g = 1;
+    self -> color.b = 1;
 
-    if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "|siiO", kwlist, &caption,  &self -> size[x], &self -> size[y], &color) ||
-        (color && vectorSet(color, self -> color, 3))) return -1;
+    INIT(!PyArg_ParseTupleAndKeywords(
+        args, kwds, "|sddO:Window", kwlist, &title, &self -> size.x,
+        &self -> size.y, &color) || Vector_set(color, (vec) &self -> color, 3))
 
-    self -> caption = strdup(caption);
-    glfwSetWindowTitle(self -> glfw, self -> caption);
-    glfwSetWindowSize(self -> glfw, self -> size[x], self -> size[y]);
+    self -> title = strdup(title);
+    glfwSetWindowTitle(self -> glfw, title);
 
-    return clear(self), 0;
+    return size(self), clear(self);
 }
 
 static void Window_dealloc(Window *self) {
-    free(self -> caption);
-    Py_TYPE(self) -> tp_free((PyObject *) self);
+    free(self -> title);
+    WindowType.tp_free(self);
 }
 
-static PyGetSetDef WindowGetSetters[] = {
-    {"caption", (getter) Window_getCaption, (setter) Window_setCaption, "name of the window", NULL},
-    {"red", (getter) Window_getRed, (setter) Window_setRed, "red color of the window", NULL},
-    {"green", (getter) Window_getGreen, (setter) Window_setGreen, "green color of the window", NULL},
-    {"blue", (getter) Window_getBlue, (setter) Window_setBlue, "blue color of the window", NULL},
-    {"color", (getter) Window_getColor, (setter) Window_setColor, "color of the window", NULL},
-    {"width", (getter) Window_getWidth, (setter) Window_setWidth, "width of the window", NULL},
-    {"height", (getter) Window_getHeight, (setter) Window_setHeight, "height of the window", NULL},
-    {"size", (getter) Window_getSize, (setter) Window_setSize, "dimensions of the window", NULL},
-    {"resize", (getter) Window_getResize, NULL, "the window is resized", NULL},
+static PyGetSetDef Window_getset[] = {
+    {"title", (getter) Window_get_title, (setter) Window_set_title, "the window's caption", NULL},
+    {"red", (getter) Window_get_red, (setter) Window_set_red, "red value of the window's background color", NULL},
+    {"green", (getter) Window_get_green, (setter) Window_set_green, "green value of the window's background colorw", NULL},
+    {"blue", (getter) Window_get_blue, (setter) Window_set_blue, "blue value of the window's background color", NULL},
+    {"color", (getter) Window_get_color, (setter) Window_set_color, "background color of the window", NULL},
+    {"width", (getter) Window_get_width, (setter) Window_set_width, "width of the window", NULL},
+    {"height", (getter) Window_get_height, (setter) Window_set_height, "height of the window", NULL},
+    {"size", (getter) Window_get_size, (setter) Window_set_size, "dimensions of the window", NULL},
+    {"resize", (getter) Window_get_resize, NULL, "determine whether window has been resized", NULL},
     {NULL}
 };
 
-static PyMethodDef WindowMethods[] = {
-    {"close", (PyCFunction) Window_close, METH_NOARGS, "close the window"},
+static PyMethodDef Window_methods[] = {
+    {"close", (PyCFunction) Window_close, METH_NOARGS, "close the window and terminate the game loop"},
     {"maximize", (PyCFunction) Window_maximize, METH_NOARGS, "maximize the window"},
     {"minimize", (PyCFunction) Window_minimize, METH_NOARGS, "minimize the window"},
     {"restore", (PyCFunction) Window_restore, METH_NOARGS, "restore the window from maximized or minimized"},
@@ -299,13 +280,13 @@ static PyMethodDef WindowMethods[] = {
 PyTypeObject WindowType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "Window",
-    .tp_doc = "the main window",
+    .tp_doc = "the main window where everything is rendered",
     .tp_basicsize = sizeof(Window),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_new = Window_new,
+    .tp_new = (newfunc) Window_new,
     .tp_init = (initproc) Window_init,
     .tp_dealloc = (destructor) Window_dealloc,
-    .tp_getset = WindowGetSetters,
-    .tp_methods = WindowMethods
+    .tp_methods = Window_methods,
+    .tp_getset = Window_getset
 };

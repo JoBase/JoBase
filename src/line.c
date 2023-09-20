@@ -1,200 +1,195 @@
 #include <main.h>
 
-static void normalize(vec2 value) {
-    const double length = hypot(value[x], value[y]);
+static cpVect point(Line *self, size_t index) {
+    cpVect rot = cpvforangle(self -> base.base.rotate * M_PI / 180);
 
-    value[x] /= length;
-    value[y] /= length;
+    const double px = self -> base.points[index].x * self -> base.base.scale.x + self -> base.base.transform.x;
+    const double py = self -> base.points[index].y * self -> base.base.scale.y + self -> base.base.transform.y;
+
+    return cpv(px * rot.x - py * rot.y, py * rot.x + px * rot.y);
 }
 
-static void new(Line *self) {
-    self -> shape.base.length = self -> shape.vertex - 1;
-    self -> shape.base.shapes = realloc(self -> shape.base.shapes, self -> shape.base.length * sizeof NULL);
+static void unsafe(Line *self) {
+    const double radius = Base_radius(&self -> base.base, self -> width);
+    cpShape *shape = self -> base.base.shape;
 
-    FOR(size_t, self -> shape.base.length) {
-        cpVect a = cpv(self -> shape.points[i][x], self -> shape.points[i][y]);
-        cpVect b = cpv(self -> shape.points[i + 1][x], self -> shape.points[i + 1][y]);
+    for (size_t i = 0; i < self -> base.length - 1; i ++) {
+        cpVect a = point(self, i);
+        cpVect b = point(self, i + 1);
+        cpShape *next = shape;
 
-        self -> shape.base.shapes[i] = cpSegmentShapeNew(self -> shape.base.body, a, b, self -> width / 2);
+        if (i && !(next = cpShapeGetUserData(shape))) {
+            next = cpSegmentShapeNew(self -> base.base.body -> body, a, b, radius);
+
+            cpShapeSetUserData(shape, next);
+            Base_shape(&self -> base.base, next);
+        }
+
+        else {
+            cpSegmentShapeSetEndpoints(next, a, b);
+            cpSegmentShapeSetRadius(next, radius);
+        }
+
+        shape = next;
     }
+
+    Shape_reduce(&self -> base, shape);
 }
 
-static cpFloat moment(Line *self) {
-    const double mass = cpBodyGetMass(self -> shape.base.body) / self -> shape.base.length;
-    double moment = 0;
+static cpShape *physics(Line *self) {
+    const double radius = Base_radius(&self -> base.base, self -> width);
+    cpShape *shape = NULL;
 
-    FOR(size_t, self -> shape.base.length) {
-        cpVect a = cpv(self -> shape.points[i][x], self -> shape.points[i][y]);
-        cpVect b = cpv(self -> shape.points[i + 1][x], self -> shape.points[i + 1][y]);
+    for (size_t i = 0; i < self -> base.length - 1; i ++) {
+        cpVect a = point(self, i);
+        cpVect b = point(self, i + 1);
+        cpShape *array = shape;
 
-        moment += cpMomentForSegment(mass, a, b, self -> width / 2);
+        shape = cpSegmentShapeNew(self -> base.base.body -> body, a, b, radius);
+        cpShapeSetUserData(shape, array);
     }
 
-    return moment;
+    return shape;
 }
 
-static void base(Line *self) {
-    // if (!self -> base.shape) return;
-    // cpVect *verts = vertices(self);
+static Vec2 normalize(double x, double y) {
+    const double length = hypot(x, y);
+    Vec2 value = {x / length, y / length};
 
-    // cpPolyShapeSetVerts(self -> base.shape, self -> vertex, verts, transform(self));
-    // baseMoment((Base *) self);
-    // free(verts);
+    return value;
 }
 
-static double top(Line *self) {
-    return shapeTop((Shape *) self) + self -> width / 2;
-}
+static int create(Line *self) {
+    if (self -> base.length < 2) {
+        PyErr_SetString(PyExc_ValueError, "line must contain a minimum of 2 points");
+        return -1;
+    }
 
-static double bottom(Line *self) {
-    return shapeBottom((Shape *) self) - self -> width / 2;
-}
+    glBindVertexArray(self -> base.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, self -> base.vbo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self -> base.ibo);
 
-static double left(Line *self) {
-    return shapeLeft((Shape *) self) - self -> width / 2;
-}
-
-static double right(Line *self) {
-    return shapeRight((Shape *) self) + self -> width / 2;
-}
-
-static void parse(Line *self) {
-    glBindVertexArray(self -> shape.vao);
-    glBindBuffer(GL_ARRAY_BUFFER, self -> shape.vbo);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self -> shape.ibo);
-
-    lineCreate(self -> shape.points, self -> shape.vertex, self -> width);
+    Line_create(self -> base.points, self -> base.length, self -> width);
     glBindVertexArray(0);
+
+    return Base_unsafe(&self -> base.base), 0;
 }
 
-static PyObject *Line_getWidth(Line *self, void *Py_UNUSED(closure)) {
+static Sides sides(Line *self) {
+    Sides sides = Shape_sides(&self -> base);
+
+    sides.top += self -> width / 2;
+    sides.bottom -= self -> width / 2;
+    sides.left -= self -> width / 2;
+    sides.right += self -> width / 2;
+
+    return sides;
+}
+
+static PyObject *Line_get_width(Line *self, void *closure) {
     return PyFloat_FromDouble(self -> width);
 }
 
-static int Line_setWidth(Line *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> width = PyFloat_AsDouble(value);
-    return ERR(self -> width) ? -1 : parse(self), base(self), 0;
+static int Line_set_width(Line *self, PyObject *value, void *closure) {
+    DEL(value, "width")
+    return ERR(self -> width = PyFloat_AsDouble(value)) ? -1 : create(self);
 }
 
-static PyObject *Line_draw(Shape *self, PyObject *Py_UNUSED(ignored)) {
-    baseMatrix((Base *) self, 1, 1);
-
-    glBindVertexArray(self -> vao);
-    glUniform1i(uniform[img], SHAPE);
-    glDrawElements(GL_TRIANGLES, IDX(self -> vertex * 3 - 2), GL_UNSIGNED_INT, 0);
-
-    glBindVertexArray(0);
-    Py_RETURN_NONE;
+static PyObject *Line_draw(Shape *self, PyObject *args) {
+    return Shape_render(self, self -> length * 3 - 2);
 }
 
-static PyObject *Line_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
-    Base *self = shapeNew(type);
+static Shape *Line_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
+    Shape *self = Shape_new(type, args, kwds);
 
-    self -> new = (void *)(Base *) new;
-    self -> moment = (cpFloat (*)(Base *)) moment;
-    self -> top = (double (*)(Base *)) top;
-    self -> bottom = (double (*)(Base *)) bottom;
-    self -> left = (double (*)(Base *)) left;
-    self -> right = (double (*)(Base *)) right;
+    if (self) {
+        self -> base.sides = (Sides (*)(Base *)) sides;
+        self -> base.physics = (cpShape *(*)(Base *)) physics;
+        self -> base.unsafe = (void (*)(Base *)) unsafe;
+        self -> reset = (reset) create;
+    }
 
-    return (PyObject *) self;
+    return self;
 }
 
 static int Line_init(Line *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"points", "width", "x", "y", "angle", "color", NULL};
-    double angle = 0;
-    self -> width = 2;
 
     PyObject *color = NULL;
     PyObject *points = NULL;
-    baseInit((Base *) self);
 
-    int state = PyArg_ParseTupleAndKeywords(
-        args, kwds, "|OddddO", kwlist, &points, &self -> width, &self -> shape.base.pos[x],
-        &self -> shape.base.pos[y], &angle, &color);
+    BaseType.tp_init((PyObject *) self, NULL, NULL);
+    self -> width = 2;
 
-    if (!state || (color && vectorSet(color, self -> shape.base.color, 4)) || shapeParse((Shape *) self, points))
-        return -1;
+    INIT(!PyArg_ParseTupleAndKeywords(
+        args, kwds, "|OddddO:Line", kwlist, &points, &self -> width,
+        &self -> base.base.pos.x, &self -> base.base.pos.y, &self -> base.base.angle,
+        &color) || Points_set(&self -> base, points) || Vector_set(color, (vec) &self -> base.base.color, 4))
 
     if (!points) {
-        self -> shape.vertex = 2;
-        self -> shape.points = realloc(self -> shape.points, self -> shape.vertex * sizeof(vec2));
+        self -> base.length = 2;
+        self -> base.points = realloc(self -> base.points, self -> base.length * sizeof(Vec2));
 
-        self -> shape.points[0][x] = self -> shape.points[0][y] = -25;
-        self -> shape.points[1][x] = self -> shape.points[1][y] = 25;
+        self -> base.points[0].x = self -> base.points[0].y = -25;
+        self -> base.points[1].x = self -> base.points[1].y = 25;
     }
 
-    return baseStart((Base *) self, angle), parse(self), 0;
+    return create(self);
 }
 
-static PyGetSetDef LineGetSetters[] = {
-    {"width", (getter) Line_getWidth, (setter) Line_setWidth, "thickness of the line", NULL},
-    {NULL}
-};
+void Line_create(Vec2 *points, size_t base, double width) {
+    const size_t verts = base * 3 - 2;
+    size_t index = 0, start = 0, end = verts - 1, length, size;
 
-static PyMethodDef LineMethods[] = {
-    {"draw", (PyCFunction) Line_draw, METH_NOARGS, "draw the line on the screen"},
-    {NULL}
-};
+    GLfloat *vertices = malloc(length = verts * 2 * sizeof(GLfloat));
+    GLuint *indices = malloc(size = (verts - 2) * 3 * sizeof(GLuint));
 
-void lineCreate(poly base, size_t length, double width) {
-    size_t verts = length * 3 - 2;
-    size_t index = 0, start = 0, end = verts - 1;
+    for (size_t i = 0; i < base; i ++) {
+        Vec2 e = points[i];
 
-    GLfloat *points = malloc(verts * 2 * sizeof(GLfloat));
-    GLuint *indices = malloc(IDX(verts) * sizeof(GLuint));
-
-    FOR(size_t, length) {
-        vec e = base[i];
-
-        vec2 prev = {
-            i ? base[i - 1][x] : e[x],
-            i ? base[i - 1][y] : e[y]
+        Vec2 prev = {
+            i ? points[i - 1].x : e.x,
+            i ? points[i - 1].y : e.y
         };
 
-        vec2 next = {
-            i < length - 1 ? base[i + 1][x] : e[x],
-            i < length - 1 ? base[i + 1][y] : e[y]
+        Vec2 next = {
+            i < base - 1 ? points[i + 1].x : e.x,
+            i < base - 1 ? points[i + 1].y : e.y
         };
 
-        if (e[x] == prev[x] && e[y] == prev[y]) {
-            vec2 vect = {e[x] - next[x], e[y] - next[y]};
-            normalize(vect);
+        if (e.x == prev.x && e.y == prev.y) {
+            Vec2 vect = normalize(e.x - next.x, e.y - next.y);
 
-            prev[x] += vect[x];
-            prev[y] += vect[y];
+            prev.x += vect.x;
+            prev.y += vect.y;
         }
 
-        if (e[x] == next[x] && e[y] == next[y]) {
-            vec2 vect = {e[x] - prev[x], e[y] - prev[y]};
-            normalize(vect);
+        if (e.x == next.x && e.y == next.y) {
+            Vec2 vect = normalize(e.x - prev.x, e.y - prev.y);
 
-            next[x] += vect[x];
-            next[y] += vect[y];
+            next.x += vect.x;
+            next.y += vect.y;
         }
 
-        vec2 ab = {e[x] - prev[x], e[y] - prev[y]};
-        vec2 bc = {next[x] - e[x], next[y] - e[y]};
-        vec2 pass = {hypot(hypot(ab[x], ab[y]), width / 2), hypot(hypot(bc[x], bc[y]),  width / 2)};
+        Vec2 ab = {e.x - prev.x, e.y - prev.y};
+        Vec2 bc = {next.x - e.x, next.y - e.y};
 
-        normalize(ab);
-        normalize(bc);
+        Vec2 pass = {
+            hypot(hypot(ab.x, ab.y), width / 2),
+            hypot(hypot(bc.x, bc.y), width / 2)
+        };
 
-        vec2 tangent = {ab[x] + bc[x], ab[y] + bc[y]};
-        vec2 point = {ab[x] - bc[x], ab[y] - bc[y]};
+        ab = normalize(ab.x, ab.y);
+        bc = normalize(bc.x, bc.y);
 
-        normalize(tangent);
-        normalize(point);
+        Vec2 tangent = normalize(ab.x + bc.x, ab.y + bc.y);
+        Vec2 point = normalize(ab.x - bc.x, ab.y - bc.y);
+        Vec2 miter = {-tangent.y, tangent.x};
+        Vec2 normal = {-ab.y, ab.x};
 
-        vec2 miter = {-tangent[y], tangent[x]};
-        vec2 normal = {-ab[y], ab[x]};
-
-        const bool inside = miter[x] * point[x] + miter[y] * point[y] > 0;
-        const size_t inner = start, outer = end;
+        const bool inside = miter.x * point.x + miter.y * point.y > 0;
         const char invert = inside ? 1 : -1;
-        size_t a, b, c;
+        size_t inner = start, outer = end, a, b, c;
 
         if (inside) {
             a = start, b = end, c = end - 1;
@@ -208,19 +203,19 @@ void lineCreate(poly base, size_t length, double width) {
             end --;
         }
 
-        const double dot = miter[x] * normal[x] + miter[y] * normal[y];
+        const double dot = miter.x * normal.x + miter.y * normal.y;
         const double line = width / 2 * invert;
         const double pro = line / dot * invert;
-        const double min = MIN(pass[x], pass[y]);
+        const double min = MIN(pass.x, pass.y);
 
-        vec2 left = {normal[x] * line, normal[y] * line};
-        vec2 right = {-(normal[x] - 2 * dot * miter[x]) * line, -(normal[y] - 2 * dot * miter[y]) * line};
-        vec2 mid = {miter[x] * line / dot, miter[y] * line / dot};
+        Vec2 left = {normal.x * line, normal.y * line};
+        Vec2 right = {-(normal.x - 2 * dot * miter.x) * line, -(normal.y - 2 * dot * miter.y) * line};
+        Vec2 mid = {miter.x * line / dot, miter.y * line / dot};
 
-        points[a * 2] = e[x] - (pro > min && min == pass[x] ? right[x] : pro > min && min == pass[y] ? left[x] : mid[x]);
-        points[a * 2 + 1] = e[y] - (pro > min && min == pass[x] ? right[y] : pro > min && min == pass[y] ? left[y] : mid[y]);
-        points[b * 2] = e[x] + left[x];
-        points[b * 2 + 1] = e[y] + left[y];
+        vertices[a * 2] = e.x - (pro > min && min == pass.x ? right.x : pro > min && min == pass.y ? left.x : mid.x);
+        vertices[a * 2 + 1] = e.y - (pro > min && min == pass.x ? right.y : pro > min && min == pass.y ? left.y : mid.y);
+        vertices[b * 2] = e.x + left.x;
+        vertices[b * 2 + 1] = e.y + left.y;
 
         if (i) {
             indices[index] = indices[index + 5] = inner - 1;
@@ -228,9 +223,9 @@ void lineCreate(poly base, size_t length, double width) {
             indices[index + 2] = indices[index + 3] = outer;
             indices[index + 4] = outer + 1;
 
-            if (i < length - 1) {
-                points[c * 2] = e[x] + right[x];
-                points[c * 2 + 1] = e[y] + right[y];
+            if (i < base - 1) {
+                vertices[c * 2] = e.x + right.x;
+                vertices[c * 2 + 1] = e.y + right.y;
 
                 indices[index + 6] = a;
                 indices[index + 7] = b;
@@ -241,12 +236,22 @@ void lineCreate(poly base, size_t length, double width) {
         }
     }
 
-    glBufferData(GL_ARRAY_BUFFER, verts * 2 * sizeof(GLfloat), points, GL_DYNAMIC_DRAW);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, IDX(verts) * sizeof(GLuint), indices, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, length, vertices, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, size, indices, GL_DYNAMIC_DRAW);
 
-    free(points);
+    free(vertices);
     free(indices);
 }
+
+static PyGetSetDef Line_getset[] = {
+    {"width", (getter) Line_get_width, (setter) Line_set_width, "thickness of the line", NULL},
+    {NULL}
+};
+
+static PyMethodDef Line_methods[] = {
+    {"draw", (PyCFunction) Line_draw, METH_NOARGS, "draw the line on the screen"},
+    {NULL}
+};
 
 PyTypeObject LineType = {
     PyVarObject_HEAD_INIT(NULL, 0)
@@ -255,10 +260,10 @@ PyTypeObject LineType = {
     .tp_basicsize = sizeof(Line),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_base = &BaseType,
-    .tp_new = Line_new,
+    .tp_base = &ShapeType,
+    .tp_new = (newfunc) Line_new,
     .tp_init = (initproc) Line_init,
-    .tp_dealloc = (destructor) shapeDealloc,
-    .tp_getset = LineGetSetters,
-    .tp_methods = LineMethods
+    .tp_dealloc = (destructor) Shape_dealloc,
+    .tp_methods = Line_methods,
+    .tp_getset = Line_getset
 };

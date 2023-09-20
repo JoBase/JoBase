@@ -1,141 +1,107 @@
 #include <main.h>
 
-static int Pin_setFirstX(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    cpVect anchor = cpPinJointGetAnchorA(self -> joint);
-    return ERR(anchor.x = PyFloat_AsDouble(value)) ? -1 : cpPinJointSetAnchorA(self -> joint, anchor), 0;
+static void unsafe(Pin *self) {
+    cpPinJointSetAnchorA(self -> base.joint, Joint_rotate(self -> base.a, self -> start));
+    cpPinJointSetAnchorB(self -> base.joint, Joint_rotate(self -> base.b, self -> end));
 }
 
-static int Pin_setFirstY(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    cpVect anchor = cpPinJointGetAnchorA(self -> joint);
-    return ERR(anchor.y = PyFloat_AsDouble(value)) ? -1 : cpPinJointSetAnchorA(self -> joint, anchor), 0;
+static int anchor(Pin *self) {
+    if (self -> base.parent) unsafe(self);
+    return 0;
 }
 
-static double Pin_vecFirst(Joint *self, uint8_t index) {
-    const cpVect anchor = cpPinJointGetAnchorA(self -> joint);
-    const vec2 vector = {anchor.x, anchor.y};
-    return vector[index];
+static void create(Pin *self) {
+    cpPinJointInit((cpPinJoint *) self -> base.joint, self -> base.a -> body -> body, self -> base.b -> body -> body, cpv(0, 0), cpv(0, 0));
+    cpPinJointSetDist(self -> base.joint, self -> length);
 }
 
-static PyObject *Pin_getFirst(Joint *self, void *Py_UNUSED(closure)) {
-    Vector *offset = vectorNew((PyObject *) self, (Getter) Pin_vecFirst, 2);
-
-    offset -> data[x].set = (setter) Pin_setFirstX;
-    offset -> data[y].set = (setter) Pin_setFirstY;
-    offset -> data[x].name = "x";
-    offset -> data[y].name = "y";
-
-    return (PyObject *) offset;
+static PyObject *Pin_get_length(Pin *self, void *closure) {
+    return PyFloat_FromDouble(self -> length);
 }
 
-static int Pin_setFirst(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {
-    const cpVect anchor = cpPinJointGetAnchorA(self -> joint);
-    vec2 vect = {anchor.x, anchor.y};
-    return vectorSet(value, vect, 2) ? -1 : cpPinJointSetAnchorA(self -> joint, cpv(vect[x], vect[y])), 0;
+static int Pin_set_length(Pin *self, PyObject *value, void *closure) {
+    DEL(value, "length")
+    INIT(ERR(self -> length = PyFloat_AsDouble(value)))
+
+    return self -> base.parent ? (cpPinJointSetDist(self -> base.joint, self -> length), 0) : 0;
 }
 
-static int Pin_setLastX(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
+static Vector *Pin_get_start(Pin *self, void *closure) {
+    Vector *vector = Vector_new((PyObject *) self, (vec) &self -> start, 2, (set) anchor);
 
-    cpVect anchor = cpPinJointGetAnchorB(self -> joint);
-    return ERR(anchor.x = PyFloat_AsDouble(value)) ? -1 : cpPinJointSetAnchorB(self -> joint, anchor), 0;
+    if (vector) {
+        vector -> names[x] = 'x';
+        vector -> names[y] = 'y';
+    }
+
+    return vector;
 }
 
-static int Pin_setLastY(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    cpVect anchor = cpPinJointGetAnchorB(self -> joint);
-    return ERR(anchor.y = PyFloat_AsDouble(value)) ? -1 : cpPinJointSetAnchorB(self -> joint, anchor), 0;
+static int Pin_set_start(Pin *self, PyObject *value, void *closure) {
+    DEL(value, "start")
+    return Vector_set(value, (vec) &self -> start, 2) ? -1 : anchor(self);
 }
 
-static double Pin_vecLast(Joint *self, uint8_t index) {
-    const cpVect anchor = cpPinJointGetAnchorB(self -> joint);
-    const vec2 vector = {anchor.x, anchor.y};
-    return vector[index];
+static Vector *Pin_get_end(Pin *self, void *closure) {
+    Vector *vector = Vector_new((PyObject *) self, (vec) &self -> end, 2, (set) anchor);
+
+    if (vector) {
+        vector -> names[x] = 'x';
+        vector -> names[y] = 'y';
+    }
+
+    return vector;
 }
 
-static PyObject *Pin_getLast(Joint *self, void *Py_UNUSED(closure)) {
-    Vector *offset = vectorNew((PyObject *) self, (Getter) Pin_vecLast, 2);
-
-    offset -> data[x].set = (setter) Pin_setLastX;
-    offset -> data[y].set = (setter) Pin_setLastY;
-    offset -> data[x].name = "x";
-    offset -> data[y].name = "y";
-
-    return (PyObject *) offset;
+static int Pin_set_end(Pin *self, PyObject *value, void *closure) {
+    DEL(value, "end")
+    return Vector_set(value, (vec) &self -> end, 2) ? -1 : anchor(self);
 }
 
-static int Pin_setLast(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {
-    const cpVect anchor = cpPinJointGetAnchorB(self -> joint);
-    vec2 vect = {anchor.x, anchor.y};
-    return vectorSet(value, vect, 2) ? -1 : cpPinJointSetAnchorB(self -> joint, cpv(vect[x], vect[y])), 0;
-}
+static PyObject *Pin_draw(Pin *self, PyObject *args) {
+    Vec2 base[] = {
+        Body_get(self -> base.a -> body, Joint_rotate(self -> base.a, self -> start)),
+        Body_get(self -> base.b -> body, Joint_rotate(self -> base.b, self -> end))
+    };
 
-static PyObject *Pin_getLength(Joint *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(cpPinJointGetDist(self -> joint));
-}
-
-static int Pin_setLength(Joint *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    const double length = PyFloat_AsDouble(value);
-    return ERR(length) ? -1 : cpPinJointSetDist(self -> joint, length), 0;
-}
-
-static PyObject *Pin_draw(Joint *self, PyObject *Py_UNUSED(ignored)) {
-    cpVect first = cpPinJointGetAnchorA(self -> joint);
-    cpVect last = cpPinJointGetAnchorB(self -> joint);
-
-    vec2 a[] = {{first.x, first.y}};
-    vec2 b[] = {{last.x, last.y}};
-
-    rotate(a, 1, cpBodyGetAngle(self -> a -> body), self -> a -> pos);
-    rotate(b, 1, cpBodyGetAngle(self -> b -> body), self -> b -> pos);
-
-    vec2 base[] = {{(*a)[x], (*a)[y]}, {(*b)[x], (*b)[y]}};
-    jointDraw(self, base, 2);
-
+    Joint_draw(&self -> base, base, 2);
     Py_RETURN_NONE;
 }
 
-static PyObject *Pin_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
-    return jointNew(type, (cpConstraint *) cpPinJointAlloc());
+static Joint *Pin_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
+    return Joint_new(type, (joint) create, (move) unsafe, (cpConstraint *) cpPinJointAlloc());
 }
 
-static int Pin_init(Joint *self, PyObject *args, PyObject *kwds) {
+static int Pin_init(Pin *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"a", "b", "length", "width", "color", NULL};
-
-    jointInit(self);
     PyObject *color = NULL;
-    double length = 0;
 
-    if (!PyArg_ParseTupleAndKeywords(
-        args, kwds, "O!O!|ddO", kwlist, &BaseType, &self -> a, &BaseType,
-        &self -> b, &length, &self -> width, &color)) return -1;
+    JointType.tp_init((PyObject *) self, NULL, NULL);
+    self -> length = 0;
 
-    if (!length) {
-        const double a = self -> a -> pos[x] - self -> b -> pos[x];
-        const double b = self -> a -> pos[y] - self -> b -> pos[y];
+    INIT(!PyArg_ParseTupleAndKeywords(
+        args, kwds, "O!O!|ddO:Pin", kwlist, &BaseType, &self -> base.a,
+        &BaseType, &self -> base.b, &self -> length, &self -> base.width,
+        &color) || Vector_set(color, (vec) &self -> base.color, 4))
 
-        length = hypot(a, b);
+    if (!self -> length) {
+        const double a = self -> base.a -> pos.x - self -> base.b -> pos.x;
+        const double b = self -> base.a -> pos.y - self -> base.b -> pos.y;
+
+        self -> length = hypot(a, b);
     }
 
-    cpPinJointInit((cpPinJoint *) self -> joint, self -> a -> body, self -> b -> body, cpv(0, 0), cpv(0, 0));
-    cpPinJointSetDist(self -> joint, length);
-    return jointStart(self, color);
+    return Joint_add(&self -> base), 0;
 }
 
-static PyGetSetDef PinGetSetters[] = {
-    {"a", (getter) Pin_getFirst, (setter) Pin_setFirst, "offset of the first attached body", NULL},
-    {"b", (getter) Pin_getLast, (setter) Pin_setLast, "offset of the last attached body", NULL},
-    {"length", (getter) Pin_getLength, (setter) Pin_setLength, "distance between the two bodies", NULL},
+static PyGetSetDef Pin_getset[] = {
+    {"start", (getter) Pin_get_start, (setter) Pin_set_start, "the offset of the pin relative to the first body", NULL},
+    {"end", (getter) Pin_get_end, (setter) Pin_set_end, "the offset of the pin relative to the last body", NULL},
+    {"length", (getter) Pin_get_length, (setter) Pin_set_length, "the distance between the two bodies", NULL},
     {NULL}
 };
 
-static PyMethodDef PinMethods[] = {
+static PyMethodDef Pin_methods[] = {
     {"draw", (PyCFunction) Pin_draw, METH_NOARGS, "draw the pin joint on the screen"},
     {NULL}
 };
@@ -143,13 +109,13 @@ static PyMethodDef PinMethods[] = {
 PyTypeObject PinType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "Pin",
-    .tp_doc = "keeps a set distance between two physics bodies",
-    .tp_basicsize = sizeof(Joint),
+    .tp_doc = "constrain the distance between two bodies",
+    .tp_basicsize = sizeof(Pin),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_base = &JointType,
-    .tp_new = Pin_new,
+    .tp_new = (newfunc) Pin_new,
     .tp_init = (initproc) Pin_init,
-    .tp_getset = PinGetSetters,
-    .tp_methods = PinMethods
+    .tp_methods = Pin_methods,
+    .tp_getset = Pin_getset
 };

@@ -1,639 +1,849 @@
 #include <main.h>
 
-static void arbiter(cpBody *body, cpArbiter *arbiter, bool *data) {
-    const cpVect normal = cpArbiterGetContactPointSet(arbiter).normal;
-    const cpVect gravity = cpvnormalize(cpSpaceGetGravity(cpBodyGetSpace(body)));
-
-    if (fabs(normal.x - gravity.x) < M_PI / 4 && fabs(normal.y - gravity.y) < M_PI / 4)
-        *data = true;
+static bool circle_circle(Vec2 p1, Vec2 p2, double width) {
+    return hypot(p2.x - p1.x, p2.y - p1.y) < width;
 }
 
-static int vect(Base *self, PyObject *args, double *a, double *b, double *c, double *d) {
-    *c = *d = 0;
-
-    if (!self -> length) {
-        PyErr_SetString(PyExc_AttributeError, "must be added to a physics engine");
-        return -1;
-    }
-
-    return PyArg_ParseTuple(args, "dd|dd", a, b, c, d) ? 0 : -1;
+static bool circle_point(Vec2 pos, double radius, Vec2 point) {
+    return hypot(point.x - pos.x, point.y - pos.y) < radius;
 }
 
-static void pos(Base *self) {
-    cpBodySetPosition(self -> body, cpv(self -> pos[x], self -> pos[y]));
+static bool segment_point(Vec2 p1, Vec2 p2, Vec2 point) {
+    const double d1 = hypot(point.x - p1.x, point.y - p1.y);
+    const double d2 = hypot(point.x - p2.x, point.y - p2.y);
+    const double length = hypot(p1.x - p2.x, p1.y - p2.y);
+
+    return d1 + d2 >= length - 0.1 && d1 + d2 <= length + 0.1;
 }
 
-static int other(PyObject *other, vec2 pos) {
-    if (Py_TYPE(other) == &CursorType) {
-        pos[x] = cursor -> pos[x];
-        pos[y] = cursor -> pos[y];
+static bool segment_segment(Vec2 p1, Vec2 p2, Vec2 p3, Vec2 p4) {
+    const double value = (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
+    const double u1 = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / value;
+    const double u2 = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / value;
+
+    return u1 >= 0 && u1 <= 1 && u2 >= 0 && u2 <= 1;
+}
+
+static bool segment_circle(Vec2 p1, Vec2 p2, Vec2 pos, double radius) {
+    if (circle_point(pos, radius, p1) || circle_point(pos, radius, p2))
+        return true;
+
+    const double length = hypot(p1.x - p2.x, p1.y - p2.y);
+    const double dot = ((pos.x - p1.x) * (p2.x - p1.x) + (pos.y - p1.y) * (p2.y - p1.y)) / pow(length, 2);
+    Vec2 point = {p1.x + dot * (p2.x - p1.x), p1.y + dot * (p2.y - p1.y)};
+
+    return segment_point(p1, p2, point) ? hypot(point.x - pos.x, point.y - pos.y) <= radius : 0;
+}
+
+static bool poly_segment(Vec2 *poly, size_t size, Vec2 p1, Vec2 p2) {
+    for (size_t i = 0; i < size; i ++)
+        if (segment_segment(p1, p2, poly[i], poly[i + 1 == size ? 0 : i + 1]))
+            return true;
+
+    return false;
+}
+
+static bool poly_point(Vec2 *poly, size_t size, Vec2 point) {
+    bool hit = false;
+
+    for (size_t i = 0; i < size; i ++) {
+        Vec2 a = poly[i];
+        Vec2 b = poly[i + 1 == size ? 0 : i + 1];
+
+        if ((point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x) &&
+            ((a.y > point.y && b.y < point.y) ||
+            (a.y < point.y && b.y > point.y))) hit = !hit;
     }
 
-    else if (PyObject_IsInstance(other, (PyObject *) &BaseType)) {
-        pos[x] = ((Base *) other) -> pos[x];
-        pos[y] = ((Base *) other) -> pos[y];
+    return hit;
+}
+
+static bool poly_poly(Vec2 *p1, size_t s1, Vec2 *p2, size_t s2) {
+    if (poly_point(p1, s1, p2[0]) || poly_point(p2, s2, p1[0]))
+        return true;
+
+    for (size_t i = 0; i < s1; i ++)
+        if (poly_segment(p2, s2, p1[i], p1[i + 1 == s1 ? 0 : i + 1]))
+            return true;
+
+    return false;
+}
+
+static bool poly_circle(Vec2 *poly, size_t size, Vec2 pos, double radius) {
+    for (size_t i = 0; i < size; i ++)
+        if (segment_circle(poly[i], poly[i + 1 == size ? 0 : i + 1], pos, radius))
+            return true;
+
+    return false;
+}
+
+static bool line_point(Vec2 *line, size_t size, double radius, Vec2 point) {
+    for (size_t i = 0; i < size - 1; i ++)
+        if (segment_circle(line[i], line[i + 1], point, radius))
+            return true;
+
+    return false;
+}
+
+static bool line_poly(Vec2 *line, size_t s1, double radius, Vec2 *poly, size_t s2) {
+    if (poly_point(poly, s1, line[0]))
+        return true;
+
+    for (size_t i = 0; i < s1; i ++)
+        for (size_t j = 0; j < s2; j ++) {
+            Vec2 a = poly[j];
+            Vec2 b = poly[j + 1 == s2 ? 0 : j + 1];
+
+            if ((i && (segment_segment(line[i], line[i - 1], a, b) ||
+                segment_circle(line[i], line[i - 1], a, radius))) ||
+                segment_circle(a, b, line[i], radius)) return true;
+        }
+
+    return false;
+}
+
+static bool line_line(Vec2 *l1, size_t s1, Vec2 *l2, size_t s2, double width) {
+    for (size_t i = 0; i < s1; i ++)
+        for (size_t j = 0; j < s2; j ++)
+            if ((i && j && segment_segment(l1[i], l1[i - 1], l2[j], l2[j - 1])) ||
+                (i && segment_circle(l1[i], l1[i - 1], l2[j], width)) ||
+                (j && segment_circle(l2[j], l2[j - 1], l1[i], width))) return true;
+
+    return false;
+}
+
+static Body *clean(Base *self) {
+    if (self -> body) {
+        REM(Base, self -> body -> list, self)
+
+        while (self -> shape) {
+            cpShape *shape = self -> shape;
+            self -> shape = cpShapeGetUserData(shape);
+
+            cpSpaceRemoveShape(self -> body -> parent -> space, shape);
+            cpShapeFree(shape);
+        }
     }
 
-    else if (PySequence_Check(other)) {
-        PyObject *seq = PySequence_Fast(other, NULL);
+    Body *body = self -> body;
+    return self -> body = NULL, body;
+}
 
-        if (PySequence_Fast_GET_SIZE(seq) < 2) {
-            PyErr_SetString(PyExc_ValueError, "sequence must contain 2 values");
-            Py_DECREF(seq);
+static void group(Base *self, cpShape *shape) {
+    cpGroup group = self -> group ? self -> group -> id : CP_NO_GROUP;
+    cpShapeSetFilter(shape, cpShapeFilterNew(group, CP_ALL_CATEGORIES, CP_ALL_CATEGORIES));
+}
+
+static int update(Base *self) {
+    return Base_unsafe(self), 0;
+}
+
+static PyObject *Base_get_x(Base *self, void *closure) {
+    return PyFloat_FromDouble(self -> pos.x);
+}
+
+static int Base_set_x(Base *self, PyObject *value, void *closure) {
+    DEL(value, "x")
+    return ERR(self -> pos.x = PyFloat_AsDouble(value)) ? -1 : update(self);
+}
+
+static PyObject *Base_get_y(Base *self, void *closure) {
+    return PyFloat_FromDouble(self -> pos.y);
+}
+
+static int Base_set_y(Base *self, PyObject *value, void *closure) {
+    DEL(value, "y")
+    return ERR(self -> pos.y = PyFloat_AsDouble(value)) ? -1 : update(self);
+}
+
+static Vector *Base_get_pos(Base *self, void *closure) {
+    Vector *vector = Vector_new((PyObject *) self, (vec) &self -> pos, 2, (set) update);
+
+    if (vector) {
+        vector -> names[x] = 'x';
+        vector -> names[y] = 'y';
+    }
+
+    return vector;
+}
+
+static int Base_set_pos(Base *self, PyObject *value, void *closure) {
+    DEL(value, "pos")
+    return Vector_set(value, (vec) &self -> pos, 2) ? -1 : update(self);
+}
+
+static Vector *Base_get_scale(Base *self, void *closure) {
+    Vector *vector = Vector_new((PyObject *) self, (vec) &self -> scale, 2, (set) update);
+
+    if (vector) {
+        vector -> names[x] = 'x';
+        vector -> names[y] = 'y';
+    }
+
+    return vector;
+}
+
+static int Base_set_scale(Base *self, PyObject *value, void *closure) {
+    DEL(value, "scale")
+    return Vector_set(value, (vec) &self -> scale, 2) ? -1 : update(self);
+}
+
+static Vector *Base_get_anchor(Base *self, void *closure) {
+    Vector *vector = Vector_new((PyObject *) self, (vec) &self -> anchor, 2, NULL);
+
+    if (vector) {
+        vector -> names[x] = 'x';
+        vector -> names[y] = 'y';
+    }
+
+    return vector;
+}
+
+static int Base_set_anchor(Base *self, PyObject *value, void *closure) {
+    DEL(value, "anchor")
+    return Vector_set(value, (vec) &self -> anchor, 2);
+}
+
+static PyObject *Base_get_angle(Base *self, void *closure) {
+    return PyFloat_FromDouble(self -> angle);
+}
+
+static int Base_set_angle(Base *self, PyObject *value, void *closure) {
+    DEL(value, "angle")
+    return ERR(self -> angle = PyFloat_AsDouble(value)) ? -1 : update(self);
+}
+
+static PyObject *Base_get_red(Base *self, void *closure) {
+    return PyFloat_FromDouble(self -> color.r);
+}
+
+static int Base_set_red(Base *self, PyObject *value, void *closure) {
+    DEL(value, "red")
+    return ERR(self -> color.r = PyFloat_AsDouble(value)) ? -1 : 0;
+}
+
+static PyObject *Base_get_green(Base *self, void *closure) {
+    return PyFloat_FromDouble(self -> color.g);
+}
+
+static int Base_set_green(Base *self, PyObject *value, void *closure) {
+    DEL(value, "green")
+    return ERR(self -> color.g = PyFloat_AsDouble(value)) ? -1 : 0;
+}
+
+static PyObject *Base_get_blue(Base *self, void *closure) {
+    return PyFloat_FromDouble(self -> color.b);
+}
+
+static int Base_set_blue(Base *self, PyObject *value, void *closure) {
+    DEL(value, "blue")
+    return ERR(self -> color.b = PyFloat_AsDouble(value)) ? -1 : 0;
+}
+
+static PyObject *Base_get_alpha(Base *self, void *closure) {
+    return PyFloat_FromDouble(self -> color.a);
+}
+
+static int Base_set_alpha(Base *self, PyObject *value, void *closure) {
+    DEL(value, "alpha")
+    return ERR(self -> color.a = PyFloat_AsDouble(value)) ? -1 : 0;
+}
+
+static Vector *Base_get_color(Base *self, void *closure) {
+    Vector *vector = Vector_new((PyObject *) self, (vec) &self -> color, 4, NULL);
+
+    if (vector) {
+        vector -> names[r] = 'r';
+        vector -> names[g] = 'g';
+        vector -> names[b] = 'b';
+        vector -> names[a] = 'a';
+    }
+
+    return vector;
+}
+
+static int Base_set_color(Base *self, PyObject *value, void *closure) {
+    DEL(value, "color")
+    return Vector_set(value, (vec) &self -> color, 4);
+}
+
+static PyObject *Base_get_top(Base *self, void *closure) {
+    return PyFloat_FromDouble(self -> sides(self).top);
+}
+
+static int Base_set_top(Base *self, PyObject *value, void *closure) {
+    DEL(value, "top")
+
+    const double result = PyFloat_AsDouble(value);
+    return ERR(result) ? -1 : (self -> pos.y += result - self -> sides(self).top, update(self));
+}
+
+static PyObject *Base_get_bottom(Base *self, void *closure) {
+    return PyFloat_FromDouble(self -> sides(self).bottom);
+}
+
+static int Base_set_bottom(Base *self, PyObject *value, void *closure) {
+    DEL(value, "bottom")
+
+    const double result = PyFloat_AsDouble(value);
+    return ERR(result) ? -1 : (self -> pos.y += result - self -> sides(self).bottom, update(self));
+}
+
+static PyObject *Base_get_left(Base *self, void *closure) {
+    return PyFloat_FromDouble(self -> sides(self).left);
+}
+
+static int Base_set_left(Base *self, PyObject *value, void *closure) {
+    DEL(value, "left")
+
+    const double result = PyFloat_AsDouble(value);
+    return ERR(result) ? -1 : (self -> pos.x += result - self -> sides(self).left, update(self));
+}
+
+static PyObject *Base_get_right(Base *self, void *closure) {
+    return PyFloat_FromDouble(self -> sides(self).right);
+}
+
+static int Base_set_right(Base *self, PyObject *value, void *closure) {
+    DEL(value, "right")
+
+    const double result = PyFloat_AsDouble(value);
+    return ERR(result) ? -1 : (self -> pos.x += result - self -> sides(self).right, update(self));
+}
+
+static PyObject *Base_get_body(Base *self, void *closure) {
+    if (self -> body)
+        return Py_INCREF(self -> body), (PyObject *) self -> body;
+
+    Py_RETURN_NONE;
+}
+
+static int Base_set_body(Base *self, PyObject *value, void *closure) {
+    DEL(value, "body")
+    Body *body = clean(self);
+
+    if (value != Py_None) {
+        if (!Py_IS_TYPE(value, &BodyType)) {
+            PyErr_Format(PyExc_ValueError, "must be a Body, not %s", Py_TYPE(value) -> tp_name);
             return -1;
         }
 
-        FOR(uint8_t, 2) {
-            pos[i] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(seq, i));
+        Py_INCREF(self -> body = (Body *) value);
+        self -> transform.x = self -> pos.x;
+        self -> transform.y = self -> pos.y;
 
-            if (ERR(pos[i])) {
-                Py_DECREF(seq);
-                return -1;
-            }
+        self -> rotate = self -> angle;
+        self -> shape = self -> physics(self);
+
+        for (cpShape *this = self -> shape; this; this = cpShapeGetUserData(this))
+            Base_shape(self, this);
+
+        self -> next = self -> body -> list;
+        self -> body -> list = self;
+    }
+
+    for (Array *this = self -> joint; this; this = this -> next)
+        Joint_check(this -> src);
+
+    Py_CLEAR(body);
+    return 0;
+}
+
+static PyObject *Base_get_group(Base *self, void *closure) {
+    if (self -> group)
+        return Py_INCREF(self -> group), (PyObject *) self -> group;
+
+    Py_RETURN_NONE;
+}
+
+static int Base_set_group(Base *self, PyObject *value, void *closure) {
+    DEL(value, "group")
+
+    if (self -> group)
+        Py_CLEAR(self -> group);
+
+    if (value != Py_None) {
+        if (!Py_IS_TYPE(value, &GroupType)) {
+            PyErr_Format(PyExc_ValueError, "must be a Group, not %s", Py_TYPE(value) -> tp_name);
+            return -1;
         }
 
-        Py_DECREF(seq);
+        Py_INCREF(self -> group = (Group *) value);
     }
 
-    else {
-        format(PyExc_TypeError, "must be Base, cursor or sequence not %s", Py_TYPE(other) -> tp_name);
-        return -1;
-    }
+    for (cpShape *this = self -> shape; this; this = cpShapeGetUserData(this))
+        group(self, this);
 
     return 0;
 }
 
-static PyObject *Base_getX(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> pos[x]);
+static PyObject *Base_get_mass(Base *self, void *closure) {
+    return PyFloat_FromDouble(self -> mass);
 }
 
-static int Base_setX(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
+static int Base_set_mass(Base *self, PyObject *value, void *closure) {
+    DEL(value, "mass")
+    INIT(ERR(self -> mass = PyFloat_AsDouble(value)))
 
-    self -> pos[x] = PyFloat_AsDouble(value);
-    return ERR(self -> pos[x]) ? -1 : pos(self), 0;
+    return self -> body ? (cpShapeSetMass(self -> shape, self -> mass), 0) : 0;
 }
 
-static PyObject *Base_getY(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> pos[y]);
-}
-
-static int Base_setY(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> pos[y] = PyFloat_AsDouble(value);
-    return ERR(self -> pos[y]) ? -1 : pos(self), 0;
-}
-
-static double Base_vecPos(Base *self, uint8_t index) {
-    return self -> pos[index];
-}
-
-static PyObject *Base_getPos(Base *self, void *Py_UNUSED(closure)) {
-    Vector *pos = vectorNew((PyObject *) self, (Getter) Base_vecPos, 2);
-
-    pos -> data[x].set = (setter) Base_setX;
-    pos -> data[y].set = (setter) Base_setY;
-    pos -> data[x].name = "x";
-    pos -> data[y].name = "y";
-
-    return (PyObject *) pos;
-}
-
-static int Base_setPos(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return vectorSet(value, self -> pos, 2) ? -1 : pos(self), 0;
-}
-
-static int Base_setScaleX(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> scale[x] = PyFloat_AsDouble(value);
-    return ERR(self -> scale[x]) ? -1 : 0;
-}
-
-static int Base_setScaleY(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> scale[y] = PyFloat_AsDouble(value);
-    return ERR(self -> scale[y]) ? -1 : 0;
-}
-
-static double Base_vecScale(Base *self, uint8_t index) {
-    return self -> scale[index];
-}
-
-static PyObject *Base_getScale(Base *self, void *Py_UNUSED(closure)) {
-    Vector *scale = vectorNew((PyObject *) self, (Getter) Base_vecScale, 2);
-
-    scale -> data[x].set = (setter) Base_setScaleX;
-    scale -> data[y].set = (setter) Base_setScaleY;
-    scale -> data[x].name = "x";
-    scale -> data[y].name = "y";
-
-    return (PyObject *) scale;
-}
-
-static int Base_setScale(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return vectorSet(value, self -> scale, 2) ? -1 : 0;
-}
-
-static int Base_setAnchorX(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> anchor[x] = PyFloat_AsDouble(value);
-    return ERR(self -> anchor[x]) ? -1 : 0;
-}
-
-static int Base_setAnchorY(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> anchor[y] = PyFloat_AsDouble(value);
-    return ERR(self -> anchor[y]) ? -1 : 0;
-}
-
-static double Base_vecAnchor(Base *self, uint8_t index) {
-    return self -> anchor[index];
-}
-
-static PyObject *Base_getAnchor(Base *self, void *Py_UNUSED(closure)) {
-    Vector *anchor = vectorNew((PyObject *) self, (Getter) Base_vecAnchor, 2);
-
-    anchor -> data[x].set = (setter) Base_setAnchorX;
-    anchor -> data[y].set = (setter) Base_setAnchorY;
-    anchor -> data[x].name = "x";
-    anchor -> data[y].name = "y";
-
-    return (PyObject *) anchor;
-}
-
-static int Base_setAnchor(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return vectorSet(value, self -> anchor, 2);
-}
-
-static PyObject *Base_getAngle(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(cpBodyGetAngle(self -> body) * 180 / M_PI);
-}
-
-static int Base_setAngle(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    const double angle = PyFloat_AsDouble(value);
-    return ERR(angle) ? -1 : cpBodySetAngle(self -> body, angle * M_PI / 180), 0;
-}
-
-static PyObject *Base_getRed(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> color[r]);
-}
-
-static int Base_setRed(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> color[r] = PyFloat_AsDouble(value);
-    return ERR(self -> color[r]) ? -1 : 0;
-}
-
-static PyObject *Base_getGreen(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> color[g]);
-}
-
-static int Base_setGreen(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> color[g] = PyFloat_AsDouble(value);
-    return ERR(self -> color[g]) ? -1 : 0;
-}
-
-static PyObject *Base_getBlue(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> color[b]);
-}
-
-static int Base_setBlue(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> color[b] = PyFloat_AsDouble(value);
-    return ERR(self -> color[b]) ? -1 : 0;
-}
-
-static PyObject *Base_getAlpha(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> color[a]);
-}
-
-static int Base_setAlpha(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> color[a] = PyFloat_AsDouble(value);
-    return ERR(self -> color[a]) ? -1 : 0;
-}
-
-static double Base_vecColor(Base *self, uint8_t index) {
-    return self -> color[index];
-}
-
-static PyObject *Base_getColor(Base *self, void *Py_UNUSED(closure)) {
-    Vector *color = vectorNew((PyObject *) self, (Getter) Base_vecColor, 4);
-
-    color -> data[r].set = (setter) Base_setRed;
-    color -> data[g].set = (setter) Base_setGreen;
-    color -> data[b].set = (setter) Base_setBlue;
-    color -> data[a].set = (setter) Base_setAlpha;
-    color -> data[r].name = "r";
-    color -> data[g].name = "g";
-    color -> data[b].name = "b";
-    color -> data[a].name = "a";
-
-    return (PyObject *) color;
-}
-
-static int Base_setColor(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return vectorSet(value, self -> color, 4);
-}
-
-static PyObject *Base_getLeft(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> left(self));
-}
-
-static int Base_setLeft(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-    
-    const double result = PyFloat_AsDouble(value);
-    if (ERR(result)) return -1;
-
-    self -> pos[x] += result - self -> left(self);
-    return pos(self), 0;
-}
-
-static PyObject *Base_getTop(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> top(self));
-}
-
-static int Base_setTop(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-    
-    const double result = PyFloat_AsDouble(value);
-    if (ERR(result)) return -1;
-
-    self -> pos[y] += result - self -> top(self);
-    return pos(self), 0;
-}
-
-static PyObject *Base_getRight(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> right(self));
-}
-
-static int Base_setRight(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-    
-    const double result = PyFloat_AsDouble(value);
-    if (ERR(result)) return -1;
-
-    self -> pos[x] += result - self -> right(self);
-    return pos(self), 0;
-}
-
-static PyObject *Base_getBottom(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> bottom(self));
-}
-
-static int Base_setBottom(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-    
-    const double result = PyFloat_AsDouble(value);
-    if (ERR(result)) return -1;
-
-    self -> pos[y] += result - self -> bottom(self);
-    return pos(self), 0;
-}
-
-static PyObject *Base_getType(Base *self, void *Py_UNUSED(closure)) {
-    return PyLong_FromLong(cpBodyGetType(self -> body));
-}
-
-static int Base_setType(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    const long type = PyLong_AsLong(value);
-    if (ERR(type)) return -1;
-
-    if (type != CP_BODY_TYPE_DYNAMIC && type != CP_BODY_TYPE_KINEMATIC) {
-        PyErr_SetString(PyExc_ValueError, "type must be DYNAMIC or STATIC");
-        return -1;
-    }
-
-    return cpBodySetType(self -> body, type), baseMoment(self), 0;
-}
-
-static PyObject *Base_getMass(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(cpBodyGetMass(self -> body));
-}
-
-static int Base_setMass(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    const double mass = PyFloat_AsDouble(value);
-    return ERR(mass) ? -1 : cpBodySetMass(self -> body, mass), baseMoment(self), 0;
-}
-
-static PyObject *Base_getElasticity(Base *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_get_elasticity(Base *self, void *closure) {
     return PyFloat_FromDouble(self -> elasticity);
 }
 
-static int Base_setElasticity(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
+static int Base_set_elasticity(Base *self, PyObject *value, void *closure) {
+    DEL(value, "elasticity")
+    INIT(ERR(self -> elasticity = PyFloat_AsDouble(value)))
 
-    if (ERR(self -> elasticity = PyFloat_AsDouble(value))) return -1;
-    FOR(size_t, self -> length) cpShapeSetElasticity(self -> shapes[i], self -> elasticity);
-
-    return 0;
+    return self -> body ? (cpShapeSetElasticity(self -> shape, self -> elasticity), 0) : 0;
 }
 
-static PyObject *Base_getFriction(Base *self, void *Py_UNUSED(closure)) {
+static PyObject *Base_get_friction(Base *self, void *closure) {
     return PyFloat_FromDouble(self -> friction);
 }
 
-static int Base_setFriction(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
+static int Base_set_friction(Base *self, PyObject *value, void *closure) {
+    DEL(value, "friction")
+    INIT(ERR(self -> friction = PyFloat_AsDouble(value)))
 
-    if (ERR(self -> friction = PyFloat_AsDouble(value))) return -1;
-    FOR(size_t, self -> length) cpShapeSetFriction(self -> shapes[i], self -> friction);
-
-    return 0;
+    return self -> body ? (cpShapeSetFriction(self -> shape, self -> friction), 0) : 0;
 }
 
-static int Base_setVelocityX(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
+// static PyObject *Base_look_at(Base *self, PyObject *value) {
+//     double pos[2];
 
-    self -> vel[x] = PyFloat_AsDouble(value);
-    return ERR(self -> vel[x]) ? -1 : cpBodySetVelocity(self -> body, cpv(self -> vel[x], self -> vel[y])), 0;
-}
+//     if (value == (PyObject *) cursor) {
+//         pos[x] = cursor -> pos.x;
+//         pos[y] = cursor -> pos.y;
+//     }
 
-static int Base_setVelocityY(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
+//     else if (PyObject_TypeCheck(value, &BaseType)) {
+//         pos[x] = ((Base *) value) -> pos.x;
+//         pos[y] = ((Base *) value) -> pos.y;
+//     }
 
-    self -> vel[y] = PyFloat_AsDouble(value);
-    return ERR(self -> vel[y]) ? -1 : cpBodySetVelocity(self -> body, cpv(self -> vel[x], self -> vel[y])), 0;
-}
+//     else END(value)
+//     self -> angle = atan2(pos[y] - self -> pos.y, pos[x] - self -> pos.x) * 180 / M_PI;
 
-static double Base_vecVelocity(Base *self, uint8_t index) {
-    return self -> vel[index];
-}
+//     Base_unsafe(self);
+//     Py_RETURN_NONE;
+// }
 
-static PyObject *Base_getVelocity(Base *self, void *Py_UNUSED(closure)) {
-    Vector *speed = vectorNew((PyObject *) self, (Getter) Base_vecVelocity, 2);
-
-    speed -> data[x].set = (setter) Base_setVelocityX;
-    speed -> data[y].set = (setter) Base_setVelocityY;
-    speed -> data[x].name = "x";
-    speed -> data[y].name = "y";
-
-    return (PyObject *) speed;
-}
-
-static int Base_setVelocity(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return vectorSet(value, self -> vel, 2) ? -1 : cpBodySetVelocity(self -> body, cpv(self -> vel[x], self -> vel[y])), 0;
-}
-
-static PyObject *Base_getAngularVelocity(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(cpBodyGetAngularVelocity(self -> body) * 180 / M_PI);
-}
-
-static int Base_setAngularVelocity(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    const double velocity = PyFloat_AsDouble(value);
-    return ERR(velocity) ? -1 : cpBodySetAngularVelocity(self -> body, velocity * M_PI / 180), 0;
-}
-
-static PyObject *Base_getTorque(Base *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(cpBodyGetTorque(self -> body));
-}
-
-static int Base_setTorque(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    const double torque = PyFloat_AsDouble(value);
-    return ERR(torque) ? -1 : cpBodySetTorque(self -> body, torque), 0;
-}
-
-static PyObject *Base_getRotate(Base *self, void *Py_UNUSED(closure)) {
-    return PyBool_FromLong(self -> rotate);
-}
-
-static int Base_setRotate(Base *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    const int result = PyObject_IsTrue(value);
-    if (result == -1) return -1;
-    
-    self -> rotate = result;
-    return baseMoment(self), 0;
-}
-
-static PyObject *Base_getGrounded(Base *self, void *Py_UNUSED(closure)) {
-    bool grounded = false;
-
-    cpBodyEachArbiter(self -> body, (cpBodyArbiterIteratorFunc) arbiter, &grounded);
-    return PyBool_FromLong(grounded);
-}
-
-static PyObject *Base_lookAt(Base *self, PyObject *object) {
-    vec2 pos;
-    
-    if (other(object, pos)) return NULL;
-    const double value = atan2(pos[y] - self -> pos[y], pos[x] - self -> pos[x]);
-
-    cpBodySetAngle(self -> body, value * 180 / M_PI);
-    Py_RETURN_NONE;
-}
-
-static PyObject *Base_moveToward(Base *self, PyObject *args) {
-    if (baseToward(self -> pos, args)) return NULL;
-    pos(self);
-
-    Py_RETURN_NONE;
-}
-
-static PyObject *Base_moveSmooth(Base *self, PyObject *args) {
-    if (baseSmooth(self -> pos, args)) return NULL;
-    pos(self);
-
-    Py_RETURN_NONE;
-}
-
-static PyObject *Base_force(Base *self, PyObject *args) {
-    cpVect pos, force;
-
-    if (vect(self, args, &force.x, &force.y, &pos.x, &pos.y))
-        return NULL;
-
-    cpBodyApplyForceAtLocalPoint(self -> body, force, pos);
-    Py_RETURN_NONE;
-}
-
-static PyObject *Base_impulse(Base *self, PyObject *args) {
-    cpVect pos, impulse;
-
-    if (vect(self, args, &impulse.x, &impulse.y, &pos.x, &pos.y))
-        return NULL;
-
-    cpBodyApplyImpulseAtLocalPoint(self -> body, impulse, pos);
-    Py_RETURN_NONE;
-}
-
-static PyGetSetDef BaseGetSetters[] = {
-    {"x", (getter) Base_getX, (setter) Base_setX, "x position of the object", NULL},
-    {"y", (getter) Base_getY, (setter) Base_setY, "y position of the object", NULL},
-    {"position", (getter) Base_getPos, (setter) Base_setPos, "position of the object", NULL},
-    {"pos", (getter) Base_getPos, (setter) Base_setPos, "position of the object", NULL},
-    {"scale", (getter) Base_getScale, (setter) Base_setScale, "scale of the object", NULL},
-    {"anchor", (getter) Base_getAnchor, (setter) Base_setAnchor, "rotation origin of the object", NULL},
-    {"angle", (getter) Base_getAngle, (setter) Base_setAngle, "angle of the object", NULL},
-    {"red", (getter) Base_getRed, (setter) Base_setRed, "red color of the object", NULL},
-    {"green", (getter) Base_getGreen, (setter) Base_setGreen, "green color of the object", NULL},
-    {"blue", (getter) Base_getBlue, (setter) Base_setBlue, "blue color of the object", NULL},
-    {"alpha", (getter) Base_getAlpha, (setter) Base_setAlpha, "opacity of the object", NULL},
-    {"color", (getter) Base_getColor, (setter) Base_setColor, "color of the object", NULL},
-    {"left", (getter) Base_getLeft, (setter) Base_setLeft, "left position of the object", NULL},
-    {"top", (getter) Base_getTop, (setter) Base_setTop, "top position of the object", NULL},
-    {"right", (getter) Base_getRight, (setter) Base_setRight, "right position of the object", NULL},
-    {"bottom", (getter) Base_getBottom, (setter) Base_setBottom, "bottom position of the object", NULL},
-    {"type", (getter) Base_getType, (setter) Base_setType, "physics body of the object", NULL},
-    {"mass", (getter) Base_getMass, (setter) Base_setMass, "weight of the object", NULL},
-    {"weight", (getter) Base_getMass, (setter) Base_setMass, "weight of the object", NULL},
-    {"elasticity", (getter) Base_getElasticity, (setter) Base_setElasticity, "bounciness of the object", NULL},
-    {"friction", (getter) Base_getFriction, (setter) Base_setFriction, "roughness of the object", NULL},
-    {"velocity", (getter) Base_getVelocity, (setter) Base_setVelocity, "physics speed of the object", NULL},
-    {"speed", (getter) Base_getVelocity, (setter) Base_setVelocity, "physics speed of the object", NULL},
-    {"angular_velocity", (getter) Base_getAngularVelocity, (setter) Base_setAngularVelocity, "physics rotation speed of the object", NULL},
-    {"rotate_speed", (getter) Base_getAngularVelocity, (setter) Base_setAngularVelocity, "physics rotation speed of the object", NULL},
-    {"rotate", (getter) Base_getRotate, (setter) Base_setRotate, "the object is able to rotate in a physics engine", NULL},
-    {"torque", (getter) Base_getTorque, (setter) Base_setTorque, "rotational force for the next physics frame", NULL},
-    {"grounded", (getter) Base_getGrounded, NULL, "the physics body is touching the ground", NULL},
-    {NULL}
-};
-
-static PyMethodDef BaseMethods[] = {
-    {"collides_with", collide, METH_O, "check if the object collides with another object"},
-    {"collide", collide, METH_O, "check if the object collides with another object"},
-    {"look_at", (PyCFunction) Base_lookAt, METH_O, "rotate the object so that it points to another object"},
-    {"move_toward", (PyCFunction) Base_moveToward, METH_VARARGS, "move the object toward another object"},
-    {"move_smooth", (PyCFunction) Base_moveSmooth, METH_VARARGS, "move the object smoothly toward another object"},
-    {"force", (PyCFunction) Base_force, METH_VARARGS, "apply a force to the object body"},
-    {"impulse", (PyCFunction) Base_impulse, METH_VARARGS, "apply an impulse to the object body"},
-    {NULL}
-};
-
-void baseUniform(mat matrix, vec4 vector) {
-    glUniformMatrix3fv(uniform[obj], 1, GL_FALSE, matrix);
-    glUniform4f(uniform[color], vector[r], vector[g], vector[b], vector[a]);
-}
-
-void baseDealloc(Base *self) {
-    cpBodyFree(self -> body);
-    free(self -> shapes);
-
-    Py_TYPE(self) -> tp_free((PyObject *) self);
-}
-
-int baseToward(vec2 this, PyObject *args) {
-    double speed = 1;
-    PyObject *object;
-    vec2 pos;
-
-    if (!PyArg_ParseTuple(args, "O|d", &object, &speed) || other(object, pos))
-        return -1;
-
-    const double px = pos[x] - this[x];
-    const double py = pos[y] - this[y];
-
-    if (hypot(px, py) < speed) {
-        this[x] += px;
-        this[y] += py;
-    }
-
-    else {
-        const double angle = atan2(py, px);
-
-        this[x] += cos(angle) * speed;
-        this[y] += sin(angle) * speed;
-    }
-    
-    return 0;
-}
-
-int baseSmooth(vec2 this, PyObject *args) {
-    double speed = .1;
-    PyObject *object;
-    vec2 pos;
-
-    if (!PyArg_ParseTuple(args, "O|d", &object, &speed) || other(object, pos))
-        return -1;
-
-    this[x] += (pos[x] - this[x]) * speed;
-    this[y] += (pos[y] - this[y]) * speed;
-    
-    return 0;
-}
-
-void baseInit(Base *self) {
-    self -> pos[x] = self -> pos[y] = 0;
-    self -> vel[x] = self -> vel[y] = 0;
-    self -> anchor[x] = self -> anchor[y] = 0;
-    self -> scale[x] = self -> scale[y] = 1;
-
-    self -> color[r] = self -> color[g] = self -> color[b] = 0;
-    self -> color[a] = 1;
-
-    self -> rotate = 1;
+static int Base_init(Base *self, PyObject *args, PyObject *kwds) {
+    self -> angle = 0;
+    self -> mass = 1;
     self -> elasticity = .5;
     self -> friction = .5;
+
+    self -> scale.x = 1;
+    self -> scale.y = 1;
+
+    self -> anchor.x = 0;
+    self -> anchor.y = 0;
+
+    self -> pos.x = 0;
+    self -> pos.y = 0;
+
+    self -> color.r = 0;
+    self -> color.g = 0;
+    self -> color.b = 0;
+    self -> color.a = 1;
+
+    return Base_clean(self), 0;
 }
 
-void baseStart(Base *self, double angle) {
-    cpBodySetMass(self -> body, 1);
-    cpBodySetAngle(self -> body, angle);
-    cpBodySetAngularVelocity(self -> body, 0);
-    cpBodySetType(self -> body, CP_BODY_TYPE_DYNAMIC);
+static void Base_dealloc(Base *self) {
+    Base_clean(self);
+    BaseType.tp_free(self);
 }
 
-void baseMatrix(Base *self, double px, double py) {
-    const double sine = sin(cpBodyGetAngle(self -> body));
-    const double cosine = cos(cpBodyGetAngle(self -> body));
-    const double sx = px * self -> scale[x];
-    const double sy = py * self -> scale[y];
+void Base_shape(Base *self, cpShape *shape) {
+    cpShapeSetMass(shape, self -> mass);
+    cpShapeSetElasticity(shape, self -> elasticity);
+    cpShapeSetFriction(shape, self -> friction);
+    cpSpaceAddShape(self -> body -> parent -> space, shape);
+    group(self, shape);
+}
 
-    mat matrix = {
-        sx * cosine, sx * -sine, 0,
-        sy * sine, sy * cosine, 0,
-        self -> anchor[x] * cosine + self -> anchor[y] * sine + self -> pos[x],
-        self -> anchor[x] * -sine + self -> anchor[y] * cosine + self -> pos[y], 1
+void Base_uniform(GLfloat *matrix, Vec4 vect, uint8_t type) {
+    glUniformMatrix3fv(uniforms[obj], 1, GL_FALSE, matrix);
+    glUniform4f(uniforms[color], vect.r, vect.g, vect.b, vect.a);
+    glUniform1i(uniforms[img], type);
+}
+
+void Base_matrix(Base *self, uint8_t type, double width, double height) {
+    const double sine = sin(self -> angle * M_PI / 180);
+    const double cosine = cos(self -> angle * M_PI / 180);
+
+    GLfloat matrix[] = {
+        width * self -> scale.x * cosine, width * self -> scale.x * sine, 0,
+        height * self -> scale.y * -sine, height * self -> scale.y * cosine, 0,
+        self -> anchor.x * cosine + self -> anchor.y * -sine + self -> pos.x,
+        self -> anchor.x * sine + self -> anchor.y * cosine + self -> pos.y, 1
     };
 
-    baseUniform(matrix, self -> color);
+    Base_uniform(matrix, self -> color, type);
 }
 
-void baseMoment(Base *self) {
-    if (cpBodyGetType(self -> body) == CP_BODY_TYPE_DYNAMIC)
-        cpBodySetMoment(self -> body, self -> rotate ? self -> moment(self) : INFINITY);
+void Base_unsafe(Base *self) {
+    if (self -> body) {
+        cpVect pos = cpBodyGetPosition(self -> body -> body);
+        cpFloat angle = cpBodyGetAngle(self -> body -> body);
+        cpVect rot = cpvforangle(-angle);
+
+        pos.x = self -> pos.x - pos.x;
+        pos.y = self -> pos.y - pos.y;
+
+        self -> transform.x = pos.x * rot.x - pos.y * rot.y;
+        self -> transform.y = pos.y * rot.x + pos.x * rot.y;
+        self -> rotate = self -> angle - angle * 180 / M_PI;
+        self -> unsafe(self);
+    }
+
+    for (Array *this = self -> joint; this; this = this -> next)
+        Joint_unsafe(this -> src);
 }
 
-PyObject *baseNew(PyTypeObject *type, size_t length) {
-    Base *self = (Base *) type -> tp_alloc(type, 0);
+cpTransform Base_transform(Base *self) {
+    cpVect rot = cpvforangle(self -> rotate * M_PI / 180);
 
-    self -> body = cpBodyNew(0, 0);
-    self -> shapes = malloc(length * sizeof NULL);
-
-    return (PyObject *) self;
+    return cpTransformNewTranspose(
+        rot.x * self -> scale.x, -rot.y, self -> transform.x,
+        rot.y, rot.x * self -> scale.y, self -> transform.y);
 }
+
+Sides Base_sides(Base *self, Vec2 *points, size_t length) {
+    const double cosine = cos(self -> angle * M_PI / 180);
+    const double sine = sin(self -> angle * M_PI / 180);
+    Sides sides;
+
+    for (size_t i = 0; i < length; i ++) {
+        const double px = points[i].x + self -> anchor.x;
+        const double py = points[i].y + self -> anchor.y;
+        const double rx = px * cosine - py * sine + self -> pos.x;
+        const double ry = py * cosine + px * sine + self -> pos.y;
+
+        sides.top = i && ry < sides.top ? sides.top : ry;
+        sides.bottom = i && ry > sides.bottom ? sides.bottom : ry;
+        sides.left = i && rx > sides.left ? sides.left : rx;
+        sides.right = i && rx < sides.right ? sides.right : rx;
+    }
+
+    return sides;
+}
+
+void Base_clean(Base *self) {
+    Body *body = clean(self);
+
+    Py_CLEAR(self -> group);
+    Py_CLEAR(body);
+}
+
+void Base_poly(Base *self, Vec2 *src, Vec2 *points, size_t length) {
+    cpVect rot = cpvforangle(self -> angle * M_PI / 180);
+
+    for (size_t i = 0; i < length; i ++) {
+        const double px = src[i].x * self -> scale.x + self -> anchor.x;
+        const double py = src[i].y * self -> scale.y + self -> anchor.y;
+
+        points[i].x = px * rot.x - py * rot.y + self -> pos.x;
+        points[i].y = py * rot.x + px * rot.y + self -> pos.y;
+    }
+}
+
+double Base_radius(Base *self, double width) {
+    return width / 2 * (self -> scale.x + self -> scale.y) / 2;
+}
+
+void Base_buffers(GLuint *vao, GLuint *vbo, GLuint *ibo) {
+    GLuint buffers[2];
+
+    glGenVertexArrays(1, vao);
+    glBindVertexArray(*vao);
+    glGenBuffers(2, buffers);
+
+    *vbo = buffers[0];
+    *ibo = buffers[1];
+
+    glBindBuffer(GL_ARRAY_BUFFER, *vbo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, *ibo);
+    glVertexAttribPointer(uniforms[vert], 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(uniforms[vert]);
+    glBindVertexArray(0);
+}
+
+PyObject *Base_collide(PyObject *self, PyObject *other) {
+    bool result;
+
+    if (PyObject_TypeCheck(self, &RectangleType)) {
+        Vec2 a[4];
+        Rectangle_poly((Rectangle *) self, a);
+
+        if (PyObject_TypeCheck(other, &RectangleType)) {
+            Vec2 b[4];
+            Rectangle_poly((Rectangle *) other, b);
+
+            result = poly_poly(a, 4, b, 4);
+        }
+
+        else if (PyObject_TypeCheck(other, &CircleType)) {
+            Circle *b = (Circle *) other;
+            Vec2 pos = Circle_pos(b);
+
+            result = poly_circle(a, 4, pos, Base_radius(&b -> base, b -> diameter));
+        }
+
+        else if (PyObject_TypeCheck(other, &LineType)) {
+            Line *line = (Line *) other;
+            Vec2 *b = malloc(line -> base.length * sizeof(Vec2));
+
+            Shape_poly(&line -> base, b);
+            result = line_poly(b, line -> base.length, Base_radius(&line -> base.base, line -> width), a, 4);
+            free(b);
+        }
+
+        else if (PyObject_TypeCheck(other, &ShapeType)) {
+            Shape *shape = (Shape *) other;
+            Vec2 *b = malloc(shape -> length * sizeof(Vec2));
+
+            Shape_poly(shape, b);
+            result = poly_poly(a, 4, b, shape -> length);
+            free(b);
+        }
+
+        else if (Py_IS_TYPE(other, &CursorType))
+            result = poly_point(a, 4, cursor -> pos);
+
+        else END(other)
+    }
+
+    else if (PyObject_TypeCheck(self, &CircleType)) {
+        Circle *a = (Circle *) self;
+        Vec2 pos = Circle_pos(a);
+
+        if (PyObject_TypeCheck(other, &RectangleType)) {
+            Vec2 b[4];
+            Rectangle_poly((Rectangle *) other, b);
+
+            result = poly_circle(b, 4, pos, Base_radius(&a -> base, a -> diameter));
+        }
+
+        else if (PyObject_TypeCheck(other, &CircleType)) {
+            Circle *b = (Circle *) other;
+            Vec2 point = Circle_pos(b);
+
+            result = circle_circle(pos, point, Base_radius(&a -> base, a -> diameter) + Base_radius(&b -> base, b -> diameter));
+        }
+
+        else if (PyObject_TypeCheck(other, &LineType)) {
+            Line *line = (Line *) other;
+            Vec2 *b = malloc(line -> base.length * sizeof(Vec2));
+
+            Shape_poly(&line -> base, b);
+            result = line_point(b, line -> base.length, Base_radius(&line -> base.base, line -> width) + Base_radius(&a -> base, a -> diameter), pos);
+            free(b);
+        }
+
+        else if (PyObject_TypeCheck(other, &ShapeType)) {
+            Shape *shape = (Shape *) other;
+            Vec2 *b = malloc(shape -> length * sizeof(Vec2));
+
+            Shape_poly(shape, b);
+            result = poly_circle(b, shape -> length, pos, Base_radius(&a -> base, a -> diameter));
+            free(b);
+        }
+
+        else if (Py_IS_TYPE(other, &CursorType))
+            result = circle_point(pos, Base_radius(&a -> base, a -> diameter), cursor -> pos);
+
+        else END(other)
+    }
+
+    else if (PyObject_TypeCheck(self, &LineType)) {
+        Line *line = (Line *) self;
+        Vec2 *a = malloc(line -> base.length * sizeof(Vec2));
+
+        const double radius = Base_radius(&line -> base.base, line -> width);
+        Shape_poly(&line -> base, a);
+
+        if (PyObject_TypeCheck(other, &RectangleType)) {
+            Vec2 b[4];
+            Rectangle_poly((Rectangle *) other, b);
+
+            result = line_poly(a, line -> base.length, radius, b, 4);
+        }
+
+        else if (PyObject_TypeCheck(other, &CircleType)) {
+            Circle *b = (Circle *) other;
+            Vec2 pos = Circle_pos(b);
+
+            result = line_point(a, line -> base.length, radius + Base_radius(&b -> base, b -> diameter), pos);
+        }
+
+        else if (PyObject_TypeCheck(other, &LineType)) {
+            Line *object = (Line *) other;
+            Vec2 *b = malloc(object -> base.length * sizeof(Vec2));
+
+            Shape_poly(&object -> base, b);
+            result = line_line(a, line -> base.length, b, object -> base.length, radius + Base_radius(&object -> base.base, object -> width));
+            free(b);
+        }
+
+        else if (PyObject_TypeCheck(other, &ShapeType)) {
+            Shape *shape = (Shape *) other;
+            Vec2 *b = malloc(shape -> length * sizeof(Vec2));
+
+            Shape_poly(shape, b);
+            result = line_poly(a, line -> base.length, radius, b, shape -> length);
+            free(b);
+        }
+
+        else if (Py_IS_TYPE(other, &CursorType))
+            result = line_point(a, line -> base.length, radius, cursor -> pos);
+
+        else {
+            free(a);
+            END(other)
+        }
+
+        free(a);
+    }
+
+    else if (PyObject_TypeCheck(self, &ShapeType)) {
+        Shape *shape = (Shape *) self;
+        Vec2 *a = malloc(shape -> length * sizeof(Vec2));
+        Shape_poly(shape, a);
+
+        if (PyObject_TypeCheck(other, &RectangleType)) {
+            Vec2 b[4];
+            Rectangle_poly((Rectangle *) other, b);
+
+            result = poly_poly(a, shape -> length, b, 4);
+        }
+
+        else if (PyObject_TypeCheck(other, &CircleType)) {
+            Circle *b = (Circle *) other;
+            Vec2 pos = Circle_pos(b);
+
+            result = poly_circle(a, shape -> length, pos, Base_radius(&b -> base, b -> diameter));
+        }
+
+        else if (PyObject_TypeCheck(other, &LineType)) {
+            Line *line = (Line *) other;
+            Vec2 *b = malloc(line -> base.length * sizeof(Vec2));
+
+            Shape_poly(&line -> base, b);
+            result = line_poly(b, line -> base.length, Base_radius(&line -> base.base, line -> width), a, shape -> length);
+            free(b);
+        }
+
+        else if (PyObject_TypeCheck(other, &ShapeType)) {
+            Shape *object = (Shape *) other;
+            Vec2 *b = malloc(object -> length * sizeof(Vec2));
+
+            Shape_poly(object, b);
+            result = poly_poly(a, shape -> length, b, object -> length);
+            free(b);
+        }
+
+        else if (Py_IS_TYPE(other, &CursorType))
+            result = poly_point(a, shape -> length, cursor -> pos);
+
+        else {
+            free(a);
+            END(other)
+        }
+
+        free(a);
+    }
+
+    else if (self == (PyObject *) cursor) {
+        if (PyObject_TypeCheck(other, &RectangleType)) {
+            Vec2 b[4];
+            Rectangle_poly((Rectangle *) other, b);
+
+            result = poly_point(b, 4, cursor -> pos);
+        }
+
+        else if (PyObject_TypeCheck(other, &CircleType)) {
+            Circle *b = (Circle *) other;
+            Vec2 point = Circle_pos(b);
+
+            result = circle_point(point, Base_radius(&b -> base, b -> diameter), cursor -> pos);
+        }
+
+        else if (PyObject_TypeCheck(other, &LineType)) {
+            Line *line = (Line *) other;
+            Vec2 *b = malloc(line -> base.length * sizeof(Vec2));
+
+            Shape_poly(&line -> base, b);
+            result = line_point(b, line -> base.length, Base_radius(&line -> base.base, line -> width), cursor -> pos);
+            free(b);
+        }
+
+        else if (PyObject_TypeCheck(other, &ShapeType)) {
+            Shape *shape = (Shape *) other;
+            Vec2 *b = malloc(shape -> length * sizeof(Vec2));
+
+            Shape_poly(shape, b);
+            result = poly_point(b, shape -> length, cursor -> pos);
+            free(b);
+        }
+
+        else if (Py_IS_TYPE(other, &CursorType))
+            Py_RETURN_TRUE;
+
+        else END(other)
+    }
+
+    else END(self)
+    return PyBool_FromLong(result);
+}
+
+static PyGetSetDef Base_getset[] = {
+    {"x", (getter) Base_get_x, (setter) Base_set_x, "x position of the object", NULL},
+    {"y", (getter) Base_get_y, (setter) Base_set_y, "y position of the object", NULL},
+    {"position", (getter) Base_get_pos, (setter) Base_set_pos, "position of the object", NULL},
+    {"pos", (getter) Base_get_pos, (setter) Base_set_pos, "position of the object", NULL},
+    {"scale", (getter) Base_get_scale, (setter) Base_set_scale, "scale of the object", NULL},
+    {"anchor", (getter) Base_get_anchor, (setter) Base_set_anchor, "rotation origin of the object", NULL},
+    {"angle", (getter) Base_get_angle, (setter) Base_set_angle, "angle of the object", NULL},
+    {"red", (getter) Base_get_red, (setter) Base_set_red, "red color of the object", NULL},
+    {"green", (getter) Base_get_green, (setter) Base_set_green, "green color of the object", NULL},
+    {"blue", (getter) Base_get_blue, (setter) Base_set_blue, "blue color of the object", NULL},
+    {"alpha", (getter) Base_get_alpha, (setter) Base_set_alpha, "opacity of the object", NULL},
+    {"color", (getter) Base_get_color, (setter) Base_set_color, "color of the object", NULL},
+    {"top", (getter) Base_get_top, (setter) Base_set_top, "top position of the object", NULL},
+    {"bottom", (getter) Base_get_bottom, (setter) Base_set_bottom, "bottom position of the object", NULL},
+    {"left", (getter) Base_get_left, (setter) Base_set_left, "left position of the object", NULL},
+    {"right", (getter) Base_get_right, (setter) Base_set_right, "right position of the object", NULL},
+    {"body", (getter) Base_get_body, (setter) Base_set_body, "the attached rigid body", NULL},
+    {"group", (getter) Base_get_group, (setter) Base_set_group, "the attached collision group", NULL},
+    {"mass", (getter) Base_get_mass, (setter) Base_set_mass, "the weight of the object in a physics environment", NULL},
+    {"weight", (getter) Base_get_mass, (setter) Base_set_mass, "the weight of the object in a physics environment", NULL},
+    {"elasticity", (getter) Base_get_elasticity, (setter) Base_set_elasticity, "the bounciness of the object in a physics environment", NULL},
+    {"friction", (getter) Base_get_friction, (setter) Base_set_friction, "the rougness of the object in a physics environment", NULL},
+    {NULL}
+};
+
+static PyMethodDef Base_methods[] = {
+    {"collides_with", (PyCFunction) Base_collide, METH_O, "detect if two objects collide"},
+    {"collide", (PyCFunction) Base_collide, METH_O, "detect if two objects collide"},
+    // {"look_at", (PyCFunction) Base_look_at, METH_O, "rotate the object so that it faces another object"},
+    {NULL}
+};
 
 PyTypeObject BaseType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "Base",
-    .tp_doc = "base class for drawing things",
+    .tp_doc = "original class for drawing things",
     .tp_basicsize = sizeof(Base),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_new = PyType_GenericNew,
-    .tp_dealloc = (destructor) baseDealloc,
-    .tp_getset = BaseGetSetters,
-    .tp_methods = BaseMethods
+    .tp_init = (initproc) Base_init,
+    .tp_dealloc = (destructor) Base_dealloc,
+    .tp_methods = Base_methods,
+    .tp_getset = Base_getset
 };

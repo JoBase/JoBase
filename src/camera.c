@@ -1,117 +1,116 @@
 #include <main.h>
 
-static PyObject *Camera_getX(Camera *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> pos[x]);
+static PyObject *Camera_get_x(Camera *self, void *closure) {
+    return PyFloat_FromDouble(self -> pos.x);
 }
 
-static int Camera_setX(Camera *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> pos[x] = PyFloat_AsDouble(value);
-    return ERR(self -> pos[x]) ? -1 : 0;
+static int Camera_set_x(Camera *self, PyObject *value, void *closure) {
+    DEL(value, "x")
+    return ERR(self -> pos.x = PyFloat_AsDouble(value)) ? -1 : 0;
 }
 
-static PyObject *Camera_getY(Camera *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> pos[y]);
+static PyObject *Camera_get_y(Camera *self, void *closure) {
+    return PyFloat_FromDouble(self -> pos.y);
 }
 
-static int Camera_setY(Camera *self, PyObject *value, void *Py_UNUSED(closure)) {
-    DEL(value)
-
-    self -> pos[y] = PyFloat_AsDouble(value);
-    return ERR(self -> pos[y]) ? -1 : 0;
+static int Camera_set_y(Camera *self, PyObject *value, void *closure) {
+    DEL(value, "y")
+    return ERR(self -> pos.y = PyFloat_AsDouble(value)) ? -1 : 0;
 }
 
-static double Camera_vecPos(Camera *self, uint8_t index) {
-    return self -> pos[index];
+static Vector *Camera_get_pos(Camera *self, void *closure) {
+    Vector *vector = Vector_new((PyObject *) self, (vec) &self -> pos, 2, NULL);
+
+    if (vector) {
+        vector -> names[x] = 'x';
+        vector -> names[y] = 'y';
+    }
+
+    return vector;
 }
 
-static PyObject *Camera_getPos(Camera *self, void *Py_UNUSED(closure)) {
-    Vector *pos = vectorNew((PyObject *) self, (Getter) Camera_vecPos, 2);
-
-    pos -> data[x].set = (setter) Camera_setX;
-    pos -> data[y].set = (setter) Camera_setY;
-    pos -> data[x].name = "x";
-    pos -> data[y].name = "y";
-
-    return (PyObject *) pos;
+static int Camera_set_pos(Camera *self, PyObject *value, void *closure) {
+    DEL(value, "pos")
+    return Vector_set(value, (vec) &self -> pos, 2);
 }
 
-static int Camera_setPos(Camera *self, PyObject *value, void *Py_UNUSED(closure)) {
-    return vectorSet(value, self -> pos, 2);
+static PyObject *Camera_get_top(Camera *self, void *closure) {
+    return PyFloat_FromDouble(self -> pos.y + window -> size.y / 2);
 }
 
-static PyObject *Camera_getTop(Camera *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> pos[y] + window -> size[y] / 2);
+static int Camera_set_top(Camera *self, PyObject *value, void *closure) {
+    DEL(value, "top")
+
+    const double result = PyFloat_AsDouble(value);
+    return ERR(result) ? -1 : (self -> pos.y = result - window -> size.y / 2, 0);
 }
 
-static PyObject *Camera_getBottom(Camera *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> pos[y] - window -> size[y] / 2);
+static PyObject *Camera_get_bottom(Camera *self, void *closure) {
+    return PyFloat_FromDouble(self -> pos.y - window -> size.y / 2);
 }
 
-static PyObject *Camera_getLeft(Camera *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> pos[x] - window -> size[x] / 2);
+static int Camera_set_bottom(Camera *self, PyObject *value, void *closure) {
+    DEL(value, "bottom")
+
+    const double result = PyFloat_AsDouble(value);
+    return ERR(result) ? -1 : (self -> pos.y = result + window -> size.y / 2, 0);
 }
 
-static PyObject *Camera_getRight(Camera *self, void *Py_UNUSED(closure)) {
-    return PyFloat_FromDouble(self -> pos[x] + window -> size[x] / 2);
+static PyObject *Camera_get_left(Camera *self, void *closure) {
+    return PyFloat_FromDouble(self -> pos.x - window -> size.x / 2);
 }
 
-static PyObject *Camera_moveToward(Camera *self, PyObject *args) {
-    if (baseToward(self -> pos, args)) return NULL;
-    Py_RETURN_NONE;
+static int Camera_set_left(Camera *self, PyObject *value, void *closure) {
+    DEL(value, "left")
+
+    const double result = PyFloat_AsDouble(value);
+    return ERR(result) ? -1 : (self -> pos.x = result + window -> size.x / 2, 0);
 }
 
-static PyObject *Camera_moveSmooth(Camera *self, PyObject *args) {
-    if (baseSmooth(self -> pos, args)) return NULL;
-    Py_RETURN_NONE;
+static PyObject *Camera_get_right(Camera *self, void *closure) {
+    return PyFloat_FromDouble(self -> pos.x + window -> size.x / 2);
 }
 
-static PyObject *Camera_new(PyTypeObject *type, PyObject *Py_UNUSED(args), PyObject *Py_UNUSED(kwds)) {
-    camera = (Camera *) type -> tp_alloc(type, 0);
+static int Camera_set_right(Camera *self, PyObject *value, void *closure) {
+    DEL(value, "right")
 
-    Py_XINCREF(camera);
-    return (PyObject *) camera;
+    const double result = PyFloat_AsDouble(value);
+    return ERR(result) ? -1 : (self -> pos.x = result - window -> size.x / 2, 0);
 }
 
 static int Camera_init(Camera *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"x", "y", NULL};
 
-    self -> pos[x] = 0;
-    self -> pos[y] = 0;
+    self -> pos.x = 0;
+    self -> pos.y = 0;
 
-    return PyArg_ParseTupleAndKeywords(
-        args, kwds, "|sddO", kwlist, &self -> pos[x],
-        &self -> pos[y]) ? 0 : -1;
+    self -> scale.x = 1;
+    self -> scale.y = 1;
+
+    return PyArg_ParseTupleAndKeywords(args, kwds, "|dd:Camera", kwlist, &self -> pos.x, &self -> pos.y) ? 0 : -1;
 }
 
-static PyGetSetDef CameraGetSetters[] = {
-    {"x", (getter) Camera_getX, (setter) Camera_setX, "x position of the camera", NULL},
-    {"y", (getter) Camera_getY, (setter) Camera_setY, "y position of the camera", NULL},
-    {"position", (getter) Camera_getPos, (setter) Camera_setPos, "position of the camera", NULL},
-    {"pos", (getter) Camera_getPos, (setter) Camera_setPos, "position of the camera", NULL},
-    {"top", (getter) Camera_getTop, NULL, "top position of the camera", NULL},
-    {"bottom", (getter) Camera_getBottom, NULL, "bottom position of the camera", NULL},
-    {"left", (getter) Camera_getLeft, NULL, "left position of the camera", NULL},
-    {"right", (getter) Camera_getRight, NULL, "right position of the camera", NULL},
-    {NULL}
-};
-
-static PyMethodDef CameraMethods[] = {
-    {"move_toward", (PyCFunction) Camera_moveToward, METH_VARARGS, "move the camera toward another object"},
-    {"move_smooth", (PyCFunction) Camera_moveSmooth, METH_VARARGS, "move the camera smoothly toward another object"},
+static PyGetSetDef Camera_getset[] = {
+    {"x", (getter) Camera_get_x, (setter) Camera_set_x, "x position of the camera", NULL},
+    {"y", (getter) Camera_get_y, (setter) Camera_set_y, "y position of the camera", NULL},
+    {"position", (getter) Camera_get_pos, (setter) Camera_set_pos, "position of the camera", NULL},
+    {"pos", (getter) Camera_get_pos, (setter) Camera_set_pos, "position of the camera", NULL},
+    {"top", (getter) Camera_get_top, (setter) Camera_set_top, "top position of the camera", NULL},
+    {"bottom", (getter) Camera_get_bottom, (setter) Camera_set_bottom, "bottom position of the camera", NULL},
+    {"left", (getter) Camera_get_left, (setter) Camera_set_left, "left position of the camera", NULL},
+    {"right", (getter) Camera_get_right, (setter) Camera_set_right, "right position of the camera", NULL},
     {NULL}
 };
 
 PyTypeObject CameraType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "Camera",
-    .tp_doc = "the user screen view and projection",
+    .tp_doc = "represents the user's view of the game",
     .tp_basicsize = sizeof(Camera),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = Camera_new,
+    .tp_new = PyType_GenericNew,
     .tp_init = (initproc) Camera_init,
-    .tp_getset = CameraGetSetters,
-    .tp_methods = CameraMethods
+    // .tp_methods = Camera_methods,
+    .tp_getset = Camera_getset
 };
