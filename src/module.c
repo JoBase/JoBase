@@ -88,25 +88,10 @@ static int update() {
     return glfwPollEvents(), 0;
 }
 
-static void init() {
-    #define PRINT(e) if(e)PyErr_Print();
-
-    PyObject *empty = PyTuple_New(0);
-    PyObject *dict = PyDict_New();
-
-    PRINT(WindowType.tp_init((PyObject *) window, empty, dict))
-    PRINT(CameraType.tp_init((PyObject *) camera, empty, dict))
-    PRINT(CursorType.tp_init((PyObject *) cursor, NULL, NULL))
-    PRINT(KeyType.tp_init((PyObject *) key, NULL, NULL))
-}
-
 #ifdef __EMSCRIPTEN__
 static void run() {
-    if (update() || render()) {
-        init();
-        end();
+    if (update())
         emscripten_cancel_main_loop();
-    }
 }
 #endif
 
@@ -193,7 +178,6 @@ static PyObject *Module_run(PyObject *self, PyObject *ignored) {
         return NULL;
 
 #ifdef __EMSCRIPTEN__
-    start();
     emscripten_set_main_loop(run, 0, true);
 #endif
 

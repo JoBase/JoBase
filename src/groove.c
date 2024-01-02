@@ -64,12 +64,15 @@ static int Groove_set_end(Groove *self, PyObject *value, void *closure) {
 }
 
 static PyObject *Groove_draw(Groove *self, PyObject *args) {
-    Vec2 base[] = {
-        Body_get(self -> base.a -> body, Joint_rotate(self -> base.a, self -> start)),
-        Body_get(self -> base.a -> body, Joint_rotate(self -> base.a, self -> groove))
-    };
+    if (Joint_active(&self -> base)) {
+        Vec2 base[] = {
+            Body_get(self -> base.a -> body, Joint_rotate(self -> base.a, self -> start)),
+            Body_get(self -> base.a -> body, Joint_rotate(self -> base.a, self -> groove))
+        };
 
-    Joint_draw(&self -> base, base, 2);
+        Joint_draw(&self -> base, base, 2);
+    }
+
     Py_RETURN_NONE;
 }
 

@@ -83,37 +83,39 @@ static int Spring_set_end(Spring *self, PyObject *value, void *closure) {
 }
 
 static PyObject *Spring_draw(Spring *self, PyObject *args) {
-    const double length = sqrt(self -> length);
-    const size_t verts = MAX(length * 2, 2);
+    if (Joint_active(&self -> base)) {
+        const double length = sqrt(self -> length);
+        const size_t verts = MAX(length * 2, 2);
 
-    Vec2 a = Body_get(self -> base.a -> body, Joint_rotate(self -> base.a, self -> start));
-    Vec2 b = Body_get(self -> base.b -> body, Joint_rotate(self -> base.b, self -> end));
+        Vec2 a = Body_get(self -> base.a -> body, Joint_rotate(self -> base.a, self -> start));
+        Vec2 b = Body_get(self -> base.b -> body, Joint_rotate(self -> base.b, self -> end));
 
-    Vec2 vector = {b.x - a.x, b.y - a.y};
-    Vec2 *base = malloc(verts * sizeof(Vec2));
+        Vec2 vector = {b.x - a.x, b.y - a.y};
+        Vec2 *base = malloc(verts * sizeof(Vec2));
 
-    const double dist = hypot(vector.x, vector.y);
-    const double space = dist / (verts - 1);
+        const double dist = hypot(vector.x, vector.y);
+        const double space = dist / (verts - 1);
 
-    vector.x /= dist;
-    vector.y /= dist;
+        vector.x /= dist;
+        vector.y /= dist;
 
-    for (size_t i = 0; i < verts; i ++) {
-        if (i > 1 && i < verts - 2) {
-            const double invert = i % 2 ? length : -length;
+        for (size_t i = 0; i < verts; i ++) {
+            if (i > 1 && i < verts - 2) {
+                const double invert = i % 2 ? length : -length;
 
-            base[i].x = a.x + vector.x * space * i - vector.y * invert;
-            base[i].y = a.y + vector.y * space * i + vector.x * invert;
+                base[i].x = a.x + vector.x * space * i - vector.y * invert;
+                base[i].y = a.y + vector.y * space * i + vector.x * invert;
+            }
+
+            else {
+                base[i].x = a.x + i * space * vector.x;
+                base[i].y = a.y + i * space * vector.y;
+            }
         }
 
-        else {
-            base[i].x = a.x + i * space * vector.x;
-            base[i].y = a.y + i * space * vector.y;
-        }
+        Joint_draw(&self -> base, base, verts);
+        free(base);
     }
-
-    Joint_draw(&self -> base, base, verts);
-    free(base);
 
     Py_RETURN_NONE;
 }

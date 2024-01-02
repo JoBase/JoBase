@@ -364,6 +364,7 @@ extern Group *Group_new(int);
 extern int Vector_set(PyObject *, vec, uint8_t);
 extern int Points_set(Shape *, PyObject *);
 extern double Base_radius(Base *, double);
+extern bool Joint_active(Joint *);
 
 extern void Joint_unsafe(Joint *);
 extern void Line_create(Vec2 *, size_t, double);
@@ -385,6 +386,3 @@ extern void Joint_check(Joint *);
 
 extern int width();
 extern int height();
-extern void start();
-extern void end();
-extern bool render();

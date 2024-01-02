@@ -26,6 +26,17 @@ static int Body_set_type(Body *self, PyObject *value, void *closure) {
     return check(self, type);
 }
 
+static PyObject *Body_get_torque(Body *self, void *closure) {
+    return PyLong_FromLong(cpBodyGetTorque(self -> body));
+}
+
+static int Body_set_torque(Body *self, PyObject *value, void *closure) {
+    DEL(value, "torque")
+
+    const double torque = PyLong_AsLong(value);
+    return ERR(torque) ? -1 : (cpBodySetTorque(self -> body, torque), 0);
+}
+
 static Vector *Body_get_velocity(Body *self, void *closure) {
     Vector *vector = Vector_new((PyObject *) self, (vec) &self -> velocity, 2, (set) velocity);
 
@@ -83,9 +94,10 @@ Vec2 Body_get(Body *body, cpVect pos) {
 }
 
 static PyGetSetDef Body_getset[] = {
-    {"type", (getter) Body_get_type, (setter) Body_set_type, "this can be STATIC or DYNAMIC, determining how the body moves", NULL},
+    {"type", (getter) Body_get_type, (setter) Body_set_type, "this can be STATIC or DYNAMIC, determining whether the body can move", NULL},
     {"velocity", (getter) Body_get_velocity, (setter) Body_set_velocity, "the speed of the body", NULL},
     {"speed", (getter) Body_get_velocity, (setter) Body_set_velocity, "the speed of the body", NULL},
+    {"torque", (getter) Body_get_torque, (setter) Body_set_torque, "the rotational force being applied to the body", NULL},
     {NULL}
 };
 

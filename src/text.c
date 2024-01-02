@@ -80,7 +80,7 @@ static int font(Text *self, const char *name) {
             return alloc(self, this), 0;
 
     if (FT_New_Face(library, name, 0, &face)) {
-        PyErr_Format(PyExc_FileNotFoundError, "failed to load font: \"%s\"", name);
+        PyErr_Format(PyExc_OSError, "failed to load font: \"%s\"", name);
         return -1;
     }
 
@@ -169,11 +169,11 @@ static PyObject *Text_draw(Text *self, PyObject *args) {
 
 static int Text_init(Text *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"content", "x", "y", "font_size", "angle", "color", "font", NULL};
-    wchar_t *content = L"Text";
 
     BaseType.tp_init((PyObject *) self, NULL, NULL);
     self -> size = 50;
 
+    PyObject *content = NULL;
     PyObject *color = NULL;
     PyObject *src = PyObject_GetAttrString(module, "DEFAULT");
     INIT(!src)
@@ -182,11 +182,19 @@ static int Text_init(Text *self, PyObject *args, PyObject *kwds) {
     Py_DECREF(src);
 
     INIT(!file || !PyArg_ParseTupleAndKeywords(
-        args, kwds, "|uddddOs:Text", kwlist, &content, &self -> base.base.pos.x,
+        args, kwds, "|UddddOs:Text", kwlist, &content, &self -> base.base.pos.x,
         &self -> base.base.pos.y, &self -> size, &self -> base.base.angle,
         &color, &file) || font(self, file) || Vector_set(color, (vec) &self -> base.base.color, 4))
 
-    return self -> content = wcsdup(content), create(self);
+    if (content) {
+        wchar_t *text = PyUnicode_AsWideCharString(content, NULL);
+        INIT(!text)
+
+        self -> content = wcsdup(text);
+    }
+
+    else self -> content = wcsdup(L"Text");
+    return create(self);
 }
 
 static void Text_dealloc(Text *self) {
