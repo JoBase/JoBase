@@ -323,7 +323,7 @@ static int Base_set_body(Base *self, PyObject *value, void *closure) {
     Body *body = clean(self);
 
     if (value != Py_None) {
-        if (!Py_IS_TYPE(value, &BodyType)) {
+        if (Py_TYPE(value) != &BodyType) {
             PyErr_Format(PyExc_ValueError, "must be a Body, not %s", Py_TYPE(value) -> tp_name);
             return -1;
         }
@@ -363,7 +363,7 @@ static int Base_set_group(Base *self, PyObject *value, void *closure) {
         Py_CLEAR(self -> group);
 
     if (value != Py_None) {
-        if (!Py_IS_TYPE(value, &GroupType)) {
+        if (Py_TYPE(value) != &GroupType) {
             PyErr_Format(PyExc_ValueError, "must be a Group, not %s", Py_TYPE(value) -> tp_name);
             return -1;
         }
@@ -612,7 +612,7 @@ PyObject *Base_collide(PyObject *self, PyObject *other) {
             free(b);
         }
 
-        else if (Py_IS_TYPE(other, &CursorType))
+        else if (Py_TYPE(other) == &CursorType)
             result = poly_point(a, 4, cursor -> pos);
 
         else END(other)
@@ -654,7 +654,7 @@ PyObject *Base_collide(PyObject *self, PyObject *other) {
             free(b);
         }
 
-        else if (Py_IS_TYPE(other, &CursorType))
+        else if (Py_TYPE(other) == &CursorType)
             result = circle_point(pos, Base_radius(&a -> base, a -> diameter), cursor -> pos);
 
         else END(other)
@@ -699,7 +699,7 @@ PyObject *Base_collide(PyObject *self, PyObject *other) {
             free(b);
         }
 
-        else if (Py_IS_TYPE(other, &CursorType))
+        else if (Py_TYPE(other) == &CursorType)
             result = line_point(a, line -> base.length, radius, cursor -> pos);
 
         else {
@@ -747,7 +747,7 @@ PyObject *Base_collide(PyObject *self, PyObject *other) {
             free(b);
         }
 
-        else if (Py_IS_TYPE(other, &CursorType))
+        else if (Py_TYPE(other) == &CursorType)
             result = poly_point(a, shape -> length, cursor -> pos);
 
         else {
@@ -791,7 +791,7 @@ PyObject *Base_collide(PyObject *self, PyObject *other) {
             free(b);
         }
 
-        else if (Py_IS_TYPE(other, &CursorType))
+        else if (Py_TYPE(other) == &CursorType)
             Py_RETURN_TRUE;
 
         else END(other)
