@@ -3,5 +3,4 @@
 
 JoBase is a fast Python game library for beginner coders.
 Please visit [jobase.org](https://jobase.org) to get started.
-Our [GitHub Wiki](https://github.com/JoBase/JoBase/wiki) also provides a detailed guide on the features of JoBase.
-Please contact us at <hello@jobase.org> with any of your final projects, we may choose to include them in the JoBase package.
+Join the JoBase community on [Discord](https://discord.com/invite/DzHyvZfa5q) or contact us at <hello@jobase.org>.
