@@ -64,6 +64,17 @@ static PyObject *Body_impulse(Body *self, PyObject *args) {
     return NULL;
 }
 
+static PyObject *Body_force(Body *self, PyObject *args) {
+    double x, y, z, w;
+
+    if (PyArg_ParseTuple(args, "dddd:force", &x, &y, &z, &w)) {
+        cpBodyApplyForceAtWorldPoint(self -> body, cpv(x, y), cpv(z, w));
+        Py_RETURN_NONE;
+    }
+
+    return NULL;
+}
+
 static void Body_dealloc(Body *self) {
     cpSpaceRemoveBody(self -> parent -> space, self -> body);
     cpBodyFree(self -> body);
@@ -113,7 +124,8 @@ static PyGetSetDef Body_getset[] = {
 };
 
 static PyMethodDef Body_methods[] = {
-    {"impulse", (PyCFunction) Body_impulse, METH_VARARGS, "apply an impulse to the body"},
+    {"impulse", (PyCFunction) Body_impulse, METH_VARARGS, "apply an impulse to a point on the body"},
+    {"force", (PyCFunction) Body_force, METH_VARARGS, "apply an force to a point on the body"},
     {NULL}
 };
 
