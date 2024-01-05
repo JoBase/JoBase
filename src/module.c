@@ -122,52 +122,52 @@ static PyObject *Module_randint(PyObject *self, PyObject *args) {
 }
 
 static PyObject *Module_sin(PyObject *self, PyObject *value) {
-    double angle = PyFloat_AsDouble(value);
+    const double angle = PyFloat_AsDouble(value);
     return ERR(angle) ? NULL : PyFloat_FromDouble(sin(angle));
 }
 
 static PyObject *Module_cos(PyObject *self, PyObject *value) {
-    double angle = PyFloat_AsDouble(value);
+    const double angle = PyFloat_AsDouble(value);
     return ERR(angle) ? NULL : PyFloat_FromDouble(cos(angle));
 }
 
 static PyObject *Module_tan(PyObject *self, PyObject *value) {
-    double angle = PyFloat_AsDouble(value);
+    const double angle = PyFloat_AsDouble(value);
     return ERR(angle) ? NULL : PyFloat_FromDouble(tan(angle));
 }
 
 static PyObject *Module_asin(PyObject *self, PyObject *value) {
-    double angle = PyFloat_AsDouble(value);
+    const double angle = PyFloat_AsDouble(value);
     return ERR(angle) ? NULL : PyFloat_FromDouble(asin(angle));
 }
 
 static PyObject *Module_acos(PyObject *self, PyObject *value) {
-    double angle = PyFloat_AsDouble(value);
+    const double angle = PyFloat_AsDouble(value);
     return ERR(angle) ? NULL : PyFloat_FromDouble(acos(angle));
 }
 
 static PyObject *Module_atan(PyObject *self, PyObject *value) {
-    double angle = PyFloat_AsDouble(value);
+    const double angle = PyFloat_AsDouble(value);
     return ERR(angle) ? NULL : PyFloat_FromDouble(atan(angle));
 }
 
 static PyObject *Module_sqrt(PyObject *self, PyObject *value) {
-    double number = PyFloat_AsDouble(value);
+    const double number = PyFloat_AsDouble(value);
     return ERR(number) ? NULL : PyFloat_FromDouble(sqrt(number));
 }
 
 static PyObject *Module_cbrt(PyObject *self, PyObject *value) {
-    double number = PyFloat_AsDouble(value);
+    const double number = PyFloat_AsDouble(value);
     return ERR(number) ? NULL : PyFloat_FromDouble(cbrt(number));
 }
 
 static PyObject *Module_ceil(PyObject *self, PyObject *value) {
-    double number = PyFloat_AsDouble(value);
+    const double number = PyFloat_AsDouble(value);
     return ERR(number) ? NULL : PyFloat_FromDouble(ceil(number));
 }
 
 static PyObject *Module_floor(PyObject *self, PyObject *value) {
-    double number = PyFloat_AsDouble(value);
+    const double number = PyFloat_AsDouble(value);
     return ERR(number) ? NULL : PyFloat_FromDouble(floor(number));
 }
 

@@ -53,6 +53,17 @@ static int Body_set_velocity(Body *self, PyObject *value, void *closure) {
     return Vector_set(value, (vec) &self -> velocity, 2) ? -1 : velocity(self);
 }
 
+static PyObject *Body_impulse(Body *self, PyObject *args) {
+    double x, y, z, w;
+
+    if (PyArg_ParseTuple(args, "dddd:impulse", &x, &y, &z, &w)) {
+        cpBodyApplyImpulseAtWorldPoint(self -> body, cpv(x, y), cpv(z, w));
+        Py_RETURN_NONE;
+    }
+
+    return NULL;
+}
+
 static void Body_dealloc(Body *self) {
     cpSpaceRemoveBody(self -> parent -> space, self -> body);
     cpBodyFree(self -> body);
@@ -101,6 +112,11 @@ static PyGetSetDef Body_getset[] = {
     {NULL}
 };
 
+static PyMethodDef Body_methods[] = {
+    {"impulse", (PyCFunction) Body_impulse, METH_VARARGS, "apply an impulse to the body"},
+    {NULL}
+};
+
 PyTypeObject BodyType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "Body",
@@ -110,5 +126,6 @@ PyTypeObject BodyType = {
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_new = PyType_GenericNew,
     .tp_dealloc = (destructor) Body_dealloc,
+    .tp_methods = Body_methods,
     .tp_getset = Body_getset
 };
