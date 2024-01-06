@@ -1,4 +1,5 @@
-import JoBase, math
+from JoBase import *
+import math
 
 SPEED = 0
 DAMAGE = 1

@@ -309,6 +309,13 @@ static PyObject *Vector_bool(Vector *self) {
     Py_RETURN_FALSE;
 }
 
+static PyObject *Vector_get_length(Vector *self, void *closure) {
+    double value = 0;
+
+    FOR value += self -> vect[i] * self -> vect[i];
+    return PyFloat_FromDouble(sqrt(value));
+}
+
 static void Vector_dealloc(Vector *self) {
     Py_DECREF(self -> parent);
     VectorType.tp_free(self);
@@ -390,6 +397,11 @@ static PyNumberMethods Vector_as_number = {
     .nb_bool = (inquiry) Vector_bool
 };
 
+static PyGetSetDef Vector_getset[] = {
+    {"length", (getter) Vector_get_length, NULL, "get the length of the vector", NULL},
+    {NULL}
+};
+
 PyTypeObject VectorType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "Vector",
@@ -404,5 +416,6 @@ PyTypeObject VectorType = {
     .tp_getattro = (getattrofunc) Vector_getattro,
     .tp_setattro = (setattrofunc) Vector_setattro,
     .tp_as_sequence = &Vector_as_sequence,
-    .tp_as_number = &Vector_as_number
+    .tp_as_number = &Vector_as_number,
+    .tp_getset = Vector_getset,
 };

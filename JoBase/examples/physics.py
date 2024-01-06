@@ -1,50 +1,83 @@
-from JoBase import *
+import JoBase
 
-window.caption = "Physics"
-window.size = 1024, 576
+window.title = "Physics Demo"
 
+# create the physics engine
 engine = Physics()
-time = 0
+shapes = []
 
-floor = Rectangle(width = window.width - 300, height = 20, color = GRAY)
-floor.type = STATIC
-floor.bottom = camera.bottom
-engine.add(floor)
+# create the ground
+floor = Rectangle(0, -200, 600, 20)
+floor.body = engine.body(STATIC)
+
+message = Text("Left and right click to create shapes", font_size = 20, color = GRAY)
+start = True
+
+def create_circle():
+    return Circle(diameter = random(10, 30))
+
+def create_box():
+    return Rectangle(width = random(10, 30), height = random(10, 30))
+
+def create_star():
+    return Shape((
+        (-15, 0), (-5, 5),
+        (0, 15), (5, 5),
+        (15, 0), (5, -5),
+        (0, -15), (-5, -5)
+    ))
+
+# function for creating a random shape
+def create_shape():
+    # make a random number between 0 and 2
+    type = randint(0, 2)
+
+    # 0 = circle, 1 = box, 2 = star
+    shape = create_circle() if not type else create_box() if type == 1 else create_star()
+
+    shape.color = random(), random(), random()
+    shape.body = engine.body()
+    shape.pos = cursor.pos
+
+    shapes.append(shape)
+
+# function for creating a heavy block
+def create_wall():
+    wall = Rectangle()
+
+    wall.body = engine.body()
+    wall.pos = cursor.pos
+
+    # make it heavy
+    wall.mass = 100
+
+    shapes.append(wall)
 
 def loop():
-    global time
+    global start
 
     engine.update()
-    time += 1
+    floor.draw()
 
-    if cursor.press:
-        box = Rectangle()
-        box.size = 60
-        box.pos = cursor.pos
-        box.mass = 100
-        box.color = BLACK
+    # draw the starting text
+    if start:
+        message.draw()
 
-        engine.add(box)
+    # draw the shapes in reverse order (prevents flashes)
+    for shape in reversed(shapes):
+        shape.draw()
 
-    if not time % 5:
-        thing = None
+        if shape.top < camera.bottom:
+            shapes.remove(shape)
 
-        if randint(0, 1):
-            thing = Rectangle(
-                width = random(20, 30),
-                height = random(20, 30))
+    # left click and hold
+    if cursor.left.hold:
+        create_shape()
+        start = False
 
-        else: thing = Circle(diameter = random(20, 30))
-        
-        thing.y = camera.top + 100
-        thing.color = random(0, 1), random(0, 1), random(0, 1)
-        engine.add(thing)
-
-    for thing in engine:
-        if thing.top < camera.bottom:
-            engine.remove(thing)
-
-    for thing in engine:
-        thing.draw()
+    # right click
+    elif cursor.right.press:
+        create_wall()
+        start = False
 
 run()

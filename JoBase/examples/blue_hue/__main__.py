@@ -1,6 +1,7 @@
 # Blue Hue Copyright 2022 joachimford.uk
 
-import JoBase, math
+from JoBase import *
+import math
 
 # block types
 BRICK = 'x'

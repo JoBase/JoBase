@@ -104,18 +104,18 @@ static void error_callback(int code, const char *description) {
 }
 
 static PyObject *Module_random(PyObject *self, PyObject *args) {
-    double x, y;
+    double x = 0, y = 1;
 
-    if (PyArg_ParseTuple(args, "dd:random", &x, &y))
+    if (PyArg_ParseTuple(args, "|dd:random", &x, &y))
         return PyFloat_FromDouble(rand() / (RAND_MAX / fabs(y - x)) + MIN(x, y));
 
     return NULL;
 }
 
 static PyObject *Module_randint(PyObject *self, PyObject *args) {
-    int x, y;
+    int x = 0, y = 1;
 
-    if (PyArg_ParseTuple(args, "ii:randint", &x, &y))
+    if (PyArg_ParseTuple(args, "|ii:randint", &x, &y))
         return PyLong_FromLong(rand() / (RAND_MAX / abs(y - x + 1)) + MIN(x, y));
 
     return NULL;
