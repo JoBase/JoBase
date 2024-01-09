@@ -16,12 +16,12 @@ jobs:
     strategy:
       matrix:
         plat:
-          - [macos-latest, MacOS Silicon, "*-macosx_arm64", arm64]
-          - [macos-latest, MacOS Intel, "*-macosx_x86_64", x86_64]
-          - [ubuntu-latest, Musl Linux, "*-musllinux_*", Musl]
-          - [ubuntu-latest, Manylinux, "*-manylinux_*", Linux]
+          #- [macos-latest, MacOS Silicon, "*-macosx_arm64", arm64]
+          #- [macos-latest, MacOS Intel, "*-macosx_x86_64", x86_64]
+          #- [ubuntu-latest, Musl Linux, "*-musllinux_*", Musl]
+          #- [ubuntu-latest, Manylinux, "*-manylinux_*", Linux]
           - [windows-latest, Windows 64-bit, "*64", x64]
-          - [windows-latest, Windows 32-bit, "*32", Win32]
+          #- [windows-latest, Windows 32-bit, "*32", Win32]
           #cp311-win_amd64
 
     env:
@@ -38,7 +38,7 @@ jobs:
           platforms: all
 
       - name: Build
-        uses: pypa/cibuildwheel@v2.12.3
+        uses: pypa/cibuildwheel@v2.16.2
         env:
           CIBW_BUILD: ${{matrix.plat[2]}}
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
