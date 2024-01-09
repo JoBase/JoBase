@@ -2,11 +2,9 @@
 
 static cpVect point(Line *self, size_t index) {
     cpVect rot = cpvforangle(self -> base.base.rotate * M_PI / 180);
+    cpVect pos = cpv(self -> base.points[index].x * self -> base.base.scale.x, self -> base.points[index].y * self -> base.base.scale.y);
 
-    const double px = self -> base.points[index].x * self -> base.base.scale.x + self -> base.base.transform.x;
-    const double py = self -> base.points[index].y * self -> base.base.scale.y + self -> base.base.transform.y;
-
-    return cpv(px * rot.x - py * rot.y, py * rot.x + px * rot.y);
+    return cpvadd(cpvrotate(pos, rot), cpv(self -> base.base.transform.x, self -> base.base.transform.y));
 }
 
 static void unsafe(Line *self) {

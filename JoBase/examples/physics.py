@@ -7,7 +7,7 @@ engine = Physics()
 shapes = []
 
 # create the ground
-floor = Rectangle(0, -150, 600, 20)
+floor = Rectangle(0, -200, 600, 20)
 floor.body = engine.body(STATIC)
 
 message = Text("Left and right click to create shapes", font_size = 20, color = GRAY)

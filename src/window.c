@@ -19,6 +19,7 @@ static void resize(Window *self) {
 }
 
 static void cursor_pos_callback(GLFWwindow *glfw, double px, double py) {
+    cursor -> move = true;
     cursor -> pos.x = px - window -> size.x / 2;
     cursor -> pos.y = window -> size.y / 2 - py;
 }

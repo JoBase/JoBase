@@ -34,16 +34,18 @@ static PyObject *Physics_update(Physics *self, PyObject *args) {
     for (Body *this = self -> list; this; this = this -> next) {
         cpFloat angle = cpBodyGetAngle(this -> body);
         cpVect velocity = cpBodyGetVelocity(this -> body);
-        cpVect rot = cpvforangle(angle);
         cpVect pos = cpBodyGetPosition(this -> body);
+        cpVect rot = cpvforangle(angle);
 
         this -> velocity.x = velocity.x;
         this -> velocity.y = velocity.y;
 
         for (Base *base = this -> list; base; base = base -> next) {
-            base -> pos.x = base -> transform.x * rot.x - base -> transform.y * rot.y + pos.x;
-            base -> pos.y = base -> transform.y * rot.x + base -> transform.x * rot.y + pos.y;
-            base -> angle = angle * 180 / M_PI + base -> rotate;
+            cpVect value = cpvadd(cpvrotate(cpv(base -> transform.x, base -> transform.y), rot), pos);
+
+            base -> pos.x = value.x;
+            base -> pos.y = value.y;
+            base -> angle = base -> rotate + angle * 180 / M_PI;
         }
     }
 

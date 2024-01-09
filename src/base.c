@@ -329,10 +329,13 @@ static int Base_set_body(Base *self, PyObject *value, void *closure) {
         }
 
         Py_INCREF(self -> body = (Body *) value);
-        self -> transform.x = self -> pos.x;
-        self -> transform.y = self -> pos.y;
+        cpFloat angle = cpBodyGetAngle(self -> body -> body);
+        cpVect pos = cpvunrotate(cpvsub(cpv(self -> pos.x, self -> pos.y), cpBodyGetPosition(self -> body -> body)), cpvforangle(angle));
 
-        self -> rotate = self -> angle;
+        self -> transform.x = pos.x;
+        self -> transform.y = pos.y;
+
+        self -> rotate = self -> angle - angle * 180 / M_PI;
         self -> shape = self -> physics(self);
 
         for (cpShape *this = self -> shape; this; this = cpShapeGetUserData(this))

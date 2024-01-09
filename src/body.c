@@ -37,6 +37,17 @@ static int Body_set_torque(Body *self, PyObject *value, void *closure) {
     return ERR(torque) ? -1 : (cpBodySetTorque(self -> body, torque), 0);
 }
 
+static PyObject *Body_get_angular_velocity(Body *self, void *closure) {
+    return PyLong_FromLong(cpBodyGetAngularVelocity(self -> body));
+}
+
+static int Body_set_angular_velocity(Body *self, PyObject *value, void *closure) {
+    DEL(value, "angular_velocity")
+
+    const double speed = PyLong_AsLong(value);
+    return ERR(speed) ? -1 : (cpBodySetAngularVelocity(self -> body, speed), 0);
+}
+
 static Vector *Body_get_velocity(Body *self, void *closure) {
     Vector *vector = Vector_new((PyObject *) self, (vec) &self -> velocity, 2, (set) velocity);
 
@@ -120,6 +131,8 @@ static PyGetSetDef Body_getset[] = {
     {"velocity", (getter) Body_get_velocity, (setter) Body_set_velocity, "the speed of the body", NULL},
     {"speed", (getter) Body_get_velocity, (setter) Body_set_velocity, "the speed of the body", NULL},
     {"torque", (getter) Body_get_torque, (setter) Body_set_torque, "the rotational force being applied to the body", NULL},
+    {"angular_velocity", (getter) Body_get_angular_velocity, (setter) Body_set_angular_velocity, "the rotational speed of the body", NULL},
+    {"rotate_speed", (getter) Body_get_angular_velocity, (setter) Body_set_angular_velocity, "the rotational speed of the body", NULL},
     {NULL}
 };
 

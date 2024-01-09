@@ -62,6 +62,7 @@ typedef struct Joint Joint;
 typedef struct Pin Pin;
 typedef struct Spring Spring;
 typedef struct Groove Groove;
+// typedef struct Pivot Pivot;
 
 typedef double *vec;
 typedef void (*joint)(Joint *);
@@ -307,6 +308,12 @@ struct Groove {
     Vec2 groove;
 };
 
+// struct Pivot {
+//     Joint base;
+//     Vec2 start;
+//     Vec2 end;
+// };
+
 extern PyTypeObject PointsType;
 extern PyTypeObject VectorType;
 extern PyTypeObject ButtonType;
@@ -328,6 +335,7 @@ extern PyTypeObject JointType;
 extern PyTypeObject PinType;
 extern PyTypeObject SpringType;
 extern PyTypeObject GrooveType;
+// extern PyTypeObject PivotType;
 
 extern FT_Library library;
 extern Texture *textures;

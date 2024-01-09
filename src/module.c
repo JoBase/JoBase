@@ -121,6 +121,15 @@ static PyObject *Module_randint(PyObject *self, PyObject *args) {
     return NULL;
 }
 
+static PyObject *Module_hypot(PyObject *self, PyObject *args) {
+    double x, y;
+
+    if (PyArg_ParseTuple(args, "dd:hypot", &x, &y))
+        return PyFloat_FromDouble(hypot(x, y));
+
+    return NULL;
+}
+
 static PyObject *Module_sin(PyObject *self, PyObject *value) {
     const double angle = PyFloat_AsDouble(value);
     return ERR(angle) ? NULL : PyFloat_FromDouble(sin(angle));
@@ -191,6 +200,7 @@ static PyMethodDef Module_methods[] = {
     {"run", Module_run, METH_NOARGS, "run the main game loop"},
     {"random", Module_random, METH_VARARGS, "find a random number between two numbers"},
     {"randint", Module_randint, METH_VARARGS, "find a random integer between two integers"},
+    {"hypot", Module_hypot, METH_VARARGS, "find the root of the square of x and y"},
     {"sin", Module_sin, METH_O, "sine function of an angle in radians"},
     {"cos", Module_cos, METH_O, "cosine function of an angle in radians"},
     {"tan", Module_tan, METH_O, "tangent function of an angle in radians"},
@@ -325,6 +335,7 @@ static int Module_exec(PyObject *self) {
     INIT(PyModule_AddObject(module, "Pin", (PyObject *) &PinType))
     INIT(PyModule_AddObject(module, "Spring", (PyObject *) &SpringType))
     INIT(PyModule_AddObject(module, "Groove", (PyObject *) &GrooveType))
+    // INIT(PyModule_AddObject(module, "Pivot", (PyObject *) &PivotType))
 
     INIT(PyModule_AddIntConstant(module, "DYNAMIC", CP_BODY_TYPE_DYNAMIC))
     INIT(PyModule_AddIntConstant(module, "STATIC", CP_BODY_TYPE_KINEMATIC))
@@ -440,6 +451,7 @@ PyMODINIT_FUNC PyInit_JoBase() {
     READY(PinType)
     READY(SpringType)
     READY(GrooveType)
+    // READY(PivotType)
 
     return PyModuleDef_Init(&Module);
 }

@@ -77,10 +77,15 @@ static Joint *Pin_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
 
 static int Pin_init(Pin *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"a", "b", "length", "width", "color", NULL};
-    PyObject *color = NULL;
 
+    PyObject *color = NULL;
     JointType.tp_init((PyObject *) self, NULL, NULL);
+
     self -> length = 0;
+    self -> start.x = 0;
+    self -> start.y = 0;
+    self -> end.x = 0;
+    self -> end.y = 0;
 
     INIT(!PyArg_ParseTupleAndKeywords(
         args, kwds, "O!O!|ddO:Pin", kwlist, &BaseType, &self -> base.a,

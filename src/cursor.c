@@ -67,7 +67,7 @@ static PyObject *Cursor_get_hold(Cursor *self, void *closure) {
 
 static Cursor *Cursor_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
     Cursor *self = (Cursor *) type -> tp_alloc(type, 0);
-    
+
     if (self) {
         Set *button = self -> buttons;
 
