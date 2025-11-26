@@ -2,7 +2,7 @@
 
 Welcome to JoBase - one of the fastest Python game libraries.
 
-Feel free to check out the website for tutorials and demos, but be warned! The upcoming JoBase 3.1 has had major changes.
+Feel free to check out the website for tutorials and demos, but be warned! The upcoming JoBase 3.1 has had major changes. You may have to tweak your projects before they work on the new version of JoBase.
 
 ## Upcoming Changes
 
