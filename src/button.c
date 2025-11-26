@@ -1,57 +1,53 @@
-#include <main.h>
+#include "main.h"
 
-static PyObject *Button_str(Button *self) {
-    return PyUnicode_FromString(self -> key -> hold || self -> key -> release ? "True" : "False");
+static PyObject *button_str(Button *self) {
+    return PyUnicode_FromString(self -> key -> down || self -> key -> press ? "True" : "False");
 }
 
-static PyObject *Button_get_press(Button *self, void *closure) {
+static PyObject *button_get_press(Button *self, void *closure) {
     return PyBool_FromLong(self -> key -> press);
 }
 
-static PyObject *Button_get_release(Button *self, void *closure) {
+static PyObject *button_get_release(Button *self, void *closure) {
     return PyBool_FromLong(self -> key -> release);
 }
 
-static PyObject *Button_get_repeat(Button *self, void *closure) {
+static PyObject *button_get_repeat(Button *self, void *closure) {
     return PyBool_FromLong(self -> key -> repeat);
 }
 
-static PyObject *Button_get_hold(Button *self, void *closure) {
-    return PyBool_FromLong(self -> key -> hold);
+static PyObject *button_get_down(Button *self, void *closure) {
+    return PyBool_FromLong(self -> key -> down);
 }
 
-static int Button_bool(Button *self) {
-    return self -> key -> hold || self -> key -> release;
+static int button_bool(Button *self) {
+    return self -> key -> down || self -> key -> press;
 }
 
-Button *Button_new(Set *key) {
-    Button *self = (Button *) PyObject_CallObject((PyObject *) &ButtonType, NULL);
-
-    if (self) self -> key = key;
-    return self;
+int button_compare(const char *code, Button *button) {
+    return strcmp(code, button -> key -> key);
 }
 
-static PyGetSetDef Button_getset[] = {
-    {"press", (getter) Button_get_press, NULL, "the button is pressed", NULL},
-    {"release", (getter) Button_get_release, NULL, "the button is released", NULL},
-    {"repeat", (getter) Button_get_repeat, NULL, "the button repeat is triggered", NULL},
-    {"hold", (getter) Button_get_hold, NULL, "the button is held down", NULL},
+static PyGetSetDef button_getset[] = {
+    {"press", (getter) button_get_press, NULL, "The button is pressed down", NULL},
+    {"release", (getter) button_get_release, NULL, "The button is released", NULL},
+    {"repeat", (getter) button_get_repeat, NULL, "The button repeat is triggered", NULL},
+    {"down", (getter) button_get_down, NULL, "The button is held down", NULL},
     {NULL}
 };
 
-static PyNumberMethods Button_as_number = {
-    .nb_bool = (inquiry) Button_bool
+static PyNumberMethods button_as_number = {
+    .nb_bool = (inquiry) button_bool
 };
 
 PyTypeObject ButtonType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "Button",
-    .tp_doc = "represents the state of a keyboard or mouse button",
+    .tp_doc = "Represents the state of a keyboard or mouse button",
     .tp_basicsize = sizeof(Button),
-    .tp_itemsize = 0,
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+    .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_new = PyType_GenericNew,
-    .tp_str = (reprfunc) Button_str,
-    .tp_getset = Button_getset,
-    .tp_as_number = &Button_as_number
+    .tp_str = (reprfunc) button_str,
+    .tp_getset = button_getset,
+    .tp_as_number = &button_as_number
 };

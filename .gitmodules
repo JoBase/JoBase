@@ -1,0 +1,12 @@
+[submodule "stb"]
+	path = stb
+	url = https://github.com/nothings/stb.git
+	ignore = all
+[submodule "sdl"]
+	path = sdl
+	url = https://github.com/libsdl-org/SDL.git
+	ignore = all
+[submodule "libtess2"]
+	path = libtess2
+	url = https://github.com/memononen/libtess2
+	ignore = all

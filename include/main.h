@@ -1,74 +1,50 @@
-#define DEL(e, n) if(!e)return PyErr_SetString(PyExc_AttributeError,"cannot delete the "n" attribute"),-1;
-#define END(e) return PyErr_Format(PyExc_TypeError,"%s must be derived from Base or Cursor",Py_TYPE(e)->tp_name),NULL;
+#define DEL(e, n) if(!e)return PyErr_SetString(PyExc_AttributeError,"Cannot delete the '"n"' attribute"),-1;
 #define REM(t, l, e) if (l==e)l=l->next;else for(t*i=l;i;i=i->next)if(i->next==e){i->next=i->next->next;break;}
-#define NEW(t, e) t*i=malloc(sizeof(t));i->next=e;e=i;
+#define INIT(e) if(e)return-1;
 #define ERR(e) ((e)==-1&&PyErr_Occurred())
-#define INIT(e) if(e)return -1;
 #define MIN(a, b) (a<b?a:b)
 #define MAX(a, b) (a>b?a:b)
-
+#define LEN(e) sizeof e/sizeof*e
+// #define RANGE 560
 #define _USE_MATH_DEFINES
-#define PY_SSIZE_T_CLEAN
 
 #ifdef __EMSCRIPTEN__
-#define GL_GLEXT_PROTOTYPES
 #define VERSION "300 es"
 #include <emscripten.h>
+#include <GLES3/gl3.h>
 #else
 #define VERSION "330 core"
-#include <glad/glad.h>
+#include "glad/glad.h"
 #endif
 
-#include <chipmunk/chipmunk.h>
-#include <chipmunk/chipmunk_unsafe.h>
-#include <GLFW/glfw3.h>
 #include <Python.h>
-#include <ft2build.h>
-#include <stdbool.h>
-#include FT_FREETYPE_H
+#include <SDL3/SDL.h>
+#include <tesselator.h>
+#include <stb_image.h>
+#include <stb_truetype.h>
 
-enum {x, y, z};
+enum {x, y, z, w};
 enum {r, g, b, a};
-enum {shape, image, text};
-enum {vert, view, obj, color, img};
 
 typedef struct Vec2 Vec2;
 typedef struct Vec3 Vec3;
 typedef struct Vec4 Vec4;
-typedef struct Sides Sides;
-typedef struct Set Set;
-typedef struct Button Button;
-typedef struct Array Array;
-typedef struct Texture Texture;
-typedef struct Font Font;
-typedef struct Char Char;
+typedef struct Glyph Glyph;
+// typedef struct Entry Entry;
 typedef struct Vector Vector;
-typedef struct Window Window;
-typedef struct Cursor Cursor;
-typedef struct Camera Camera;
+typedef struct Base Base;
+typedef struct Button Button;
 typedef struct Key Key;
 typedef struct Base Base;
-typedef struct Physics Physics;
-typedef struct Group Group;
-typedef struct Body Body;
-typedef struct Rectangle Rectangle;
-typedef struct Image Image;
-typedef struct Text Text;
-typedef struct Circle Circle;
+typedef struct Rect Rect;
 typedef struct Shape Shape;
-typedef struct Line Line;
 typedef struct Points Points;
-typedef struct Joint Joint;
-typedef struct Pin Pin;
-typedef struct Spring Spring;
-typedef struct Groove Groove;
-// typedef struct Pivot Pivot;
-
-typedef double *vec;
-typedef void (*joint)(Joint *);
-typedef void (*move)(Joint *);
-typedef int (*set)(PyObject *);
-typedef int (*reset)(Shape *);
+typedef struct Line Line;
+typedef struct Texture Texture;
+typedef struct Font Font;
+typedef struct Image Image;
+typedef struct Circle Circle;
+typedef struct Text Text;
 
 struct Vec2 {
     double x;
@@ -76,105 +52,16 @@ struct Vec2 {
 };
 
 struct Vec3 {
-    double r;
-    double g;
-    double b;
+    double x;
+    double y;
+    double z;
 };
 
 struct Vec4 {
-    double r;
-    double g;
-    double b;
-    double a;
-};
-
-struct Sides {
-    double top;
-    double bottom;
-    double left;
-    double right;
-};
-
-struct Set {
-    const char *name;
-    bool hold;
-    bool press;
-    bool release;
-    bool repeat;
-};
-
-struct Button {
-    PyObject_HEAD
-    Set *key;
-};
-
-struct Array {
-    Array *next;
-    Joint *src;
-};
-
-struct Texture {
-    Texture *next;
-    char *name;
-    Vec2 size;
-    GLuint src;
-};
-
-struct Font {
-    Font *next;
-    char *name;
-    FT_Face face;
-};
-
-struct Char {
-    GLuint src;
-    int advance;
-    Vec2 size;
-    Vec2 pos;
-    double font;
-};
-
-struct Vector {
-    PyObject_HEAD
-    PyObject *parent;
-    char names[4];
-    uint8_t size;
-    vec vect;
-    set set;
-};
-
-struct Window {
-    PyObject_HEAD
-    GLFWwindow *glfw;
-    bool resize;
-    char *title;
-    Vec2 size;
-    Vec3 color;
-};
-
-struct Cursor {
-    PyObject_HEAD
-    Set buttons[GLFW_MOUSE_BUTTON_LAST + 1];
-    Vec2 pos;
-    bool move;
-    bool enter;
-    bool leave;
-    bool press;
-    bool release;
-};
-
-struct Camera {
-    PyObject_HEAD
-    Vec2 pos;
-    Vec2 scale;
-};
-
-struct Key {
-    PyObject_HEAD
-    Set keys[GLFW_KEY_LAST + 1];
-    bool press;
-    bool release;
-    bool repeat;
+    double x;
+    double y;
+    double z;
+    double w;
 };
 
 struct Base {
@@ -183,214 +70,189 @@ struct Base {
     Vec2 pos;
     Vec2 scale;
     Vec2 anchor;
-    Vec2 transform;
     double angle;
-    double rotate;
-    double mass;
-    double elasticity;
-    double friction;
-    Body *body;
-    Base *next;
-    cpShape *shape;
-    Array *joint;
-    Group *group;
-    cpShape *(*physics)(Base *);
-    Sides (*sides)(Base *);
-    void (*unsafe)(Base *);
 };
 
-struct Physics {
-    PyObject_HEAD
-    cpSpace *space;
-    Body *list;
-    Vec2 gravity;
-    int group;
-};
-
-struct Body {
-    PyObject_HEAD
-    Physics *parent;
-    Vec2 velocity;
-    Base *list;
-    cpBody *body;
-    Body *next;
-};
-
-struct Rectangle {
+struct Rect {
     Base base;
     Vec2 size;
 };
 
+struct Shape {
+    Base base;
+    GLuint vao;
+    GLuint vbo;
+    GLuint ibo;
+    Vec2 *data;
+    size_t len;
+    size_t indices;
+};
+
+struct Line {
+    Shape base;
+    bool loop;
+    double miter;
+    double width;
+};
+
+struct Texture {
+    Texture *next;
+    char *name;
+    int width;
+    int height;
+    GLuint src;
+};
+
+struct Glyph {
+    uint32_t code;
+    uint32_t jump;
+    float adv;
+    float x0;
+    float y0;
+    float x1;
+    float y1;
+    float s0;
+    float t0;
+    float s1;
+    float t1;
+};
+
+struct Font {
+    Font *next;
+    uint8_t id;
+    GLuint src;
+    Glyph *chars;
+    uint32_t len;
+};
+
 struct Image {
-    Rectangle base;
+    Rect base;
     Texture *src;
 };
 
 struct Text {
-    Rectangle base;
+    Base base;
     wchar_t *content;
-    Char *chars;
+    size_t len;
     Font *src;
-    Vec2 vect;
-    int descend;
+    GLuint vao;
+    GLuint vbo;
     double size;
+    double width;
 };
 
 struct Circle {
     Base base;
     double diameter;
-    GLuint vao;
-    GLuint vbo;
 };
 
-struct Shape {
-    Base base;
-    size_t length;
-    GLuint vao;
-    GLuint vbo;
-    GLuint ibo;
-    GLuint *indices;
-    Vec2 *points;
-    reset reset;
-};
-
-struct Line {
-    Shape base;
-    double width;
+struct Vector {
+    PyObject_HEAD
+    PyObject *parent;
+    uint8_t size;
+    int (*set)(PyObject *);
+    double *var;
+    char names[4];
 };
 
 struct Points {
     PyObject_HEAD
     Shape *parent;
-    reset method;
+    int (*update)(Shape *);
 };
 
-struct Group {
-    PyObject_HEAD
-    int id;
+struct Key {
+    uint32_t id;
+    const char *key;
+    bool down;
+    bool press;
+    bool release;
+    bool repeat;
 };
 
-struct Joint {
+struct Button {
     PyObject_HEAD
-    double width;
-    Physics *parent;
-    joint create;
-    move unsafe;
-    cpConstraint *joint;
-    Vec4 color;
-    Base *a;
-    Base *b;
+    Key *key;
+};
+
+struct Program {
+    GLuint src;
+    GLint obj;
+    GLint color;
+};
+
+extern struct Window {
+    SDL_Window *sdl;
+    SDL_GLContext ctx;
+    Vec2 size;
+    Vec3 color;
+    bool resize;
+    char *title;
+} window;
+
+extern struct Camera {
+    Vec2 pos;
+    Vec2 scale;
+} camera;
+
+extern struct Mouse {
+    Vec2 pos;
+    Vec2 move;
+    Button *button;
+    uint8_t len;
+    bool press;
+    bool release;
+} mouse;
+
+extern struct Keyboard {
+    Button *key;
+    Button *mod;
+    PyObject map;
+    uint16_t keys;
+    uint8_t mods;
+    bool press;
+    bool release;
+} keyboard;
+
+extern struct Shader {
+    struct Program plain;
+    struct Program image;
+    struct Program circle;
+    struct Program text;
+    GLuint ubo;
     GLuint vao;
-    GLuint vbo;
-    GLuint ibo;
-};
+} shader;
 
-struct Pin {
-    Joint base;
-    Vec2 start;
-    Vec2 end;
-    double length;
-};
+extern struct Path {
+    char *src;
+    size_t size;
+} path;
 
-struct Spring {
-    Joint base;
-    Vec2 start;
-    Vec2 end;
-    double length;
-    double stiffness;
-    double damping;
-};
-
-struct Groove {
-    Joint base;
-    Vec2 start;
-    Vec2 end;
-    Vec2 groove;
-};
-
-// struct Pivot {
-//     Joint base;
-//     Vec2 start;
-//     Vec2 end;
-// };
-
-extern PyTypeObject PointsType;
-extern PyTypeObject VectorType;
-extern PyTypeObject ButtonType;
-extern PyTypeObject WindowType;
-extern PyTypeObject CursorType;
-extern PyTypeObject CameraType;
-extern PyTypeObject KeyType;
-extern PyTypeObject BaseType;
-extern PyTypeObject RectangleType;
-extern PyTypeObject ImageType;
-extern PyTypeObject TextType;
-extern PyTypeObject CircleType;
-extern PyTypeObject ShapeType;
-extern PyTypeObject LineType;
-extern PyTypeObject PhysicsType;
-extern PyTypeObject GroupType;
-extern PyTypeObject BodyType;
-extern PyTypeObject JointType;
-extern PyTypeObject PinType;
-extern PyTypeObject SpringType;
-extern PyTypeObject GrooveType;
-// extern PyTypeObject PivotType;
-
-extern FT_Library library;
+extern PyObject *error;
+extern PyObject *program;
 extern Texture *textures;
 extern Font *fonts;
 
-extern GLint uniforms[];
-extern GLuint program;
-extern GLuint mesh;
+extern PyTypeObject VectorType;
+extern PyTypeObject WindowType;
+extern PyTypeObject KeyType;
+extern PyTypeObject BaseType;
+extern PyTypeObject ButtonType;
+extern PyTypeObject ModType;
+extern PyTypeObject RectType;
+extern PyTypeObject CameraType;
+extern PyTypeObject MouseType;
+extern PyTypeObject ShapeType;
+extern PyTypeObject PointsType;
+extern PyTypeObject LineType;
+extern PyTypeObject ImageType;
+extern PyTypeObject CircleType;
+extern PyTypeObject TextType;
 
-extern PyObject *module;
-extern Window *window;
-extern Cursor *cursor;
-extern Camera *camera;
-extern Key *key;
+extern Vector *vector_new(PyObject *, double *, uint8_t, int (*)(PyObject *));
+extern Points *points_new(Shape *, int (*)(Shape *));
 
-extern Vector *Vector_new(PyObject *, vec, uint8_t, set);
-extern Shape *Shape_new(PyTypeObject *, PyObject *, PyObject *);
-extern Rectangle *Rectangle_new(PyTypeObject *, PyObject *, PyObject *);
-extern Points *Points_new(Shape *, reset);
-extern Joint *Joint_new(PyTypeObject *, joint, move, cpConstraint *);
-extern PyObject *Base_collide(PyObject *, PyObject *);
-extern PyObject *Shape_render(Shape *, size_t);
-extern Button *Button_new(Set *);
-extern Body *Body_new(Physics *, PyObject *);
-extern Sides Base_sides(Base *, Vec2 *, size_t);
-extern Sides Shape_sides(Shape *);
-extern cpTransform Base_transform(Base *);
-extern Vec2 Circle_pos(Circle *);
-extern cpVect Joint_rotate(Base *, Vec2);
-extern cpVect Body_set(Body *, Vec2);
-extern Vec2 Body_get(Body *, cpVect);
-extern Group *Group_new(int);
-
-extern int Vector_set(PyObject *, vec, uint8_t);
-extern int Points_set(Shape *, PyObject *);
-extern double Base_radius(Base *, double);
-extern bool Joint_active(Joint *);
-
-extern void Joint_unsafe(Joint *);
-extern void Line_create(Vec2 *, size_t, double);
-extern void Joint_draw(Joint *, Vec2 *, size_t);
-extern void Base_uniform(GLfloat *, Vec4, uint8_t);
-extern void Base_matrix(Base *, uint8_t, double, double);
-extern void Base_poly(Base *, Vec2 *, Vec2 *, size_t);
-extern void Rectangle_render(Rectangle *, uint8_t);
-extern void Rectangle_poly(Rectangle *, Vec2 *);
-extern void Shape_poly(Shape *, Vec2 *);
-extern void Shape_dealloc(Shape *);
-extern void Base_unsafe(Base *);
-extern void Shape_reduce(Shape *, cpShape *);
-extern void Base_shape(Base *, cpShape *);
-extern void Base_buffers(GLuint *, GLuint *, GLuint *);
-extern void Base_clean(Base *);
-extern void Joint_add(Joint *);
-extern void Joint_check(Joint *);
-
-extern int width();
-extern int height();
+extern void base_matrix(Base *, GLint, GLint, double, double);
+extern int button_compare(const char *, Button *);
+extern int vector_set(PyObject *, double *, uint8_t);
+extern int points_set(PyObject *, Shape *);
