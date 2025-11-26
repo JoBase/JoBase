@@ -8,5 +8,5 @@
 	ignore = all
 [submodule "libtess2"]
 	path = libtess2
-	url = https://github.com/memononen/libtess2
+	url = https://github.com/memononen/libtess2.git
 	ignore = all
