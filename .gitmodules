@@ -1,15 +1,19 @@
 [submodule "stb"]
-	path = stb
+	path = lib/stb
 	url = https://github.com/nothings/stb.git
 	ignore = all
 [submodule "sdl"]
-	path = sdl
+	path = lib/sdl
 	url = https://github.com/libsdl-org/SDL.git
 	ignore = all
 [submodule "libtess2"]
-	path = libtess2
+	path = lib/libtess2
 	url = https://github.com/memononen/libtess2.git
 	ignore = all
-[submodule "mixer"]
-	path = mixer
+[submodule "mix"]
+	path = lib/mix
 	url = https://github.com/libsdl-org/SDL_mixer.git
+	ignore = all
+[submodule "lib/libtess2"]
+	path = lib/libtess2
+	url = https://github.com/memononen/libtess2.git
