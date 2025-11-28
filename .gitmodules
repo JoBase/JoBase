@@ -10,3 +10,6 @@
 	path = libtess2
 	url = https://github.com/memononen/libtess2.git
 	ignore = all
+[submodule "mixer"]
+	path = mixer
+	url = https://github.com/libsdl-org/SDL_mixer.git
