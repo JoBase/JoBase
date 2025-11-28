@@ -33,7 +33,7 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
     out = "__init__" + ext
 
     lines = []
-    source = list(pathlib.Path("src").glob("*.c")) + list(pathlib.Path("libtess2/Source").glob("*.c"))
+    source = list(pathlib.Path("src").glob("*.c")) + list(pathlib.Path("lib/libtess2/Source").glob("*.c"))
     arch = [] if sys.maxsize > 2 ** 32 or sys.platform != "win32" else ["-A", "Win32"]
 
     if not pathlib.Path("sdl/build").exists():
@@ -45,13 +45,12 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
                 subprocess.run(["dnf", "install", "-y", "libxkbcommon-devel", "wayland-devel", "wayland-protocols-devel", "mesa-libEGL-devel"])
 
         subprocess.run([
-            "cmake", "-S", "sdl", "-B", "sdl/build", *arch,
+            "cmake", "-S", "lib/sdl", "-B", "lib/sdl/build", *arch,
             "-DBUILD_SHARED_LIBS=OFF",
             "-DSDL_SHARED=OFF",
             "-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64",
             "-DCMAKE_OSX_DEPLOYMENT_TARGET=10.13",
             "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
-            "-DSDL_AUDIO=OFF",
             "-DSDL_CAMERA=OFF",
             "-DSDL_JOYSTICK=OFF",
             "-DSDL_HAPTIC=OFF",
@@ -62,15 +61,27 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
             "-DSDL_X11=OFF"
         ])
 
-        subprocess.run(["cmake", "--build", "sdl/build", "--config", "Release"])
+        subprocess.run(["cmake", "--build", "lib/sdl/build", "--config", "Release", "--target", "install"])
+
+    if not pathlib.Path("lib/mix/build").exists():
+        subprocess.run([
+            "cmake", "-S", "mix", "-B", "lib/mix/build", *arch,
+            "-DBUILD_SHARED_LIBS=OFF",
+            "-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64",
+            "-DCMAKE_OSX_DEPLOYMENT_TARGET=10.13",
+            "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+            "-DCMAKE_PREFIX_PATH=/opt/homebrew"
+        ])
+
+        subprocess.run(["cmake", "--build", "lib/mix/build", "--config", "Release"])
 
     subprocess.run([
         "cl", *source,
         "/Fodist\\", "/LD", "/MD",
-        "/I", include, "/I", "include", "/I", "stb",
-        "/I", "libtess2\\Include", "/I", "sdl\\include", "/I", "freetype\\include",
+        "/I", include, "/I", "include", "/I", "lib\\stb",
+        "/I", "lib\\libtess2\\Include", "/I", "lib\\sdl\\include", "/I", "lib\\mix\\include",
         "/link",
-        "/LIBPATH:sdl\\build\\Release", "SDL3-static.lib",
+        "/LIBPATH:lib\\sdl\\build\\Release", "SDL3-static.lib",
         "/LIBPATH:" + sysconfig.get_config_var("LIBDIR"),
         "user32.lib", "winmm.lib", "advapi32.lib", "ole32.lib", "gdi32.lib",
         "shell32.lib", "setupapi.lib", "version.lib", "imm32.lib",
@@ -85,8 +96,8 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
     ] if sys.platform == "darwin" else []),
         *source,
         "-I" + include, "-Iinclude", "-Istb",
-        "-Ilibtess2/Include", "-Isdl/include",
-        "-Lsdl/build", "-lSDL3",
+        "-Ilib/libtess2/Include", "-Ilib/sdl/include", "-Ilib/mix/include",
+        "-Llib/sdl/build", "-lSDL3", "-Llib/mix/build", "-lSDL3_mixer",
         "-fPIC",
         "-o", pathlib.Path(wheel_directory) / out
     ])

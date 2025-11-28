@@ -347,44 +347,6 @@ static Key *search(uint32_t code, Key *list, size_t size) {
     return bsearch(&code, list, size, sizeof(Key), (int (*)(const void *, const void *)) compare);
 }
 
-static void clean(void) {
-    while (textures) {
-        Texture *this = textures;
-
-        textures = this -> next;
-        glDeleteTextures(1, &this -> src);
-
-        free(this -> name);
-        free(this);
-    }
-
-    while (fonts) {
-        Font *this = fonts;
-
-        fonts = this -> next;
-        glDeleteTextures(1, &this -> src);
-
-        free(this -> chars);
-        free(this);
-    }
-
-    printf("FREE vao\n");
-
-    glDeleteVertexArrays(1, &shader.vao);
-    glDeleteBuffers(1, &shader.ubo);
-
-    glDeleteProgram(shader.plain.src);
-    glDeleteProgram(shader.image.src);
-    glDeleteProgram(shader.circle.src);
-    glDeleteProgram(shader.text.src);
-
-    printf("FREE stuff\n");
-
-    SDL_GL_DestroyContext(window.ctx);
-    SDL_DestroyWindow(window.sdl);
-    SDL_Quit();
-}
-
 static GLuint compile(GLenum type, const GLchar *source) {
     GLuint shader = glCreateShader(type);
 
@@ -550,8 +512,8 @@ static PyMethodDef module_methods[] = {
 };
 
 static int module_exec(PyObject *self) {
-    if (Py_AtExit(clean) || (error = PyErr_NewException("JoBase.SDLError", PyExc_OSError, NULL))) {
-        if (SDL_Init(SDL_INIT_VIDEO)) {
+    if ((error = PyErr_NewException("JoBase.SDLError", PyExc_OSError, NULL))) {
+        if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) && MIX_Init()) {
             SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
             SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
             SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
@@ -622,6 +584,7 @@ static int module_exec(PyObject *self) {
                 CHECK(PyType_Ready(&ImageType))
                 CHECK(PyType_Ready(&CircleType))
                 CHECK(PyType_Ready(&TextType))
+                CHECK(PyType_Ready(&SoundType))
                 CHECK(!PyObject_Init(&keyboard.map, &ModType))
 
                 for (uint16_t i = 0; i < LEN(keys); i ++) {
@@ -649,6 +612,9 @@ static int module_exec(PyObject *self) {
                 ADD("Image", (PyObject *) &ImageType)
                 ADD("Circle", (PyObject *) &CircleType)
                 ADD("Text", (PyObject *) &TextType)
+                ADD("Sound", (PyObject *) &SoundType)
+
+                printf("hhhhhh\n");
 
                 ADD("WHITE", COLOR(1, 1, 1))
                 ADD("BLACK", COLOR(0, 0, 0))
@@ -856,6 +822,45 @@ static void module_free(void *closure) {
     printf("FREE MODULE\n");
     free(window.title);
     free(path.src);
+
+    while (textures) {
+        Texture *this = textures;
+
+        textures = this -> next;
+        glDeleteTextures(1, &this -> src);
+
+        free(this -> name);
+        free(this);
+    }
+
+    while (fonts) {
+        Font *this = fonts;
+
+        fonts = this -> next;
+        glDeleteTextures(1, &this -> src);
+
+        free(this -> chars);
+        free(this);
+    }
+
+    printf("FREE vao\n");
+
+    if (shader.vao) {
+        glDeleteVertexArrays(1, &shader.vao);
+        glDeleteBuffers(1, &shader.ubo);
+
+        glDeleteProgram(shader.plain.src);
+        glDeleteProgram(shader.image.src);
+        glDeleteProgram(shader.circle.src);
+        glDeleteProgram(shader.text.src);
+    }
+
+    printf("FREE stuff\n");
+
+    SDL_GL_DestroyContext(window.ctx);
+    SDL_DestroyWindow(window.sdl);
+    SDL_Quit();
+    MIX_Quit();
 }
 
 static PyModuleDef_Slot module_slots[] = {

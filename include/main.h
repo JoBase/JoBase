@@ -5,7 +5,6 @@
 #define MIN(a, b) (a<b?a:b)
 #define MAX(a, b) (a>b?a:b)
 #define LEN(e) sizeof e/sizeof*e
-// #define RANGE 560
 #define _USE_MATH_DEFINES
 
 #ifdef __EMSCRIPTEN__
@@ -19,9 +18,9 @@
 
 #include <Python.h>
 #include <SDL3/SDL.h>
+#include <SDL3_mixer/SDL_mixer.h>
 #include <tesselator.h>
 #include <stb_image.h>
-#include <stb_truetype.h>
 
 enum {x, y, z, w};
 enum {r, g, b, a};
@@ -30,7 +29,6 @@ typedef struct Vec2 Vec2;
 typedef struct Vec3 Vec3;
 typedef struct Vec4 Vec4;
 typedef struct Glyph Glyph;
-// typedef struct Entry Entry;
 typedef struct Vector Vector;
 typedef struct Base Base;
 typedef struct Button Button;
@@ -45,6 +43,7 @@ typedef struct Font Font;
 typedef struct Image Image;
 typedef struct Circle Circle;
 typedef struct Text Text;
+typedef struct Sound Sound;
 
 struct Vec2 {
     double x;
@@ -161,6 +160,10 @@ struct Points {
     int (*update)(Shape *);
 };
 
+struct Sound {
+    PyObject_HEAD
+};
+
 struct Key {
     uint32_t id;
     const char *key;
@@ -248,6 +251,7 @@ extern PyTypeObject LineType;
 extern PyTypeObject ImageType;
 extern PyTypeObject CircleType;
 extern PyTypeObject TextType;
+extern PyTypeObject SoundType;
 
 extern Vector *vector_new(PyObject *, double *, uint8_t, int (*)(PyObject *));
 extern Points *points_new(Shape *, int (*)(Shape *));

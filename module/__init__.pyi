@@ -232,6 +232,10 @@ class Circle(Base):
 
     diameter: float
 
+class Sound:
+    def __init__():
+        pass
+
 def run() -> None: ...
 
 window: Window
@@ -271,7 +275,8 @@ MAGENTA = 1, 0, 1
 
 __all__ = [
     "window", "mouse", "camera", "key", "run",
-    "Rect", "Shape", "Line", "Image", "Circle", "Text"
+    "Rect", "Shape", "Line", "Image", "Circle", "Text",
+    "Sound",
     "MAN", "DEFAULT", "CODE",
     "WHITE", "BLACK", "GRAY", "DARK_GRAY", "LIGHT_GRAY", "BROWN", "TAN", "RED", "DARK_RED", "SALMON", "ORANGE", "GOLD", "YELLOW",
     "OLIVE", "LIME", "DARK_GREEN", "GREEN", "AQUA", "BLUE", "LIGHT_BLUE", "AZURE", "NAVY", "PURPLE", "PINK", "MAGENTA",
