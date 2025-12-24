@@ -1,6 +1,15 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "main.h"
 
+static void draw(Image *self) {
+    glBindTexture(GL_TEXTURE_2D, self -> src -> src);
+    glUseProgram(shader.image.src);
+    base_matrix(&self -> base.base, shader.image.obj, shader.image.color, self -> base.size.x, self -> base.size.y);
+
+    glBindVertexArray(shader.vao);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
 static int load(Image *self, const char *name) {
     for (Texture *this = textures; this; this = this -> next)
         if (!strcmp(this -> name, name))
@@ -56,24 +65,13 @@ static int image_set_name(Image *self, PyObject *value, void *closure) {
     return 0;
 }
 
-static PyObject *image_draw(Image *self, PyObject *args) {
-    glBindTexture(GL_TEXTURE_2D, self -> src -> src);
-    glUseProgram(shader.image.src);
-    base_matrix(&self -> base.base, shader.image.obj, shader.image.color, self -> base.size.x, self -> base.size.y);
-
-    glBindVertexArray(shader.vao);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-    Py_RETURN_NONE;
-}
-
 static int image_init(Image *self, PyObject *args, PyObject *kwds) {
     static char *kwlist[] = {"name", "x", "y", "angle", "width", "height", "color", NULL};
 
     PyObject *color = NULL;
     const char *name = NULL;
 
-    BaseType.tp_init((PyObject *) self, NULL, NULL);
+    base_data.type -> tp_init((PyObject *) self, NULL, NULL);
     self -> base.size.x = 0;
     self -> base.size.y = 0;
 
@@ -102,25 +100,38 @@ static int image_init(Image *self, PyObject *args, PyObject *kwds) {
     return vector_set(color, (double *) &self -> base.base.color, 4);
 }
 
+static PyObject *image_draw(Image *self, PyObject *args) {
+    draw(self);
+    Py_RETURN_NONE;
+}
+
+static PyObject *image_blit(Image *self, PyObject *item) {
+    if (screen_bind(item))
+        return NULL;
+
+    draw(self);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    Py_RETURN_NONE;
+}
+
 static PyGetSetDef image_getset[] = {
-    {"name", (getter) image_get_name, (setter) image_set_name, "The filepath of the image", NULL},
+    {"name", (getter) image_get_name, (setter) image_set_name, "The filepath to the source image", NULL},
     {NULL}
 };
 
 static PyMethodDef image_methods[] = {
     {"draw", (PyCFunction) image_draw, METH_NOARGS, "Draw the image on the screen"},
+    {"blit", (PyCFunction) image_blit, METH_O, "Render the image to an offscreen surface"},
     {NULL}
 };
 
-PyTypeObject ImageType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "Image",
-    .tp_doc = "Render images on the screen",
-    .tp_basicsize = sizeof(Image),
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_base = &RectType,
-    .tp_new = PyType_GenericNew,
-    .tp_init = (initproc) image_init,
-    .tp_methods = image_methods,
-    .tp_getset = image_getset
+static PyType_Slot image_slots[] = {
+    {Py_tp_doc, "Render images on the screen"},
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_init, image_init},
+    {Py_tp_getset, image_getset},
+    {Py_tp_methods, image_methods},
+    {0}
 };
+
+Spec image_data = {{"Image", sizeof(Image), 0, Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE, image_slots}};

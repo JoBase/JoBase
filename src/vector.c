@@ -46,7 +46,7 @@ static PyObject *tuple(Vector *self, PyObject *value, double method(double, doub
     PyObject *tuple = PyTuple_New(self -> size);
 
     if (tuple) {
-        if (Py_TYPE(value) == &VectorType) {
+        if (Py_TYPE(value) == vector_data.type) {
             Vector *other = vector(self, value);
 
             if (!other)
@@ -90,7 +90,7 @@ static PyObject *tuple(Vector *self, PyObject *value, double method(double, doub
 }
 
 static Vector *inplace(Vector *self, PyObject *value, double method(double, double)) {
-    if (Py_TYPE(value) == &VectorType) {
+    if (Py_TYPE(value) == vector_data.type) {
         Vector *other = vector(self, value);
         if (!other) return NULL;
 
@@ -295,7 +295,7 @@ static void vector_dealloc(Vector *self) {
 }
 
 Vector *vector_new(PyObject *parent, double *vect, uint8_t size, int (*set)(PyObject *)) {
-    Vector *self = PyObject_New(Vector, &VectorType);
+    Vector *self = PyObject_New(Vector, vector_data.type);
 
     if (self) {
         Py_XINCREF(self -> parent = parent);
@@ -310,7 +310,7 @@ Vector *vector_new(PyObject *parent, double *vect, uint8_t size, int (*set)(PyOb
 
 int vector_set(PyObject *value, double *vect, uint8_t size) {
     if (value) {
-        if (Py_TYPE(value) == &VectorType)
+        if (Py_TYPE(value) == vector_data.type)
             for (uint8_t i = 0; i < MIN(size, ((Vector *) value) -> size); i ++)
                 vect[i] = ((Vector *) value) -> var[i];
 
@@ -337,49 +337,40 @@ int vector_set(PyObject *value, double *vect, uint8_t size) {
     return 0;
 }
 
-static PySequenceMethods vector_as_sequence = {
-    .sq_length = (lenfunc) vector_len,
-    .sq_item = (ssizeargfunc) vector_item,
-    .sq_ass_item = (ssizeobjargproc) vector_ass_item
-};
-
-static PyNumberMethods vector_as_number = {
-    .nb_add = (binaryfunc) vector_add,
-    .nb_subtract = (binaryfunc) vector_subtract,
-    .nb_multiply = (binaryfunc) vector_multiply,
-    .nb_remainder = (binaryfunc) vector_remainder,
-    .nb_floor_divide = (binaryfunc) vector_floor_divide,
-    .nb_true_divide = (binaryfunc) vector_true_divide,
-    .nb_inplace_add = (binaryfunc) vector_inplace_add,
-    .nb_inplace_subtract = (binaryfunc) vector_inplace_subtract,
-    .nb_inplace_multiply = (binaryfunc) vector_inplace_multiply,
-    .nb_inplace_remainder = (binaryfunc) vector_inplace_remainder,
-    .nb_inplace_floor_divide = (binaryfunc) vector_inplace_floor_divide,
-    .nb_inplace_true_divide = (binaryfunc) vector_inplace_true_divide,
-    .nb_negative = (unaryfunc) vector_negative,
-    .nb_positive = (unaryfunc) vector_positive,
-    .nb_absolute = (unaryfunc) vector_absolute,
-    .nb_bool = (inquiry) vector_bool
-};
-
 static PyGetSetDef vector_getset[] = {
     {"length", (getter) vector_get_length, NULL, "Get the length of the vector", NULL},
     {NULL}
 };
 
-PyTypeObject VectorType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "Vector",
-    .tp_doc = "Represents a position, color or set of values",
-    .tp_basicsize = sizeof(Vector),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
-    .tp_dealloc = (destructor) vector_dealloc,
-    .tp_str = (reprfunc) vector_str,
-    .tp_repr = (reprfunc) vector_repr,
-    .tp_getattro = (getattrofunc) vector_getattro,
-    .tp_setattro = (setattrofunc) vector_setattro,
-    .tp_as_sequence = &vector_as_sequence,
-    .tp_as_number = &vector_as_number,
-    .tp_getset = vector_getset
+static PyType_Slot vector_slots[] = {
+    {Py_tp_doc, "Represents a position, color or set of values"},
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_dealloc, vector_dealloc},
+    {Py_tp_str, vector_str},
+    {Py_tp_repr, vector_repr},
+    {Py_tp_getattro, vector_getattro},
+    {Py_tp_setattro, vector_setattro},
+    {Py_tp_getset, vector_getset},
+    {Py_sq_length, vector_len},
+    {Py_sq_item, vector_item},
+    {Py_sq_ass_item, vector_ass_item},
+    {Py_nb_add, vector_add},
+    {Py_nb_subtract, vector_subtract},
+    {Py_nb_multiply, vector_multiply},
+    {Py_nb_remainder, vector_remainder},
+    {Py_nb_floor_divide, vector_floor_divide},
+    {Py_nb_true_divide, vector_true_divide},
+    {Py_nb_inplace_add, vector_inplace_add},
+    {Py_nb_inplace_subtract, vector_inplace_subtract},
+    {Py_nb_inplace_multiply, vector_inplace_multiply},
+    {Py_nb_inplace_remainder, vector_inplace_remainder},
+    {Py_nb_inplace_floor_divide, vector_inplace_floor_divide},
+    {Py_nb_inplace_true_divide, vector_inplace_true_divide},
+    {Py_nb_negative, vector_negative},
+    {Py_nb_positive, vector_positive},
+    {Py_nb_absolute, vector_absolute},
+    {Py_nb_bool, vector_bool},
+    {0}
 };
+
+Spec vector_data = {{"Vector", sizeof(Vector), 0, Py_TPFLAGS_DEFAULT, vector_slots}};

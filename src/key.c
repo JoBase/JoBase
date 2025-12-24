@@ -30,12 +30,12 @@ static PyGetSetDef key_getset[] = {
     {NULL}
 };
 
-PyTypeObject KeyType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "Key",
-    .tp_doc = "The input handler for the keyboard",
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
-    .tp_getattro = key_getattro,
-    .tp_getset = key_getset
+static PyType_Slot key_slots[] = {
+    {Py_tp_doc, "The input handler for the keyboard"},
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_getattro, key_getattro},
+    {Py_tp_getset, key_getset},
+    {0}
 };
+
+Spec key_data = {{"Key", 0, 0, Py_TPFLAGS_DEFAULT, key_slots}};

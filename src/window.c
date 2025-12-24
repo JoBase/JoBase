@@ -5,7 +5,14 @@ static int clear(void *unused) {
 }
 
 static int size(void *unused) {
-    return SDL_SetWindowSize(window.sdl, window.size.x, window.size.y), 0;
+#ifdef __EMSCRIPTEN__
+    window.size.x = width();
+    window.size.y = height();
+
+    return 0;
+#else
+    return SDL_SetWindowSize(window.sdl, window.size.x, window.size.y) ? 0 : (PyErr_SetString(error, SDL_GetError()), -1);
+#endif
 }
 
 static PyObject *window_get_title(PyObject *self, void *closure) {
@@ -112,7 +119,7 @@ static PyObject *window_get_time(PyObject *self, void *closure) {
 }
 
 static PyObject *window_get_top(PyObject *self, void *closure) {
-    return PyFloat_FromDouble(window.size.y / -2);
+    return PyFloat_FromDouble(window.size.y / 2);
 }
 
 static PyObject *window_get_left(PyObject *self, void *closure) {
@@ -120,7 +127,7 @@ static PyObject *window_get_left(PyObject *self, void *closure) {
 }
 
 static PyObject *window_get_bottom(PyObject *self, void *closure) {
-    return PyFloat_FromDouble(window.size.y / 2);
+    return PyFloat_FromDouble(window.size.y / -2);
 }
 
 static PyObject *window_get_right(PyObject *self, void *closure) {
@@ -150,7 +157,7 @@ static int window_init(PyObject *self, PyObject *args, PyObject *kwds) {
     if (!SDL_SetWindowTitle(window.sdl, title))
         return PyErr_SetString(error, SDL_GetError()), -1;
 
-    return size(NULL), clear(NULL);
+    return clear(NULL), size(NULL);
 }
 
 static PyObject *window_close(PyObject *self, PyObject *args) {
@@ -171,10 +178,10 @@ static PyObject *window_restore(PyObject *self, PyObject *args) {
 }
 
 static PyMethodDef window_methods[] = {
-    {"close", window_close, METH_NOARGS, "Close the window and terminate the game loop"},
-    {"maximize", window_maximize, METH_NOARGS, "Maximize the window"},
-    {"minimize", window_minimize, METH_NOARGS, "Minimize the window"},
-    {"restore", window_restore, METH_NOARGS, "Restore the window from maximized or minimized"},
+    {"close", window_close, METH_STATIC | METH_NOARGS, "Close the window and terminate the game loop"},
+    {"maximize", window_maximize, METH_STATIC | METH_NOARGS, "Maximize the window"},
+    {"minimize", window_minimize, METH_STATIC | METH_NOARGS, "Minimize the window"},
+    {"restore", window_restore, METH_STATIC | METH_NOARGS, "Restore the window from maximized or minimized"},
     {NULL}
 };
 
@@ -196,13 +203,13 @@ static PyGetSetDef window_getset[] = {
     {NULL}
 };
 
-PyTypeObject WindowType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "Window",
-    .tp_doc = "Main object for managing the window",
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
-    .tp_init = window_init,
-    .tp_methods = window_methods,
-    .tp_getset = window_getset
+static PyType_Slot window_slots[] = {
+    {Py_tp_doc, "Main object for managing the window"},
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_init, window_init},
+    {Py_tp_methods, window_methods},
+    {Py_tp_getset, window_getset},
+    {0}
 };
+
+Spec window_data = {{"Window", 0, 0, Py_TPFLAGS_DEFAULT, window_slots}};

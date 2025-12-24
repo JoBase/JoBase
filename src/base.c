@@ -1,5 +1,18 @@
 #include "main.h"
 
+static bool converter(PyObject *src, Vec2 **pos) {
+    if (PyObject_TypeCheck(src, base_data.type))
+        return *pos = &((Base *) src) -> pos, true;
+
+    if (Py_TYPE(src) == mouse_data.type)
+        return *pos = &mouse.pos, true;
+
+    if (Py_TYPE(src) == camera_data.type)
+        return *pos = &camera.pos, true;
+
+    return false;
+}
+
 static PyObject *base_get_x(Base *self, void *closure) {
     return PyFloat_FromDouble(self -> pos.x);
 }
@@ -147,6 +160,31 @@ static int base_init(Base *self, PyObject *args, PyObject *kwds) {
     return self -> angle = 0;
 }
 
+static PyObject *base_look_at(Base *self, PyObject *item) {
+    Vec2 *pos = NULL;
+
+    if (!PyArg_Parse(item, "O&:look_at", converter, &pos))
+        return NULL;
+
+    self -> angle = atan2(pos -> y - self -> pos.y, pos -> x - self -> pos.x) * 180 / M_PI;
+    Py_RETURN_NONE;
+}
+
+static PyObject *base_move_to(Base *self, PyObject *args) {
+    double value = 1;
+    Vec2 *pos = NULL;
+
+    if (!PyArg_ParseTuple(args, "O&|d:move_to", converter, &pos, &value))
+        return NULL;
+
+    const Vec2 move = norm(pos -> x - self -> pos.x, pos -> y - self -> pos.y);
+
+    self -> pos.x += move.x * value;
+    self -> pos.y += move.y * value;
+
+    Py_RETURN_NONE;
+}
+
 void base_matrix(Base *self, GLint obj, GLint color, double width, double height) {
     const double sine = sin(self -> angle * M_PI / 180);
     const double cosine = cos(self -> angle * M_PI / 180);
@@ -160,6 +198,60 @@ void base_matrix(Base *self, GLint obj, GLint color, double width, double height
 
     glUniformMatrix3fv(obj, 1, GL_FALSE, matrix);
     glUniform4f(color, self -> color.x, self -> color.y, self -> color.z, self -> color.w);
+}
+
+void base_trans(Base *self, Vec2 *src, Vec2 *dst, size_t length) {
+    const double x = cos(self -> angle * M_PI / 180);
+    const double y = sin(self -> angle * M_PI / 180);
+
+    for (size_t i = 0; i < length; i ++) {
+        const double px = src[i].x * self -> scale.x + self -> anchor.x;
+        const double py = src[i].y * self -> scale.y + self -> anchor.y;
+
+        dst[i].x = px * x - py * y + self -> pos.x;
+        dst[i].y = py * x + px * y + self -> pos.y;
+    }
+}
+
+void base_rect(Base *self, Vec2 *points, double width, double height) {
+    points[0].x = points[3].x = width / -2;
+    points[0].y = points[1].y = height / 2;
+    points[1].x = points[2].x = width / 2;
+    points[2].y = points[3].y = height / -2;
+
+    base_trans(self, points, points, 4);
+}
+
+double base_radius(Base *self, double rad) {
+    return rad / 2 * (self -> scale.x + self -> scale.y) / 2;
+}
+
+int base_top(Base *self, PyObject *value, double pos) {
+    DEL(value, "top")
+
+    const double res = PyFloat_AsDouble(value);
+    return ERR(res) ? -1 : (self -> pos.y += res - pos, 0);
+}
+
+int base_right(Base *self, PyObject *value, double pos) {
+    DEL(value, "right")
+
+    const double res = PyFloat_AsDouble(value);
+    return ERR(res) ? -1 : (self -> pos.x += res - pos, 0);
+}
+
+int base_bottom(Base *self, PyObject *value, double pos) {
+    DEL(value, "bottom")
+
+    const double res = PyFloat_AsDouble(value);
+    return ERR(res) ? -1 : (self -> pos.y += res - pos, 0);
+}
+
+int base_left(Base *self, PyObject *value, double pos) {
+    DEL(value, "left")
+
+    const double res = PyFloat_AsDouble(value);
+    return ERR(res) ? -1 : (self -> pos.x += res - pos, 0);
 }
 
 static PyGetSetDef base_getset[] = {
@@ -178,14 +270,19 @@ static PyGetSetDef base_getset[] = {
     {NULL}
 };
 
-PyTypeObject BaseType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "Base",
-    .tp_doc = "The root class for rendering things",
-    .tp_basicsize = sizeof(Base),
-    .tp_itemsize = 0,
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_new = PyType_GenericNew,
-    .tp_init = (initproc) base_init,
-    .tp_getset = base_getset
+static PyMethodDef base_methods[] = {
+    {"look_at", (PyCFunction) base_look_at, METH_O, "Rotate the object to point toward another object"},
+    {"move_to", (PyCFunction) base_move_to, METH_VARARGS, "Move the object toward another object"},
+    {NULL}
 };
+
+static PyType_Slot base_slots[] = {
+    {Py_tp_doc, "The root class for rendering things"},
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_init, base_init},
+    {Py_tp_getset, base_getset},
+    {Py_tp_methods, base_methods},
+    {0}
+};
+
+Spec base_data = {{"Base", sizeof(Base), 0, Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE, base_slots}};

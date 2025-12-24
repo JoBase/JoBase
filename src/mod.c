@@ -11,11 +11,11 @@ static PyObject *mod_getattro(PyObject *self, PyObject *attr) {
     return NULL;
 }
 
-PyTypeObject ModType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "Mod",
-    .tp_doc = "Input handler for keyboard modifiers",
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
-    .tp_getattro = mod_getattro
+static PyType_Slot mod_slots[] = {
+    {Py_tp_doc, "The input handler for keyboard modifiers"},
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_getattro, mod_getattro},
+    {0}
 };
+
+Spec mod_data = {{"Mod", 0, 0, Py_TPFLAGS_DEFAULT, mod_slots}};

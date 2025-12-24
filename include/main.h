@@ -10,7 +10,11 @@
 #ifdef __EMSCRIPTEN__
 #define VERSION "300 es"
 #include <emscripten.h>
+#include <emscripten/html5.h>
 #include <GLES3/gl3.h>
+
+extern uint32_t width(void);
+extern uint32_t height(void);
 #else
 #define VERSION "330 core"
 #include "glad/glad.h"
@@ -21,6 +25,7 @@
 #include <SDL3_mixer/SDL_mixer.h>
 #include <tesselator.h>
 #include <stb_image.h>
+#include <stb_image_write.h>
 
 enum {x, y, z, w};
 enum {r, g, b, a};
@@ -40,10 +45,13 @@ typedef struct Points Points;
 typedef struct Line Line;
 typedef struct Texture Texture;
 typedef struct Font Font;
+typedef struct Audio Audio;
 typedef struct Image Image;
 typedef struct Circle Circle;
 typedef struct Text Text;
 typedef struct Sound Sound;
+typedef struct Screen Screen;
+typedef struct Spec Spec;
 
 struct Vec2 {
     double x;
@@ -124,6 +132,12 @@ struct Font {
     uint32_t len;
 };
 
+struct Audio {
+    Audio *next;
+    MIX_Audio *src;
+    char *name;
+};
+
 struct Image {
     Rect base;
     Texture *src;
@@ -162,6 +176,17 @@ struct Points {
 
 struct Sound {
     PyObject_HEAD
+    MIX_Track *track;
+    Audio *src;
+    float *pcm;
+    int samples;
+    int channels;
+};
+
+struct Screen {
+    Rect base;
+    GLuint buffer;
+    GLuint texture;
 };
 
 struct Key {
@@ -184,6 +209,11 @@ struct Program {
     GLint color;
 };
 
+struct Spec {
+    PyType_Spec spec;
+    PyTypeObject *type;
+};
+
 extern struct Window {
     SDL_Window *sdl;
     SDL_GLContext ctx;
@@ -191,6 +221,7 @@ extern struct Window {
     Vec3 color;
     bool resize;
     char *title;
+    double ratio;
 } window;
 
 extern struct Camera {
@@ -235,28 +266,61 @@ extern PyObject *error;
 extern PyObject *program;
 extern Texture *textures;
 extern Font *fonts;
+extern Audio *audio;
+extern MIX_Mixer *mixer;
 
-extern PyTypeObject VectorType;
-extern PyTypeObject WindowType;
-extern PyTypeObject KeyType;
-extern PyTypeObject BaseType;
-extern PyTypeObject ButtonType;
-extern PyTypeObject ModType;
-extern PyTypeObject RectType;
-extern PyTypeObject CameraType;
-extern PyTypeObject MouseType;
-extern PyTypeObject ShapeType;
-extern PyTypeObject PointsType;
-extern PyTypeObject LineType;
-extern PyTypeObject ImageType;
-extern PyTypeObject CircleType;
-extern PyTypeObject TextType;
-extern PyTypeObject SoundType;
+extern Spec vector_data;
+extern Spec window_data;
+extern Spec camera_data;
+extern Spec mouse_data;
+extern Spec key_data;
+extern Spec sound_data;
+extern Spec base_data;
+extern Spec button_data;
+extern Spec mod_data;
+extern Spec rect_data;
+extern Spec shape_data;
+extern Spec points_data;
+extern Spec line_data;
+extern Spec image_data;
+extern Spec circle_data;
+extern Spec text_data;
+extern Spec screen_data;
 
 extern Vector *vector_new(PyObject *, double *, uint8_t, int (*)(PyObject *));
 extern Points *points_new(Shape *, int (*)(Shape *));
+extern PyObject *rect_intersect(PyObject *, Vec2 *);
 
+extern Vec2 *shape_points(Shape *);
+extern Vec2 circle_pos(Circle *);
+
+extern void base_trans(Base *, Vec2 *, Vec2 *, size_t);
 extern void base_matrix(Base *, GLint, GLint, double, double);
+extern void base_rect(Base *, Vec2 *, double, double);
+extern double base_radius(Base *, double);
+extern double rect_y(Base *, double, double, char);
+extern double rect_x(Base *, double, double, char);
+
+extern bool collide_poly_point(Vec2 *, size_t, Vec2);
+extern bool collide_poly_circle(Vec2 *, size_t, Circle *);
+extern bool collide_poly_poly(Vec2 *, size_t, Vec2 *, size_t);
+extern bool collide_circle_point(Vec2, double, Vec2);
+extern int collide_line_point(Line *, Vec2, double);
+extern int collide_line_poly(Line *, Vec2 *, size_t);
+extern int collide_line_line(Line *, Line *);
+
+extern int base_top(Base *, PyObject *, double);
+extern int base_right(Base *, PyObject *, double);
+extern int base_bottom(Base *, PyObject *, double);
+extern int base_left(Base *, PyObject *, double);
 extern int button_compare(const char *, Button *);
 extern int vector_set(PyObject *, double *, uint8_t);
 extern int points_set(PyObject *, Shape *);
+extern int screen_bind(PyObject *);
+
+static inline Vec2 norm(double x, double y) {
+    const double len = hypot(x, y);
+    Vec2 value = {len ? x / len : 0, len ? y / len : 0};
+
+    return value;
+}

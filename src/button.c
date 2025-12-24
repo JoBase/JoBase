@@ -36,18 +36,13 @@ static PyGetSetDef button_getset[] = {
     {NULL}
 };
 
-static PyNumberMethods button_as_number = {
-    .nb_bool = (inquiry) button_bool
+static PyType_Slot button_slots[] = {
+    {Py_tp_doc, "Represents the state of a keyboard or mouse button"},
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_str, button_str},
+    {Py_tp_getset, button_getset},
+    {Py_nb_bool, button_bool},
+    {0}
 };
 
-PyTypeObject ButtonType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "Button",
-    .tp_doc = "Represents the state of a keyboard or mouse button",
-    .tp_basicsize = sizeof(Button),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
-    .tp_str = (reprfunc) button_str,
-    .tp_getset = button_getset,
-    .tp_as_number = &button_as_number
-};
+Spec button_data = {{"Button", sizeof(Button), 0, Py_TPFLAGS_DEFAULT, button_slots}};

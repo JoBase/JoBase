@@ -10,14 +10,31 @@ mouse enter, leave
 - keydown
 - text.units
 update __init__.pyi
+more fonts
 - images memory leak
 - sdl errors
+zooom opposite of scale?
+turn mods into booleans, maybe
+- sound files (init name = DEFAULT) <-- actually no
+- add blit() to all shapes
+fix the save() function of screen
+sound change file after init?
+- line transparency
+window pixel ratio
+- sound default audio
+finish collision (and docs)
+docs: text doesn not instance rect
+pyargparse for screen
+
+TO Test:
+
+screen saving
 */
 
-#define FILE(n, s) CHECK(PyModule_AddStringConstant(program,n,memcpy(path.src+path.size,s,strlen(s)+1)))
-#define CALL(e) PyObject_CallObject((PyObject*)&e,NULL)
+#define FILE(n, s) sprintf(path.src+path.size,s);CHECK(PyModule_AddStringConstant(program,n,path.src))
 #define ADD(n, t) CHECK(PyModule_Add(program,n,t))
 #define COLOR(r, g, b) PyTuple_Pack(3,PyFloat_FromDouble(r),PyFloat_FromDouble(g),PyFloat_FromDouble(b))
+#define TYPE(e, x) CHECK(!(e.type=(PyTypeObject *)PyType_FromSpecWithBases(&e.spec,x)))
 #define CHECK(e) if(e)goto fail;
 
 #include "main.h"
@@ -318,6 +335,8 @@ PyObject *error;
 PyObject *program;
 Texture *textures;
 Font *fonts;
+Audio *audio;
+MIX_Mixer *mixer;
 
 Button button[LEN(buttons)];
 Button key[LEN(keys)];
@@ -334,6 +353,16 @@ struct Mouse mouse = {
     .button = button,
     .len = LEN(buttons)
 };
+
+static void clean(void) {
+    printf("FREE stuff\n");
+
+    SDL_GL_DestroyContext(window.ctx);
+    SDL_DestroyWindow(window.sdl);
+
+    MIX_Quit();
+    SDL_Quit();
+}
 
 static int compare(uint32_t *code, Key *key) {
     return *code - key -> id;
@@ -420,8 +449,8 @@ static int update(PyObject *loop) {
         }
     }
 
-    const double sx = 2 / window.size.x * camera.scale.x;
-    const double sy = 2 / window.size.y * camera.scale.y;
+    const double sx = 2 / window.size.x / camera.scale.x;
+    const double sy = 2 / window.size.y / camera.scale.y;
 
     GLfloat matrix[] = {
         sx, 0, 0, 0,
@@ -456,27 +485,30 @@ static int update(PyObject *loop) {
     return SDL_GL_SwapWindow(window.sdl) ? 0 : (PyErr_SetString(error, SDL_GetError()), -1);
 }
 
+static int module_clear(PyObject *self) {
+    Py_CLEAR(program);
+    Py_CLEAR(error);
+
+    return 0;
+}
+
 #ifdef __EMSCRIPTEN__
-static PyObject *method;
+static bool running;
 
-static void run() {
-    if (method && update(method)) {
-        Py_XDECREF(method);
-        PyErr_Print();
+EM_JS(uint32_t, width, (void), {return data.canvas.clientWidth})
+EM_JS(uint32_t, height, (void), {return data.canvas.clientHeight})
+EM_JS(void, init, (void), {data.open()})
+EM_JS(void, end, (void), {data.close()})
 
-        method = NULL;
-    }
-}
+static bool run(double time, PyObject *loop) {
+    if (running && !update(loop))
+        return true;
 
-EMSCRIPTEN_KEEPALIVE
-void start() {
-    Py_Initialize();
-    emscripten_set_main_loop(run, 0, 0);
-}
+    Py_XDECREF(loop);
+    Py_Finalize();
+    chdir("/");
 
-EMSCRIPTEN_KEEPALIVE
-void call(const char *string) {
-    PyRun_SimpleString(string);
+    return end(), false;
 }
 #endif
 
@@ -486,7 +518,11 @@ static PyObject *module_run(PyObject *self, PyObject *ignored) {
     if (PyObject_GetOptionalAttrString(program, "loop", &loop) >= 0) {
         if (SDL_ShowWindow(window.sdl)) {
 #ifdef __EMSCRIPTEN__
-            method = loop;
+            running = true;
+
+            init();
+            emscripten_request_animation_frame_loop((bool (*)(double, void *)) run, loop);
+
             Py_RETURN_NONE;
 #else
             int status;
@@ -506,28 +542,44 @@ static PyObject *module_run(PyObject *self, PyObject *ignored) {
     return NULL;
 }
 
+static PyObject *module_random(PyObject *self, PyObject *args) {
+    double x = 0, y = 1;
+
+    if (PyArg_ParseTuple(args, "|dd:random", &x, &y))
+        return PyFloat_FromDouble(rand() / (RAND_MAX / fabs(y - x)) + MIN(x, y));
+
+    return NULL;
+}
+
 static PyMethodDef module_methods[] = {
     {"run", module_run, METH_NOARGS, "Run the main game loop"},
+    {"random", module_random, METH_VARARGS, "Generate a random floating point number"},
     {NULL}
 };
 
 static int module_exec(PyObject *self) {
-    if ((error = PyErr_NewException("JoBase.SDLError", PyExc_OSError, NULL))) {
-        if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) && MIX_Init()) {
-            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-            SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-            SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 0);
+    printf("Welcome to JoBase\n");
 
-            window.sdl = SDL_CreateWindow(NULL, 0, 0, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE);
-
-            if (window.sdl && (window.ctx = SDL_GL_CreateContext(window.sdl)) && SDL_GL_SetSwapInterval(1)) {
-                CHECK(PyDict_GetItemStringRef(PySys_GetObject("modules"), "__main__", &program) < 0)
-
-                if (!program) {
-                    PyErr_SetString(PyExc_ModuleNotFoundError, "Couldn't find module '__main__'");
-                    goto fail;
-                }
+    if ((error = PyErr_NewException("JoBase.SDLError", PyExc_OSError, NULL)) && !Py_AtExit(clean)) {
+        if (
+            SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) && MIX_Init() &&
+            SDL_SetHint(SDL_HINT_EMSCRIPTEN_KEYBOARD_ELEMENT, "#canvas") &&
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3) &&
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0) &&
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE) &&
+            SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 0)
+        ) {
+#ifdef __EMSCRIPTEN__
+            window.sdl = SDL_CreateWindow(NULL, width(), height(), SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+#else
+            window.sdl = SDL_CreateWindow(NULL, 0, 0, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+#endif
+            if (window.sdl &&
+                (mixer = MIX_CreateMixerDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, NULL)) &&
+                (window.ctx = SDL_GL_CreateContext(window.sdl)) &&
+                (window.ratio = SDL_GetWindowPixelDensity(window.sdl)) &&
+                SDL_GL_SetSwapInterval(1)
+            ) {
 #ifdef __EMSCRIPTEN__
                 path.size = 0;
 
@@ -564,57 +616,63 @@ static int module_exec(PyObject *self) {
                 memcpy(path.src, str, path.size);
                 Py_DECREF(file);
 #endif
+                CHECK(!(program = PyImport_AddModuleRef("__main__")))
+
+                TYPE(window_data, NULL)
+                TYPE(vector_data, NULL)
+                TYPE(camera_data, NULL)
+                TYPE(mouse_data, NULL)
+                TYPE(key_data, NULL)
+                TYPE(sound_data, NULL)
+                TYPE(base_data, NULL)
+                TYPE(button_data, NULL)
+                TYPE(mod_data, NULL)
+                TYPE(points_data, NULL)
+                TYPE(rect_data, (PyObject *) base_data.type)
+                TYPE(shape_data, (PyObject *) base_data.type)
+                TYPE(circle_data, (PyObject *) base_data.type)
+                TYPE(screen_data, (PyObject *) rect_data.type)
+                TYPE(text_data, (PyObject *) base_data.type)
+                TYPE(line_data, (PyObject *) shape_data.type)
+                TYPE(image_data, (PyObject *) rect_data.type)
+
                 FILE("MAN", "images/man.png")
+                FILE("COIN", "images/coin.png")
+                FILE("ENEMY", "images/enemy.png")
+                FILE("PICKUP", "audio/pickup.wav")
+                FILE("BLIP", "audio/blip.wav")
 
-                CHECK(PyModule_AddIntConstant(program, "DEFAULT", 0));
-                CHECK(PyModule_AddIntConstant(program, "CODE", 1));
-
-                CHECK(PyType_Ready(&WindowType))
-                CHECK(PyType_Ready(&MouseType))
-                CHECK(PyType_Ready(&VectorType))
-                CHECK(PyType_Ready(&KeyType))
-                CHECK(PyType_Ready(&ButtonType))
-                CHECK(PyType_Ready(&ModType))
-                CHECK(PyType_Ready(&BaseType))
-                CHECK(PyType_Ready(&RectType))
-                CHECK(PyType_Ready(&CameraType))
-                CHECK(PyType_Ready(&ShapeType))
-                CHECK(PyType_Ready(&PointsType))
-                CHECK(PyType_Ready(&LineType))
-                CHECK(PyType_Ready(&ImageType))
-                CHECK(PyType_Ready(&CircleType))
-                CHECK(PyType_Ready(&TextType))
-                CHECK(PyType_Ready(&SoundType))
-                CHECK(!PyObject_Init(&keyboard.map, &ModType))
+                CHECK(PyModule_AddIntConstant(program, "DEFAULT", 0))
+                CHECK(PyModule_AddIntConstant(program, "CODE", 1))
+                CHECK(!PyObject_Init(&keyboard.map, mod_data.type))
 
                 for (uint16_t i = 0; i < LEN(keys); i ++) {
-                    CHECK(!PyObject_Init((PyObject *) &key[i], &ButtonType))
+                    CHECK(!PyObject_Init((PyObject *) &key[i], button_data.type))
                     key[i].key = &keys[i];
                 }
 
                 for (uint8_t i = 0; i < LEN(mods); i ++) {
-                    CHECK(!PyObject_Init((PyObject *) &mod[i], &ButtonType))
+                    CHECK(!PyObject_Init((PyObject *) &mod[i], button_data.type))
                     mod[i].key = &mods[i];
                 }
 
                 for (uint8_t i = 0; i < LEN(buttons); i ++) {
-                    CHECK(!PyObject_Init((PyObject *) &button[i], &ButtonType))
+                    CHECK(!PyObject_Init((PyObject *) &button[i], button_data.type))
                     button[i].key = &buttons[i];
                 }
 
-                ADD("camera", CALL(CameraType))
-                ADD("window", CALL(WindowType))
-                ADD("mouse", CALL(MouseType))
-                ADD("key", CALL(KeyType))
-                ADD("Rect", (PyObject *) &RectType)
-                ADD("Shape", (PyObject *) &ShapeType)
-                ADD("Line", (PyObject *) &LineType)
-                ADD("Image", (PyObject *) &ImageType)
-                ADD("Circle", (PyObject *) &CircleType)
-                ADD("Text", (PyObject *) &TextType)
-                ADD("Sound", (PyObject *) &SoundType)
-
-                printf("hhhhhh\n");
+                ADD("camera", PyObject_CallObject((PyObject *) camera_data.type, NULL))
+                ADD("window", PyObject_CallObject((PyObject *) window_data.type, NULL))
+                ADD("mouse", PyObject_CallObject((PyObject *) mouse_data.type, NULL))
+                ADD("key", PyObject_CallObject((PyObject *) key_data.type, NULL))
+                ADD("Rect", (PyObject *) rect_data.type)
+                ADD("Shape", (PyObject *) shape_data.type)
+                ADD("Line", (PyObject *) line_data.type)
+                ADD("Image", (PyObject *) image_data.type)
+                ADD("Circle", (PyObject *) circle_data.type)
+                ADD("Text", (PyObject *) text_data.type)
+                ADD("Sound", (PyObject *) sound_data.type)
+                ADD("Screen", (PyObject *) screen_data.type)
 
                 ADD("WHITE", COLOR(1, 1, 1))
                 ADD("BLACK", COLOR(0, 0, 0))
@@ -786,6 +844,7 @@ static int module_exec(PyObject *self) {
                 return PyModule_AddFunctions(program, module_methods);
 
             fail:
+                printf("failool\n");
                 Py_DECREF(error);
                 Py_XDECREF(program);
 
@@ -801,25 +860,15 @@ static int module_exec(PyObject *self) {
 }
 
 static int module_traverse(PyObject *self, visitproc visit, void *arg) {
-    printf("TRAVERSE\n");
-
     Py_VISIT(program);
     Py_VISIT(error);
 
     return 0;
 }
 
-static int module_clear(PyObject *self) {
-    printf("CLEAR\n");
-
-    Py_CLEAR(program);
-    Py_CLEAR(error);
-
-    return 0;
-}
-
 static void module_free(void *closure) {
-    printf("FREE MODULE\n");
+    module_clear(NULL);
+
     free(window.title);
     free(path.src);
 
@@ -843,6 +892,16 @@ static void module_free(void *closure) {
         free(this);
     }
 
+    while (audio) {
+        Audio *this = audio;
+
+        audio = this -> next;
+        MIX_DestroyAudio(audio -> src);
+
+        free(this -> name);
+        free(this);
+    }
+
     printf("FREE vao\n");
 
     if (shader.vao) {
@@ -855,13 +914,43 @@ static void module_free(void *closure) {
         glDeleteProgram(shader.text.src);
     }
 
-    printf("FREE stuff\n");
-
-    SDL_GL_DestroyContext(window.ctx);
-    SDL_DestroyWindow(window.sdl);
-    SDL_Quit();
-    MIX_Quit();
+    printf("FREE end\n");
 }
+
+#ifdef __EMSCRIPTEN__
+EMSCRIPTEN_KEEPALIVE
+void stop(void) {
+    running = false;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void call(const char *string) {
+    Py_Initialize();
+    chdir("/main");
+
+    PyObject *root = PyUnicode_FromString("/main");
+
+    if (PyList_Append(PySys_GetObject("path"), root))
+        Py_DECREF(root);
+
+    else {
+        Py_DECREF(root);
+
+        if (!string) {
+            FILE *file = fopen("/main/__main__.py", "r");
+
+            if (file && !PyRun_SimpleFileEx(file, "__main__.py", 1) && running)
+                return;
+        }
+
+        else if (!PyRun_SimpleString(string) && running)
+            return;
+    }
+
+    Py_Finalize();
+    chdir("/");
+}
+#endif
 
 static PyModuleDef_Slot module_slots[] = {
     {Py_mod_exec, module_exec},
@@ -879,5 +968,5 @@ static PyModuleDef module = {
 };
 
 PyMODINIT_FUNC PyInit_JoBase(void) {
-    return printf("Welcome to JoBase\n"), PyModuleDef_Init(&module);
+    return srand(time(NULL)), PyModuleDef_Init(&module);
 }

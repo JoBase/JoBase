@@ -36,7 +36,7 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
     source = list(pathlib.Path("src").glob("*.c")) + list(pathlib.Path("lib/libtess2/Source").glob("*.c"))
     arch = [] if sys.maxsize > 2 ** 32 or sys.platform != "win32" else ["-A", "Win32"]
 
-    if not pathlib.Path("sdl/build").exists():
+    if not pathlib.Path("lib/sdl/build").exists():
         if sys.platform == "linux":
             if shutil.which("apk"):
                 subprocess.run(["apk", "add", "--no-cache", "libxkbcommon-dev", "wayland-dev", "wayland-protocols", "mesa-dev", "libdrm-dev"])
@@ -65,7 +65,7 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
 
     if not pathlib.Path("lib/mix/build").exists():
         subprocess.run([
-            "cmake", "-S", "mix", "-B", "lib/mix/build", *arch,
+            "cmake", "-S", "lib/mix", "-B", "lib/mix/build", *arch,
             "-DBUILD_SHARED_LIBS=OFF",
             "-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64",
             "-DCMAKE_OSX_DEPLOYMENT_TARGET=10.13",
@@ -95,7 +95,7 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
         "-Wstrict-prototypes", "-Wsign-compare"
     ] if sys.platform == "darwin" else []),
         *source,
-        "-I" + include, "-Iinclude", "-Istb",
+        "-I" + include, "-Iinclude", "-Ilib/stb",
         "-Ilib/libtess2/Include", "-Ilib/sdl/include", "-Ilib/mix/include",
         "-Llib/sdl/build", "-lSDL3", "-Llib/mix/build", "-lSDL3_mixer",
         "-fPIC",
@@ -103,7 +103,7 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
     ])
 
     for path in pathlib.Path("module").rglob("*"):
-        if path.suffix in (".pyi", ".png", ".ttf", ".bin"):
+        if path.suffix in (".pyi", ".png", ".bin", ".wav"):
             write(path, pathlib.Path(*path.parts[1:]))
 
     writestr(f"JoBase-{VERSION}.dist-info/METADATA", [

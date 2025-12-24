@@ -68,7 +68,7 @@ static void points_dealloc(Points *self) {
 }
 
 Points *points_new(Shape *parent, int (*update)(Shape *)) {
-    Points *self = PyObject_New(Points, &PointsType);
+    Points *self = PyObject_New(Points, points_data.type);
 
     if (self) {
         Py_INCREF(self -> parent = parent);
@@ -100,21 +100,16 @@ int points_set(PyObject *value, Shape *shape) {
     return 0;
 }
 
-static PySequenceMethods points_as_sequence = {
-    .sq_length = (lenfunc) points_len,
-    .sq_item = (ssizeargfunc) points_item,
-    .sq_ass_item = (ssizeobjargproc) points_ass_item
+static PyType_Slot points_slots[] = {
+    {Py_tp_doc, "Represents a list of coordinates"},
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_dealloc, points_dealloc},
+    {Py_tp_str, points_str},
+    {Py_tp_repr, points_repr},
+    {Py_sq_length, points_len},
+    {Py_sq_item, points_item},
+    {Py_sq_ass_item, points_ass_item},
+    {0}
 };
 
-PyTypeObject PointsType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "Points",
-    .tp_doc = "Represents a list of coordinates",
-    .tp_basicsize = sizeof(Points),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
-    .tp_dealloc = (destructor) points_dealloc,
-    .tp_str = (reprfunc) points_str,
-    .tp_repr = (reprfunc) points_repr,
-    .tp_as_sequence = &points_as_sequence
-};
+Spec points_data = {{"Points", sizeof(Points), 0, Py_TPFLAGS_DEFAULT, points_slots}};

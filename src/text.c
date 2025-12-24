@@ -1,5 +1,23 @@
 #include "main.h"
 
+static void draw(Text *self) {
+    glBindTexture(GL_TEXTURE_2D, self -> src -> src);
+    glUseProgram(shader.text.src);
+
+    GLfloat matrix[] = {
+        self -> size * self -> base.scale.x, 0, 0,
+        0, self -> size * self -> base.scale.y, 0,
+        self -> base.pos.x - self -> width * self -> size / 2,
+        self -> base.pos.y, 1
+    };
+
+    glUniformMatrix3fv(shader.text.obj, 1, GL_FALSE, matrix);
+    glUniform4f(shader.text.color, self -> base.color.x, self -> base.color.y, self -> base.color.z, self -> base.color.w);
+
+    glBindVertexArray(self -> vao);
+    glDrawArrays(GL_TRIANGLES, 0, self -> len * 6);
+}
+
 static int compare(wchar_t *code, Glyph *glyph) {
     return *code - glyph -> code;
 }
@@ -125,6 +143,38 @@ static int load(Text *self, uint8_t src) {
     return -1;
 }
 
+static PyObject *text_get_top(Text *self, void *closure) {
+    return PyFloat_FromDouble(rect_y((Base *) self, self -> width * self -> size, self -> size, 1));
+}
+
+static int text_set_top(Text *self, PyObject *value, void *closure) {
+    return base_top((Base *) self, value, rect_y((Base *) self, self -> width * self -> size, self -> size, 1));
+}
+
+static PyObject *text_get_right(Text *self, void *closure) {
+    return PyFloat_FromDouble(rect_x((Base *) self, self -> width * self -> size, self -> size, 1));
+}
+
+static int text_set_right(Text *self, PyObject *value, void *closure) {
+    return base_right((Base *) self, value, rect_x((Base *) self, self -> width * self -> size, self -> size, 1));
+}
+
+static PyObject *text_get_bottom(Text *self, void *closure) {
+    return PyFloat_FromDouble(rect_y((Base *) self, self -> width * self -> size, self -> size, -1));
+}
+
+static int text_set_bottom(Text *self, PyObject *value, void *closure) {
+    return base_bottom((Base *) self, value, rect_y((Base *) self, self -> width * self -> size, self -> size, -1));
+}
+
+static PyObject *text_get_left(Text *self, void *closure) {
+    return PyFloat_FromDouble(rect_x((Base *) self, self -> width * self -> size, self -> size, -1));
+}
+
+static int text_set_left(Text *self, PyObject *value, void *closure) {
+    return base_left((Base *) self, value, rect_x((Base *) self, self -> width * self -> size, self -> size, -1));
+}
+
 static PyObject *text_get_width(Text *self, void *closure) {
     return PyFloat_FromDouble(self -> width * self -> size);
 }
@@ -184,7 +234,7 @@ static int text_init(Text *self, PyObject *args, PyObject *kwds) {
     PyObject *text = NULL;
     uint8_t src = 0;
 
-    BaseType.tp_init((PyObject *) self, NULL, NULL);
+    base_data.type -> tp_init((PyObject *) self, NULL, NULL);
     self -> size = 50;
     self -> len = 4;
 
@@ -209,22 +259,16 @@ static int text_init(Text *self, PyObject *args, PyObject *kwds) {
 }
 
 static PyObject *text_draw(Text *self, PyObject *args) {
-    glBindTexture(GL_TEXTURE_2D, self -> src -> src);
-    glUseProgram(shader.text.src);
+    draw(self);
+    Py_RETURN_NONE;
+}
 
-    GLfloat matrix[] = {
-        self -> size * self -> base.scale.x, 0, 0,
-        0, self -> size * self -> base.scale.y, 0,
-        self -> base.pos.x - self -> width * self -> size / 2,
-        self -> base.pos.y, 1
-    };
+static PyObject *text_blit(Text *self, PyObject *item) {
+    if (screen_bind(item))
+        return NULL;
 
-    glUniformMatrix3fv(shader.text.obj, 1, GL_FALSE, matrix);
-    glUniform4f(shader.text.color, self -> base.color.x, self -> base.color.y, self -> base.color.z, self -> base.color.w);
-
-    glBindVertexArray(self -> vao);
-    glDrawArrays(GL_TRIANGLES, 0, self -> len * 6);
-
+    draw(self);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
     Py_RETURN_NONE;
 }
 
@@ -235,29 +279,40 @@ static void text_dealloc(Text *self) {
     free(self -> content);
 }
 
+static PyObject *text_collide(Text *self, PyObject *item) {
+    Vec2 poly[4];
+    base_rect((Base *) self, poly, self -> width * self -> size, self -> size);
+
+    return rect_intersect(item, poly);
+}
+
 static PyGetSetDef text_getset[] = {
     {"size", (getter) text_get_size, (setter) text_set_size, "The em units of the text", NULL},
     {"font", (getter) text_get_font, (setter) text_set_font, "The font of the text", NULL},
     {"content", (getter) text_get_content, (setter) text_set_content, "The content string of the text", NULL},
     {"width", (getter) text_get_width, NULL, "The measured width of the text", NULL},
+    {"top", (getter) text_get_top, (setter) text_set_top, "The top position of the text", NULL},
+    {"right", (getter) text_get_right, (setter) text_set_right, "The right position of the text", NULL},
+    {"bottom", (getter) text_get_bottom, (setter) text_set_bottom, "The bottom position of the text", NULL},
+    {"left", (getter) text_get_left, (setter) text_set_left, "The left position of the text", NULL},
     {NULL}
 };
 
 static PyMethodDef text_methods[] = {
     {"draw", (PyCFunction) text_draw, METH_NOARGS, "Draw the text on the screen"},
+    {"blit", (PyCFunction) text_blit, METH_O, "Render the text to an offscreen surface"},
+    {"collide", (PyCFunction) text_collide, METH_O, "Detect collision with another object"},
     {NULL}
 };
 
-PyTypeObject TextType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "Text",
-    .tp_doc = "Render text on the screen",
-    .tp_basicsize = sizeof(Text),
-    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_base = &BaseType,
-    .tp_new = (newfunc) text_new,
-    .tp_init = (initproc) text_init,
-    .tp_dealloc = (destructor) text_dealloc,
-    .tp_methods = text_methods,
-    .tp_getset = text_getset
+static PyType_Slot text_slots[] = {
+    {Py_tp_doc, "Render text on the screen"},
+    {Py_tp_new, text_new},
+    {Py_tp_init, text_init},
+    {Py_tp_dealloc, text_dealloc},
+    {Py_tp_getset, text_getset},
+    {Py_tp_methods, text_methods},
+    {0}
 };
+
+Spec text_data = {{"Text", sizeof(Text), 0, Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE, text_slots}};

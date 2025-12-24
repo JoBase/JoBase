@@ -120,12 +120,12 @@ static PyGetSetDef camera_getset[] = {
     {NULL}
 };
 
-PyTypeObject CameraType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "Camera",
-    .tp_doc = "The view applied to everything on the screen",
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
-    .tp_init = camera_init,
-    .tp_getset = camera_getset
+static PyType_Slot camera_slots[] = {
+    {Py_tp_doc, "The view applied to everything on the screen"},
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_init, camera_init},
+    {Py_tp_getset, camera_getset},
+    {0}
 };
+
+Spec camera_data = {{"Camera", 0, 0, Py_TPFLAGS_DEFAULT, camera_slots}};

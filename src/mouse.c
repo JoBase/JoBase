@@ -1,7 +1,7 @@
 #include "main.h"
 
 static int pos(void *unused) {
-    return SDL_WarpMouseInWindow(window.sdl, mouse.pos.x, mouse.pos.y), 0;
+    return SDL_WarpMouseInWindow(window.sdl, mouse.pos.x + window.size.x / 2, window.size.y / 2 - mouse.pos.y), 0;
 }
 
 static PyObject *mouse_get_x(PyObject *self, void *closure) {
@@ -35,7 +35,7 @@ static Vector *mouse_get_pos(PyObject *self, void *closure) {
 
 static int mouse_set_pos(PyObject *self, PyObject *value, void *closure) {
     DEL(value, "pos")
-    return vector_set(value, (double *) &mouse.pos, 2);
+    return vector_set(value, (double *) &mouse.pos, 2) ? -1 : pos(NULL);
 }
 
 static Vector *mouse_get_move(PyObject *self, void *closure) {
@@ -57,14 +57,14 @@ static PyObject *mouse_get_release(PyObject *self, void *closure) {
     return PyBool_FromLong(mouse.release);
 }
 
-static int mouse_init(PyObject *self, PyObject *args, PyObject *kwds) {
-    static char *kwlist[] = {"x", "y", NULL};
+// static int mouse_init(PyObject *self, PyObject *args, PyObject *kwds) {
+//     static char *kwlist[] = {"x", "y", NULL};
 
-    mouse.pos.x = 0;
-    mouse.pos.y = 0;
+//     mouse.pos.x = 0;
+//     mouse.pos.y = 0;
 
-    return PyArg_ParseTupleAndKeywords(args, kwds, "|dd:Mouse", kwlist, &mouse.pos.x, &mouse.pos.y) ? pos(NULL) : -1;
-}
+//     return PyArg_ParseTupleAndKeywords(args, kwds, "|dd:Mouse", kwlist, &mouse.pos.x, &mouse.pos.y) ? pos(NULL) : -1;
+// }
 
 static PyObject *mouse_getattro(PyObject *self, PyObject *attr) {
     const char *name = PyUnicode_AsUTF8(attr);
@@ -88,13 +88,12 @@ static PyGetSetDef mouse_getset[] = {
     {NULL}
 };
 
-PyTypeObject MouseType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "Mouse",
-    .tp_doc = "The input handler for the cursor",
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew,
-    .tp_init = mouse_init,
-    .tp_getattro = mouse_getattro,
-    .tp_getset = mouse_getset
+static PyType_Slot mouse_slots[] = {
+    {Py_tp_doc, "The input handler for the cursor"},
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_getattro, mouse_getattro},
+    {Py_tp_getset, mouse_getset},
+    {0}
 };
+
+Spec mouse_data = {{"Mouse", 0, 0, Py_TPFLAGS_DEFAULT, mouse_slots}};
