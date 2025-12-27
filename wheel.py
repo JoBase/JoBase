@@ -26,6 +26,10 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
         code = base64.urlsafe_b64encode(hash.digest()).rstrip(b"=").decode("ascii")
         lines.append(f"{path},sha256={code},{len(bytes)}")
 
+    def clone(url, name):
+        if not pathlib.Path("lib/" + name).exists():
+            subprocess.run(["git", "clone", f"https://github.com/{url}.git", "lib/" + name, "--depth", "1"])
+
     build, flags, include, ext, ver, abi = sysconfig.get_config_vars("BLDSHARED", "OPT", "INCLUDEPY", "EXT_SUFFIX", "py_version_nodot", "abiflags")
     tag = f"cp{ver}-cp{ver}{abi}-{os.environ.get("PLAT", sysconfig.get_platform().replace("-", "_").replace(".", "_"))}"
     wheel = f"JoBase-{VERSION}-{tag}.whl"
@@ -35,6 +39,11 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
     lines = []
     source = list(pathlib.Path("src").glob("*.c")) + list(pathlib.Path("lib/libtess2/Source").glob("*.c"))
     arch = [] if sys.maxsize > 2 ** 32 or sys.platform != "win32" else ["-A", "Win32"]
+
+    clone("memononen/libtess2", "libtess2")
+    clone("libsdl-org/SDL_mixer", "mix")
+    clone("nothings/stb", "stb")
+    clone("JoBase/SDL", "sdl")
 
     if not pathlib.Path("lib/sdl/build").exists():
         if sys.platform == "linux":
