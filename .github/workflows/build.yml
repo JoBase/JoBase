@@ -10,112 +10,107 @@ on:
 
 jobs:
   macos:
-    name: MacOS Universal
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Build wheels
-        run: |
-          for py in 3.13.9 3.14.0
-          do
-            curl -L -o python.pkg https://www.python.org/ftp/python/$py/python-$py-macos11.pkg
-            sudo installer -pkg python.pkg -target /
-
-            /Library/Frameworks/Python.framework/Versions/Current/bin/python3 -m pip install build
-            /Library/Frameworks/Python.framework/Versions/Current/bin/python3 -m build --wheel
-          done
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@v3
-        with:
-          path: dist/*.whl
-
-  windows:
-    name: Windows ${{matrix.arch[0]}}
-    runs-on: windows-latest
+    name: ${{matrix.os[1]}}
+    runs-on: ${{matrix.os[0]}}
 
     strategy:
       matrix:
-        arch:
-          - [x86_64, amd64]
-          - [x86, win32]
+        os:
+          - [macos-latest, MacOS Universal]
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Set up MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: ${{matrix.arch[1]}}
+        uses: actions/checkout@v5
 
       - name: Build wheels
-        run: |
-          foreach ($py in "3.13.9", "3.13.9t", "3.14.0") {
-            $dir = $py -replace "t$",""
+        uses: pypa/cibuildwheel@v3.3.0
 
-            curl -L -o python.zip https://www.python.org/ftp/python/$dir/python-$py-${{matrix.arch[1]}}.zip
-            Expand-Archive python.zip -DestinationPath python/$py -Force
-
-            $exe = Get-ChildItem -Path python/$py -Filter "python*.exe" | Select-Object -First 1
-            & $exe.FullName -m pip install build
-            & $exe.FullName -m build --wheel
-          }
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@v3
+      - name: Upload
+        uses: actions/upload-artifact@v4
         with:
-          path: dist/*.whl
+          path: wheelhouse/*.whl
 
-  linux:
-    name: Linux ${{matrix.arch[0]}}
-    runs-on: ubuntu-latest
+  # windows:
+  #   name: Windows ${{matrix.arch[0]}}
+  #   runs-on: windows-latest
 
-    strategy:
-      matrix:
-        arch:
-          - [x86_64, manylinux_2_34_x86_64]
-          - [i686, manylinux_2_34_i686]
-          - [ppc64le, manylinux_2_34_ppc64le]
-          - [s390x, manylinux_2_34_s390x]
-          - [aarch64, manylinux_2_39_aarch64]
-          - [riscv64, manylinux_2_39_riscv64]
-          - [Musl x86_64, musllinux_1_2_x86_64]
-          - [Musl i686, musllinux_1_2_i686]
-          - [Musl aarch64, musllinux_1_2_aarch64]
-          - [Musl ppc64le, musllinux_1_2_ppc64le]
-          - [Musl s390x, musllinux_1_2_s390x]
-          - [Musl armv7l, musllinux_1_2_armv7l]
-          - [Musl riscv64, musllinux_1_2_riscv64]
+  #   strategy:
+  #     matrix:
+  #       arch:
+  #         - [x86_64, amd64]
+  #         - [x86, win32]
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #       with:
+  #         submodules: recursive
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+  #     - name: Set up MSVC
+  #       uses: ilammy/msvc-dev-cmd@v1
+  #       with:
+  #         arch: ${{matrix.arch[1]}}
 
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+  #     - name: Build wheels
+  #       run: |
+  #         foreach ($py in "3.13.9", "3.13.9t", "3.14.0") {
+  #           $dir = $py -replace "t$",""
 
-      - name: Build wheels
-        run: |
-          docker run --rm -e PLAT=${{matrix.arch[1]}} -v ${{github.workspace}}:/src -w /src quay.io/pypa/${{matrix.arch[1]}} bash -c '
-            for py in cp313-cp313 cp313-cp313t cp314-cp314 cp314-cp314t
-            do
-              /opt/python/$py/bin/python -m build --wheel
-            done'
+  #           curl -L -o python.zip https://www.python.org/ftp/python/$dir/python-$py-${{matrix.arch[1]}}.zip
+  #           Expand-Archive python.zip -DestinationPath python/$py -Force
 
-      - name: Upload wheels
-        uses: actions/upload-artifact@v3
-        with:
-          path: dist/*.whl
+  #           $exe = Get-ChildItem -Path python/$py -Filter "python*.exe" | Select-Object -First 1
+  #           & $exe.FullName -m pip install build
+  #           & $exe.FullName -m build --wheel
+  #         }
+
+  #     - name: Upload wheels
+  #       uses: actions/upload-artifact@v3
+  #       with:
+  #         path: dist/*.whl
+
+  # linux:
+  #   name: Linux ${{matrix.arch[0]}}
+  #   runs-on: ubuntu-latest
+
+  #   strategy:
+  #     matrix:
+  #       arch:
+  #         - [x86_64, manylinux_2_34_x86_64]
+  #         - [i686, manylinux_2_34_i686]
+  #         - [ppc64le, manylinux_2_34_ppc64le]
+  #         - [s390x, manylinux_2_34_s390x]
+  #         - [aarch64, manylinux_2_39_aarch64]
+  #         - [riscv64, manylinux_2_39_riscv64]
+  #         - [Musl x86_64, musllinux_1_2_x86_64]
+  #         - [Musl i686, musllinux_1_2_i686]
+  #         - [Musl aarch64, musllinux_1_2_aarch64]
+  #         - [Musl ppc64le, musllinux_1_2_ppc64le]
+  #         - [Musl s390x, musllinux_1_2_s390x]
+  #         - [Musl armv7l, musllinux_1_2_armv7l]
+  #         - [Musl riscv64, musllinux_1_2_riscv64]
+
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #       with:
+  #         submodules: recursive
+
+  #     - name: Set up QEMU
+  #       uses: docker/setup-qemu-action@v3
+
+  #     - name: Set up Buildx
+  #       uses: docker/setup-buildx-action@v3
+
+  #     - name: Build wheels
+  #       run: |
+  #         docker run --rm -e PLAT=${{matrix.arch[1]}} -v ${{github.workspace}}:/src -w /src quay.io/pypa/${{matrix.arch[1]}} bash -c '
+  #           for py in cp313-cp313 cp313-cp313t cp314-cp314 cp314-cp314t
+  #           do
+  #             /opt/python/$py/bin/python -m build --wheel
+  #           done'
+
+  #     - name: Upload wheels
+  #       uses: actions/upload-artifact@v3
+  #       with:
+  #         path: dist/*.whl

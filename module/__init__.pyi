@@ -3,7 +3,11 @@ from typing import Union, Sequence
 vec = Union[int, float, Sequence[float]]
 
 class Base:
-    def draw() -> None: ...
+    def draw(self) -> None: ...
+    def blit(self, screen: Screen) -> None: ...
+    def collide(self, target: Base | Mouse) -> bool: ...
+    def look_at(self, target: Base | Camera) -> None: ...
+    def move_to(self, target: Base | Camera, value = 1) -> None: ...
 
     @property
     def pos(self) -> Vector: ...
@@ -42,6 +46,10 @@ class Base:
     green: float
     blue: float
     alpha: float
+    top: float
+    bottom: float
+    left: float
+    right: float
 
 class Vector:
     def __getattr__(self, name: str) -> float: ...
@@ -89,7 +97,7 @@ class Button:
     def down(self) -> bool: ...
 
 class Window:
-    def __init__(self, title = "JoBase", width = 640, height = 480, color = (1, 1, 1)) -> None: ...
+    def __init__(self, title = "JoBase", width: float = 640, height: float = 480, color = (1, 1, 1)) -> None: ...
 
     def close() -> None: ...
     def maximize() -> None: ...
@@ -137,7 +145,7 @@ class Key:
     pass
 
 class Mouse:
-    def __init__(self, x = 0, y = 0) -> None: ...
+    def __init__(self, x: float = 0, y: float = 0) -> None: ...
 
     @property
     def pos(self) -> Vector: ...
@@ -155,7 +163,7 @@ class Mouse:
     y: float
 
 class Camera:
-    def __init__(self, x = 0, y = 0) -> None: ...
+    def __init__(self, x: float = 0, y: float = 0) -> None: ...
 
     @property
     def pos(self) -> Vector: ...
@@ -185,7 +193,7 @@ class Camera:
     y: float
 
 class Rect(Base):
-    def __init__(self, x = 0, y = 0, width = 50, height = 50, angle = 0, color = (0, 0, 0, 1)) -> None: ...
+    def __init__(self, x: float = 0, y: float = 0, width: float = 50, height: float = 50, angle: float = 0, color = (0, 0, 0, 1)) -> None: ...
 
     @property
     def size(self) -> Vector: ...
@@ -197,7 +205,7 @@ class Rect(Base):
     height: float
 
 class Shape(Base):
-    def __init__(self, points: Sequence[vec] = ((0, 25), (25, -25), (-25, -25)), x = 0, y = 0, angle = 0, color = (0, 0, 0, 1)) -> None: ...
+    def __init__(self, points: Sequence[vec] = ((0, 25), (25, -25), (-25, -25)), x: float = 0, y: float = 0, angle: float = 0, color = (0, 0, 0, 1)) -> None: ...
 
     @property
     def points(self) -> Points: ...
@@ -206,19 +214,19 @@ class Shape(Base):
     def points(self, value: Sequence[vec]) -> None: ...
 
 class Line(Shape):
-    def __init__(self, points: Sequence[vec] = ((-25, -25), (25, 25)), width = 2, x = 0, y = 0, angle = 0, color = (0, 0, 0, 1)) -> None: ...
+    def __init__(self, points: Sequence[vec] = ((-25, -25), (25, 25)), width: float = 2, x: float = 0, y: float = 0, angle: float = 0, color = (0, 0, 0, 1)) -> None: ...
 
     loop: bool
     width: float
     miter: float
 
 class Image(Rect):
-    def __init__(self, name = MAN, x = 0, y = 0, angle = 0, width = 0, height = 0, color = (1, 1, 1, 1)) -> None: ...
+    def __init__(self, name = MAN, x: float = 0, y: float = 0, angle: float = 0, width: float = 0, height: float = 0, color = (1, 1, 1, 1)) -> None: ...
 
     name: str
 
 class Text(Base):
-    def __init__(self, content = "Text", x = 0, y = 0, size = 50, angle = 0, color = (0, 0, 0, 1), font = DEFAULT) -> None: ...
+    def __init__(self, content = "Text", x: float = 0, y: float = 0, size: float = 50, angle: float = 0, color = (0, 0, 0, 1), font = DEFAULT) -> None: ...
 
     @property
     def width(self) -> float: ...
@@ -228,24 +236,52 @@ class Text(Base):
     font: int
 
 class Circle(Base):
-    def __init__(self, x = 0, y = 0, radius = 25, color = (0, 0, 0, 1)) -> None: ...
+    def __init__(self, x: float = 0, y: float = 0, radius: float = 25, color = (0, 0, 0, 1)) -> None: ...
 
     diameter: float
 
 class Sound:
-    def __init__():
-        pass
+    def __init__(self, name = PICKUP) -> None: ...
+    def play() -> None: ...
+    def pause() -> None: ...
+    def resume() -> None: ...
+
+    @property
+    def amp(self) -> float: ...
+
+    @property
+    def samples(self) -> tuple[float, ...]: ...
+
+    @property
+    def playing(self) -> bool: ...
+
+    @property
+    def paused(self) -> bool: ...
+
+class Screen(Rect):
+    def __init__(self, width = window.width, height = window.height) -> None: ...
+    def save(self, name: str) -> None: ...
 
 def run() -> None: ...
+def random(x: float, y: float = 1) -> None: ...
 
 window: Window
 mouse: Mouse
 camera: Camera
 key: Key
 
+PICKUP: str
+BLIP: str
+
 MAN: str
+COIN: str
+ENEMY: str
+
 DEFAULT = 0
 CODE = 1
+SERIF = 2
+DISPLAY = 3
+PIXEL = 4
 
 WHITE = 1, 1, 1
 BLACK = 0, 0, 0
@@ -274,10 +310,12 @@ PINK = 1, .75, .8
 MAGENTA = 1, 0, 1
 
 __all__ = [
-    "window", "mouse", "camera", "key", "run",
+    "window", "mouse", "camera", "key", "run", "random",
     "Rect", "Shape", "Line", "Image", "Circle", "Text",
-    "Sound",
-    "MAN", "DEFAULT", "CODE",
+    "Sound", "Screen",
+    "MAN", "COIN", "ENEMEY",
+    "DEFAULT", "CODE", "SERIF", "DISPLAY", "PIXEL",
+    "PICKUP", "BLIP",
     "WHITE", "BLACK", "GRAY", "DARK_GRAY", "LIGHT_GRAY", "BROWN", "TAN", "RED", "DARK_RED", "SALMON", "ORANGE", "GOLD", "YELLOW",
-    "OLIVE", "LIME", "DARK_GREEN", "GREEN", "AQUA", "BLUE", "LIGHT_BLUE", "AZURE", "NAVY", "PURPLE", "PINK", "MAGENTA",
+    "OLIVE", "LIME", "DARK_GREEN", "GREEN", "AQUA", "BLUE", "LIGHT_BLUE", "AZURE", "NAVY", "PURPLE", "PINK", "MAGENTA"
 ]

@@ -123,6 +123,50 @@ static int create(Line *self) {
     return self -> base.indices = idx, 0;
 }
 
+static PyObject *line_get_top(Line *self, void *closure) {
+    return PyFloat_FromDouble(shape_y((Shape *) self).x + self -> width * self -> base.base.scale.y / 2);
+}
+
+static int line_set_top(Line *self, PyObject *value, void *closure) {
+    DEL(value, "top")
+
+    const double res = PyFloat_AsDouble(value);
+    return ERR(res) ? -1 : (self -> base.base.pos.y += res - shape_y((Shape *) self).x - self -> width * self -> base.base.scale.y / 2, 0);
+}
+
+static PyObject *line_get_right(Line *self, void *closure) {
+    return PyFloat_FromDouble(shape_x((Shape *) self).x + self -> width * self -> base.base.scale.x / 2);
+}
+
+static int line_set_right(Line *self, PyObject *value, void *closure) {
+    DEL(value, "right")
+
+    const double res = PyFloat_AsDouble(value);
+    return ERR(res) ? -1 : (self -> base.base.pos.x += res - shape_x((Shape *) self).x - self -> width * self -> base.base.scale.x / 2, 0);
+}
+
+static PyObject *line_get_bottom(Line *self, void *closure) {
+    return PyFloat_FromDouble(shape_y((Shape *) self).y - self -> width * self -> base.base.scale.y / 2);
+}
+
+static int line_set_bottom(Line *self, PyObject *value, void *closure) {
+    DEL(value, "bottom")
+
+    const double res = PyFloat_AsDouble(value);
+    return ERR(res) ? -1 : (self -> base.base.pos.y += res - shape_y((Shape *) self).y + self -> width * self -> base.base.scale.y / 2, 0);
+}
+
+static PyObject *line_get_left(Line *self, void *closure) {
+    return PyFloat_FromDouble(shape_x((Shape *) self).y - self -> width * self -> base.base.scale.x / 2);
+}
+
+static int line_set_left(Line *self, PyObject *value, void *closure) {
+    DEL(value, "left")
+
+    const double res = PyFloat_AsDouble(value);
+    return ERR(res) ? -1 : (self -> base.base.pos.x += res - shape_x((Shape *) self).y + self -> width * self -> base.base.scale.x / 2, 0);
+}
+
 static Points *line_get_points(Shape *self, void *closure) {
     return points_new(self, (int (*)(Shape *)) create);
 }
@@ -200,12 +244,7 @@ static PyObject *line_draw(Line *self, PyObject *args) {
 }
 
 static PyObject *line_blit(Line *self, PyObject *item) {
-    if (screen_bind(item))
-        return NULL;
-
-    draw(self);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    Py_RETURN_NONE;
+    return screen_bind((Base *) self, item, (void (*)(Base *)) draw);
 }
 
 static PyObject *line_collide(Line *self, PyObject *item) {
@@ -251,6 +290,10 @@ static PyGetSetDef line_getset[] = {
     {"width", (getter) line_get_width, (setter) line_set_width, "The thickness of the line", NULL},
     {"loop", (getter) line_get_loop, (setter) line_set_loop, "True if the line is closed in a loop", NULL},
     {"miter", (getter) line_get_miter, (setter) line_set_miter, "The miter limit of the line", NULL},
+    {"top", (getter) line_get_top, (setter) line_set_top, "The top position of the shape", NULL},
+    {"right", (getter) line_get_right, (setter) line_set_right, "The right position of the shape", NULL},
+    {"bottom", (getter) line_get_bottom, (setter) line_set_bottom, "The bottom position of the shape", NULL},
+    {"left", (getter) line_get_left, (setter) line_set_left, "The left position of the shape", NULL},
     {NULL}
 };
 

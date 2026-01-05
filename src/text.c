@@ -6,9 +6,9 @@ static void draw(Text *self) {
 
     GLfloat matrix[] = {
         self -> size * self -> base.scale.x, 0, 0,
-        0, self -> size * self -> base.scale.y, 0,
+        0, self -> size * self -> base.scale.y * camera.flip, 0,
         self -> base.pos.x - self -> width * self -> size / 2,
-        self -> base.pos.y, 1
+        self -> base.pos.y * camera.flip, 1
     };
 
     glUniformMatrix3fv(shader.text.obj, 1, GL_FALSE, matrix);
@@ -58,6 +58,7 @@ static int create(Text *self) {
     self -> width = advance;
 
     glBindVertexArray(self -> vao);
+    glBindBuffer(GL_ARRAY_BUFFER, self -> vbo);
     glBufferData(GL_ARRAY_BUFFER, size, data, GL_STATIC_DRAW);
 
     return free(data), 0;
@@ -115,6 +116,7 @@ static int load(Text *self, uint8_t src) {
                                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, image);
                                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                                glBindTexture(GL_TEXTURE_2D, 0);
 
                                 return stbi_image_free(image), 0;
                             }
@@ -264,12 +266,7 @@ static PyObject *text_draw(Text *self, PyObject *args) {
 }
 
 static PyObject *text_blit(Text *self, PyObject *item) {
-    if (screen_bind(item))
-        return NULL;
-
-    draw(self);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    Py_RETURN_NONE;
+    return screen_bind((Base *) self, item, (void (*)(Base *)) draw);
 }
 
 static void text_dealloc(Text *self) {

@@ -227,6 +227,7 @@ extern struct Window {
 extern struct Camera {
     Vec2 pos;
     Vec2 scale;
+    char flip;
 } camera;
 
 extern struct Mouse {
@@ -290,7 +291,10 @@ extern Spec screen_data;
 extern Vector *vector_new(PyObject *, double *, uint8_t, int (*)(PyObject *));
 extern Points *points_new(Shape *, int (*)(Shape *));
 extern PyObject *rect_intersect(PyObject *, Vec2 *);
+extern PyObject *screen_bind(Base *, PyObject *, void (*)(Base *));
 
+extern Vec2 shape_y(Shape *);
+extern Vec2 shape_x(Shape *);
 extern Vec2 *shape_points(Shape *);
 extern Vec2 circle_pos(Circle *);
 
@@ -316,7 +320,6 @@ extern int base_left(Base *, PyObject *, double);
 extern int button_compare(const char *, Button *);
 extern int vector_set(PyObject *, double *, uint8_t);
 extern int points_set(PyObject *, Shape *);
-extern int screen_bind(PyObject *);
 
 static inline Vec2 norm(double x, double y) {
     const double len = hypot(x, y);

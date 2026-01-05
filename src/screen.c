@@ -101,12 +101,7 @@ static PyObject *screen_draw(Screen *self, PyObject *args) {
 }
 
 static PyObject *screen_blit(Screen *self, PyObject *item) {
-    if (screen_bind(item))
-        return NULL;
-
-    draw(self);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    Py_RETURN_NONE;
+    return screen_bind((Base *) self, item, (void (*)(Base *)) draw);
 }
 
 static PyObject *screen_save(Screen *self, PyObject *item) {
@@ -143,11 +138,17 @@ static void screen_dealloc(Screen *self) {
     glDeleteTextures(1, &self -> texture);
 }
 
-int screen_bind(PyObject *item) {
-    if (!PyObject_TypeCheck(item, screen_data.type))
-        return PyErr_SetString(PyExc_TypeError, "Parameter passed to blit() must be a Screen"), -1;
+PyObject *screen_bind(Base *object, PyObject *item, void (*draw)(Base *)) {
+    if (!PyArg_Parse(item, "O!:bind", screen_data.type, item))
+        return NULL;
 
-    return glBindFramebuffer(GL_FRAMEBUFFER, ((Screen *) item) -> buffer), 0;
+    glBindFramebuffer(GL_FRAMEBUFFER, ((Screen *) item) -> buffer);
+
+    camera.flip = -1;
+    draw(object);
+    camera.flip = 1;
+
+    return glBindFramebuffer(GL_FRAMEBUFFER, 0), Py_None;
 }
 
 static PyGetSetDef screen_getset[] = {

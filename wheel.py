@@ -1,4 +1,4 @@
-import subprocess, sysconfig, pathlib, sys, zipfile, hashlib, base64, shutil, os
+import subprocess, sysconfig, pathlib, sys, zipfile, shutil, hashlib, base64, packaging.tags, platform
 
 VERSION = "3.1"
 
@@ -28,88 +28,56 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
 
     def clone(url, name):
         if not pathlib.Path("lib/" + name).exists():
-            subprocess.run(["git", "clone", f"https://github.com/{url}.git", "lib/" + name, "--depth", "1"])
+            subprocess.run(["git", "clone", f"https://github.com/{url}.git", "lib/" + name, "--depth", "1", "--recursive"])
 
-    build, flags, include, ext, ver, abi = sysconfig.get_config_vars("BLDSHARED", "OPT", "INCLUDEPY", "EXT_SUFFIX", "py_version_nodot", "abiflags")
-    tag = f"cp{ver}-cp{ver}{abi}-{os.environ.get("PLAT", sysconfig.get_platform().replace("-", "_").replace(".", "_"))}"
+    base, ext = sysconfig.get_config_vars("installed_base", "EXT_SUFFIX")
+    tag = next(packaging.tags.sys_tags())
+
     wheel = f"JoBase-{VERSION}-{tag}.whl"
+    build = "build/" + tag.platform
     file = zipfile.ZipFile(pathlib.Path(wheel_directory) / wheel, "w")
-    out = "__init__" + ext
-
     lines = []
-    source = list(pathlib.Path("src").glob("*.c")) + list(pathlib.Path("lib/libtess2/Source").glob("*.c"))
-    arch = [] if sys.maxsize > 2 ** 32 or sys.platform != "win32" else ["-A", "Win32"]
+
+    cmake = [] if sys.platform != "win32" else [
+        "-A",
+        "Win32" if sys.maxsize < 2 ** 32 else "ARM64" if platform.machine() == "ARM64" else "x64"
+    ]
 
     clone("memononen/libtess2", "libtess2")
     clone("libsdl-org/SDL_mixer", "mix")
     clone("nothings/stb", "stb")
     clone("JoBase/SDL", "sdl")
 
-    if not pathlib.Path("lib/sdl/build").exists():
-        if sys.platform == "linux":
-            if shutil.which("apk"):
-                subprocess.run(["apk", "add", "--no-cache", "libxkbcommon-dev", "wayland-dev", "wayland-protocols", "mesa-dev", "libdrm-dev"])
-
-            elif shutil.which("dnf"):
-                subprocess.run(["dnf", "install", "-y", "libxkbcommon-devel", "wayland-devel", "wayland-protocols-devel", "mesa-libEGL-devel"])
-
-        subprocess.run([
-            "cmake", "-S", "lib/sdl", "-B", "lib/sdl/build", *arch,
-            "-DBUILD_SHARED_LIBS=OFF",
-            "-DSDL_SHARED=OFF",
-            "-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64",
-            "-DCMAKE_OSX_DEPLOYMENT_TARGET=10.13",
-            "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
-            "-DSDL_CAMERA=OFF",
-            "-DSDL_JOYSTICK=OFF",
-            "-DSDL_HAPTIC=OFF",
-            "-DSDL_HIDAPI=OFF",
-            "-DSDL_POWER=OFF",
-            "-DSDL_SENSOR=OFF",
-            "-DSDL_DIALOG=OFF",
-            "-DSDL_X11=OFF"
+    if sys.platform == "linux":
+        if shutil.which("apk"): subprocess.run([
+            "apk", "add", "--no-cache",
+            "libxi-dev",
+            "libxrandr-dev",
+            "libxkbcommon-dev",
+            "wayland-dev",
+            "wayland-protocols",
+            "mesa-dev",
+            "libdrm-dev"
         ])
 
-        subprocess.run(["cmake", "--build", "lib/sdl/build", "--config", "Release", "--target", "install"])
-
-    if not pathlib.Path("lib/mix/build").exists():
-        subprocess.run([
-            "cmake", "-S", "lib/mix", "-B", "lib/mix/build", *arch,
-            "-DBUILD_SHARED_LIBS=OFF",
-            "-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64",
-            "-DCMAKE_OSX_DEPLOYMENT_TARGET=10.13",
-            "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
-            "-DCMAKE_PREFIX_PATH=/opt/homebrew"
+        elif shutil.which("dnf"): subprocess.run([
+            "dnf", "install", "-y",
+            "libXi-devel",
+            "libXrandr-devel",
+            "libxkbcommon-devel",
+            "wayland-devel",
+            "wayland-protocols-devel",
+            "mesa-libEGL-devel"
         ])
 
-        subprocess.run(["cmake", "--build", "lib/mix/build", "--config", "Release"])
-
-    subprocess.run([
-        "cl", *source,
-        "/Fodist\\", "/LD", "/MD",
-        "/I", include, "/I", "include", "/I", "lib\\stb",
-        "/I", "lib\\libtess2\\Include", "/I", "lib\\sdl\\include", "/I", "lib\\mix\\include",
-        "/link",
-        "/LIBPATH:lib\\sdl\\build\\Release", "SDL3-static.lib",
-        "/LIBPATH:" + sysconfig.get_config_var("LIBDIR"),
-        "user32.lib", "winmm.lib", "advapi32.lib", "ole32.lib", "gdi32.lib",
-        "shell32.lib", "setupapi.lib", "version.lib", "imm32.lib",
-        "/OUT:" + str(pathlib.Path(wheel_directory) / out)
-    ] if sys.platform == "win32" else [
-        *build.split(), *flags.split(), *([
-        "-framework", "GameController",
-        "-framework", "ForceFeedback",
-        "-framework", "AppKit",
-        "-g0",
-        "-Wstrict-prototypes", "-Wsign-compare"
-    ] if sys.platform == "darwin" else []),
-        *source,
-        "-I" + include, "-Iinclude", "-Ilib/stb",
-        "-Ilib/libtess2/Include", "-Ilib/sdl/include", "-Ilib/mix/include",
-        "-Llib/sdl/build", "-lSDL3", "-Llib/mix/build", "-lSDL3_mixer",
-        "-fPIC",
-        "-o", pathlib.Path(wheel_directory) / out
+    subprocess.run(["cmake", "-S", ".", "-B", build, *cmake,
+        "-DPython3_ROOT_DIR=" + base,
+        "-DJOBASE_EXT=" + ext,
+        "-DJOBASE_DIR=" + str(pathlib.Path(wheel_directory))
     ])
+
+    subprocess.run(["cmake", "--build", build, "--config", "Release", "--verbose"])
+    subprocess.run(["ls", str(pathlib.Path(wheel_directory))])
 
     for path in pathlib.Path("module").rglob("*"):
         if path.suffix in (".pyi", ".png", ".bin", ".wav"):
@@ -130,10 +98,10 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
         "Wheel-Version: 1.0",
         "Generator: JoBase " + VERSION,
         "Root-Is-Purelib: false",
-        "Tag: " + tag
+        "Tag: " + str(tag)
     ])
 
-    write(pathlib.Path(wheel_directory) / out, out)
+    write(pathlib.Path(wheel_directory) / ("__init__" + ext), "__init__" + ext)
     lines.append(f"JoBase-{VERSION}.dist-info/RECORD,,")
     file.writestr(f"JoBase-{VERSION}.dist-info/RECORD", "\n".join(lines))
 

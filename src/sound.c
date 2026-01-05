@@ -31,18 +31,63 @@ static int load(Sound *self, const char *name) {
 }
 
 static PyObject *sound_get_samples(Sound *self, void *closure) {
-    if (self -> pcm) {
-        const int len = self -> samples / self -> channels;
+    // if (self -> pcm) {
+    const int len = self -> samples / self -> channels;
+    PyObject *channels = PyTuple_New(self -> channels);
+
+    if (!channels)
+        return NULL;
+
+    for (int i = 0; i < self -> channels; i ++) {
         PyObject *tuple = PyTuple_New(len);
 
-        for (int i = 0; i < len; i ++)
-            PyTuple_SET_ITEM(tuple, i, PyFloat_FromDouble(self -> pcm[i * self -> channels]));
+        if (!tuple) {
+            Py_DECREF(channels);
+            return NULL;
+        }
 
-        return tuple;
+        for (int j = 0; j < len; j ++) {
+            PyObject *value = PyFloat_FromDouble(self -> pcm[j * self -> channels + i]);
+
+            if (!value) {
+                Py_DECREF(tuple);
+                Py_DECREF(channels);
+
+                return NULL;
+            }
+
+            PyTuple_SET_ITEM(tuple, j, value);
+        }
+
+        PyTuple_SET_ITEM(channels, i, tuple);
     }
 
-    return PyTuple_New(0);
+    return channels;
+    // }
+
+    // return PyTuple_New(0);
 }
+
+// static PyObject *sound_get_samples(Sound *self, void *closure) {
+//     const int len = self -> samples / self -> channels;
+//     PyObject *tuple = PyTuple_New(len);
+
+//     if (!tuple)
+//         return NULL;
+
+//     for (int i = 0; i < len; i ++) {
+//         PyObject *value = PyFloat_FromDouble(self -> pcm[i * self -> channels]);
+
+//         if (!value) {
+//             Py_DECREF(tuple);
+//             return NULL;
+//         }
+
+//         PyTuple_SET_ITEM(tuple, i, value);
+//     }
+
+//     return tuple;
+// }
 
 static PyObject *sound_get_amp(Sound *self, void *closure) {
     double sum = 0;
@@ -73,15 +118,11 @@ static int sound_init(Sound *self, PyObject *args, PyObject *kwds) {
     INIT(!PyArg_ParseTupleAndKeywords(args, kwds, "|s:Sound", kwlist, &name))
 
     if (!name) {
-        sprintf(path.src + path.size, "audio/pickup.png");
+        sprintf(path.src + path.size, "audio/pickup.wav");
         name = path.src;
     }
 
     return load(self, name);
-}
-
-static void sound_dealloc(Sound *self) {
-    MIX_DestroyTrack(self -> track);
 }
 
 static PyObject *sound_play(Sound *self, PyObject *args) {
@@ -115,7 +156,6 @@ static PyType_Slot sound_slots[] = {
     {Py_tp_doc, "Play audio and sound effects"},
     {Py_tp_new, sound_new},
     {Py_tp_init, sound_init},
-    {Py_tp_dealloc, sound_dealloc},
     {Py_tp_getset, sound_getset},
     {Py_tp_methods, sound_methods},
     {0}

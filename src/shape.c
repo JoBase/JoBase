@@ -44,6 +44,50 @@ static void draw(Shape *self) {
     glDrawElements(GL_TRIANGLES, self -> indices, GL_UNSIGNED_INT, 0);
 }
 
+static PyObject *shape_get_top(Shape *self, void *closure) {
+    return PyFloat_FromDouble(shape_y(self).x);
+}
+
+static int shape_set_top(Shape *self, PyObject *value, void *closure) {
+    DEL(value, "top")
+
+    const double res = PyFloat_AsDouble(value);
+    return ERR(res) ? -1 : (self -> base.pos.y += res - shape_y(self).x, 0);
+}
+
+static PyObject *shape_get_right(Shape *self, void *closure) {
+    return PyFloat_FromDouble(shape_x(self).x);
+}
+
+static int shape_set_right(Shape *self, PyObject *value, void *closure) {
+    DEL(value, "right")
+
+    const double res = PyFloat_AsDouble(value);
+    return ERR(res) ? -1 : (self -> base.pos.x += res - shape_x(self).x, 0);
+}
+
+static PyObject *shape_get_bottom(Shape *self, void *closure) {
+    return PyFloat_FromDouble(shape_y(self).y);
+}
+
+static int shape_set_bottom(Shape *self, PyObject *value, void *closure) {
+    DEL(value, "bottom")
+
+    const double res = PyFloat_AsDouble(value);
+    return ERR(res) ? -1 : (self -> base.pos.y += res - shape_y(self).y, 0);
+}
+
+static PyObject *shape_get_left(Shape *self, void *closure) {
+    return PyFloat_FromDouble(shape_x(self).y);
+}
+
+static int shape_set_left(Shape *self, PyObject *value, void *closure) {
+    DEL(value, "left")
+
+    const double res = PyFloat_AsDouble(value);
+    return ERR(res) ? -1 : (self -> base.pos.x += res - shape_x(self).y, 0);
+}
+
 static Points *shape_get_points(Shape *self, void *closure) {
     return points_new(self, create);
 }
@@ -109,12 +153,7 @@ static PyObject *shape_draw(Shape *self, PyObject *args) {
 }
 
 static PyObject *shape_blit(Shape *self, PyObject *item) {
-    if (screen_bind(item))
-        return NULL;
-
-    draw(self);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    Py_RETURN_NONE;
+    return screen_bind((Base *) self, item, (void (*)(Base *)) draw);
 }
 
 static void shape_dealloc(Shape *self) {
@@ -181,8 +220,48 @@ Vec2 *shape_points(Shape *self) {
     return PyErr_NoMemory(), NULL;
 }
 
+Vec2 shape_y(Shape *self) {
+    Vec2 pos;
+
+    const double x = cos(self -> base.angle * M_PI / 180);
+    const double y = sin(self -> base.angle * M_PI / 180);
+
+    for (size_t i = 0; i < self -> len; i ++) {
+        const double px = self -> data[i].x * self -> base.scale.x + self -> base.anchor.x;
+        const double py = self -> data[i].y * self -> base.scale.y + self -> base.anchor.y;
+        const double rot = py * x + px * y + self -> base.pos.y;
+
+        pos.x = i && rot < pos.x ? pos.x : rot;
+        pos.y = i && rot > pos.y ? pos.y : rot;
+    }
+
+    return pos;
+}
+
+Vec2 shape_x(Shape *self) {
+    Vec2 pos;
+
+    const double x = cos(self -> base.angle * M_PI / 180);
+    const double y = sin(self -> base.angle * M_PI / 180);
+
+    for (size_t i = 0; i < self -> len; i ++) {
+        const double px = self -> data[i].x * self -> base.scale.x + self -> base.anchor.x;
+        const double py = self -> data[i].y * self -> base.scale.y + self -> base.anchor.y;
+        const double rot = px * x - py * y + self -> base.pos.x;
+
+        pos.x = i && rot < pos.x ? pos.x : rot;
+        pos.y = i && rot > pos.y ? pos.y : rot;
+    }
+
+    return pos;
+}
+
 static PyGetSetDef shape_getset[] = {
     {"points", (getter) shape_get_points, (setter) shape_set_points, "The coordinates of the shape", NULL},
+    {"top", (getter) shape_get_top, (setter) shape_set_top, "The top position of the shape", NULL},
+    {"right", (getter) shape_get_right, (setter) shape_set_right, "The right position of the shape", NULL},
+    {"bottom", (getter) shape_get_bottom, (setter) shape_set_bottom, "The bottom position of the shape", NULL},
+    {"left", (getter) shape_get_left, (setter) shape_set_left, "The left position of the shape", NULL},
     {NULL}
 };
 

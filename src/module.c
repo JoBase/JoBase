@@ -1,7 +1,7 @@
 /*
 TODO:
 
-Base - top, bottom, left, right
+- Base - top, bottom, left, right
 - Constants (colours)
 - Check OpenGL binding to zero
 - Check all mallocs and strdup
@@ -9,8 +9,8 @@ Base - top, bottom, left, right
 mouse enter, leave
 - keydown
 - text.units
-update __init__.pyi
-more fonts
+- update __init__.pyi
+- more fonts
 - images memory leak
 - sdl errors
 zooom opposite of scale?
@@ -22,9 +22,14 @@ sound change file after init?
 - line transparency
 window pixel ratio
 - sound default audio
-finish collision (and docs)
-docs: text doesn not instance rect
-pyargparse for screen
+- finish collision (and docs)
+- docs: text doesn not instance rect
+- pyargparse for screen
+- docs: top bottom left right
+- random in docs
+- upside down screen?
+- app logo!!
+finish key init__py
 
 TO Test:
 
@@ -355,8 +360,6 @@ struct Mouse mouse = {
 };
 
 static void clean(void) {
-    printf("FREE stuff\n");
-
     SDL_GL_DestroyContext(window.ctx);
     SDL_DestroyWindow(window.sdl);
 
@@ -370,6 +373,21 @@ static int compare(uint32_t *code, Key *key) {
 
 static int name(Button *a, Button *b) {
     return strcmp(a -> key -> key, b -> key -> key);
+}
+
+static void matrix(void) {
+    const double sx = 2 / window.size.x / camera.scale.x;
+    const double sy = 2 / window.size.y / camera.scale.y;
+
+    GLfloat matrix[] = {
+        sx, 0, 0, 0,
+        0, sy, 0, 0,
+        -camera.pos.x * sx, -camera.pos.y * sy, -1, 0
+    };
+
+    glBindBuffer(GL_UNIFORM_BUFFER, shader.ubo);
+    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof matrix, matrix);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
 static Key *search(uint32_t code, Key *list, size_t size) {
@@ -407,11 +425,11 @@ static int update(PyObject *loop) {
             return 1;
 
         if (event.type == SDL_EVENT_MOUSE_MOTION) {
-            mouse.pos.x = event.motion.x - window.size.x / 2;
-            mouse.pos.y = window.size.y / 2 - event.motion.y;
+            mouse.pos.x = round((event.motion.x - window.size.x / 2) * window.ratio) / window.ratio;
+            mouse.pos.y = round((window.size.y / 2 - event.motion.y) * window.ratio) / window.ratio;
 
             mouse.move.x = event.motion.xrel;
-            mouse.move.y = event.motion.yrel;
+            mouse.move.y = -event.motion.yrel;
         }
 
         else if (event.type == SDL_EVENT_WINDOW_RESIZED) {
@@ -449,18 +467,7 @@ static int update(PyObject *loop) {
         }
     }
 
-    const double sx = 2 / window.size.x / camera.scale.x;
-    const double sy = 2 / window.size.y / camera.scale.y;
-
-    GLfloat matrix[] = {
-        sx, 0, 0, 0,
-        0, sy, 0, 0,
-        -camera.pos.x * sx, -camera.pos.y * sy, -1, 0
-    };
-
-    glBindBuffer(GL_UNIFORM_BUFFER, shader.ubo);
-    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof matrix, matrix);
-    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    matrix();
     glClear(GL_COLOR_BUFFER_BIT);
 
     if (loop) {
@@ -581,12 +588,13 @@ static int module_exec(PyObject *self) {
                 SDL_GL_SetSwapInterval(1)
             ) {
 #ifdef __EMSCRIPTEN__
-                path.size = 0;
-
                 if (!(path.src = malloc(36))) {
                     PyErr_NoMemory();
                     goto fail;
                 }
+
+                path.size = 1;
+                *path.src = '/';
 #else
                 if (!gladLoadGLLoader((GLADloadproc) SDL_GL_GetProcAddress)) {
                     PyErr_SetString(PyExc_OSError, "Failed to load OpenGL");
@@ -644,66 +652,10 @@ static int module_exec(PyObject *self) {
 
                 CHECK(PyModule_AddIntConstant(program, "DEFAULT", 0))
                 CHECK(PyModule_AddIntConstant(program, "CODE", 1))
+                CHECK(PyModule_AddIntConstant(program, "SERIF", 2))
+                CHECK(PyModule_AddIntConstant(program, "DISPLAY", 3))
+                CHECK(PyModule_AddIntConstant(program, "PIXEL", 4))
                 CHECK(!PyObject_Init(&keyboard.map, mod_data.type))
-
-                for (uint16_t i = 0; i < LEN(keys); i ++) {
-                    CHECK(!PyObject_Init((PyObject *) &key[i], button_data.type))
-                    key[i].key = &keys[i];
-                }
-
-                for (uint8_t i = 0; i < LEN(mods); i ++) {
-                    CHECK(!PyObject_Init((PyObject *) &mod[i], button_data.type))
-                    mod[i].key = &mods[i];
-                }
-
-                for (uint8_t i = 0; i < LEN(buttons); i ++) {
-                    CHECK(!PyObject_Init((PyObject *) &button[i], button_data.type))
-                    button[i].key = &buttons[i];
-                }
-
-                ADD("camera", PyObject_CallObject((PyObject *) camera_data.type, NULL))
-                ADD("window", PyObject_CallObject((PyObject *) window_data.type, NULL))
-                ADD("mouse", PyObject_CallObject((PyObject *) mouse_data.type, NULL))
-                ADD("key", PyObject_CallObject((PyObject *) key_data.type, NULL))
-                ADD("Rect", (PyObject *) rect_data.type)
-                ADD("Shape", (PyObject *) shape_data.type)
-                ADD("Line", (PyObject *) line_data.type)
-                ADD("Image", (PyObject *) image_data.type)
-                ADD("Circle", (PyObject *) circle_data.type)
-                ADD("Text", (PyObject *) text_data.type)
-                ADD("Sound", (PyObject *) sound_data.type)
-                ADD("Screen", (PyObject *) screen_data.type)
-
-                ADD("WHITE", COLOR(1, 1, 1))
-                ADD("BLACK", COLOR(0, 0, 0))
-                ADD("GRAY", COLOR(.5, .5, .5))
-                ADD("DARK_GRAY", COLOR(.2, .2, .2))
-                ADD("LIGHT_GRAY", COLOR(.8, .8, .8))
-                ADD("BROWN", COLOR(.6, .2, .2))
-                ADD("TAN", COLOR(.8, .7, .6))
-                ADD("RED", COLOR(1, 0, 0))
-                ADD("DARK_RED", COLOR(.6, 0, 0))
-                ADD("SALMON", COLOR(1, .5, .5))
-                ADD("ORANGE", COLOR(1, .5, 0))
-                ADD("GOLD", COLOR(1, .8, 0))
-                ADD("YELLOW", COLOR(1, 1, 0))
-                ADD("OLIVE", COLOR(.5, .5, 0))
-                ADD("LIME", COLOR(0, 1, 0))
-                ADD("DARK_GREEN", COLOR(0, .4, 0))
-                ADD("GREEN", COLOR(0, .5, 0))
-                ADD("AQUA", COLOR(0, 1, 1))
-                ADD("BLUE", COLOR(0, 0, 1))
-                ADD("LIGHT_BLUE", COLOR(.5, .8, 1))
-                ADD("AZURE", COLOR(.9, 1, 1))
-                ADD("NAVY", COLOR(0, 0, .5))
-                ADD("PURPLE", COLOR(.5, 0, 1))
-                ADD("PINK", COLOR(1, .75, .8))
-                ADD("MAGENTA", COLOR(1, 0, 1))
-
-                qsort(keys, LEN(keys), sizeof(Key), (int (*)(const void *, const void *)) compare);
-                qsort(mods, LEN(mods), sizeof(Key), (int (*)(const void *, const void *)) compare);
-                qsort(key, LEN(keys), sizeof(Button), (int (*)(const void *, const void *)) name);
-                qsort(mod, LEN(mods), sizeof(Button), (int (*)(const void *, const void *)) name);
 
                 GLfloat data[] = {-.5, .5, 0, 0, .5, .5, 1, 0, -.5, -.5, 0, 1, .5, -.5, 1, 1};
                 GLuint buffers[2];
@@ -802,6 +754,9 @@ static int module_exec(PyObject *self) {
                         "float width = fwidth(dist);"
                         "float opacity = smoothstep(.5 - width, .5 + width, dist);"
 
+                        //dist - .2 light
+                        //dist + .2 bold
+
                         "frag = color * vec4(1, 1, 1, opacity);"
                         // "frag = texture(sampler, pos);"
                     "}");
@@ -839,12 +794,118 @@ static int module_exec(PyObject *self) {
 
                 glActiveTexture(GL_TEXTURE0);
                 glEnable(GL_BLEND);
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
+
+                for (uint16_t i = 0; i < LEN(keys); i ++) {
+                    CHECK(!PyObject_Init((PyObject *) &key[i], button_data.type))
+                    key[i].key = &keys[i];
+                }
+
+                for (uint8_t i = 0; i < LEN(mods); i ++) {
+                    CHECK(!PyObject_Init((PyObject *) &mod[i], button_data.type))
+                    mod[i].key = &mods[i];
+                }
+
+                for (uint8_t i = 0; i < LEN(buttons); i ++) {
+                    CHECK(!PyObject_Init((PyObject *) &button[i], button_data.type))
+                    button[i].key = &buttons[i];
+                }
+
+                ADD("camera", PyObject_CallObject((PyObject *) camera_data.type, NULL))
+                ADD("window", PyObject_CallObject((PyObject *) window_data.type, NULL))
+                ADD("mouse", PyObject_CallObject((PyObject *) mouse_data.type, NULL))
+                ADD("key", PyObject_CallObject((PyObject *) key_data.type, NULL))
+                ADD("Rect", (PyObject *) rect_data.type)
+                ADD("Shape", (PyObject *) shape_data.type)
+                ADD("Line", (PyObject *) line_data.type)
+                ADD("Image", (PyObject *) image_data.type)
+                ADD("Circle", (PyObject *) circle_data.type)
+                ADD("Text", (PyObject *) text_data.type)
+                ADD("Sound", (PyObject *) sound_data.type)
+                ADD("Screen", (PyObject *) screen_data.type)
+
+                ADD("WHITE", COLOR(1, 1, 1))
+                ADD("BLACK", COLOR(0, 0, 0))
+                ADD("GRAY", COLOR(.5, .5, .5))
+                ADD("DARK_GRAY", COLOR(.2, .2, .2))
+                ADD("LIGHT_GRAY", COLOR(.8, .8, .8))
+                ADD("BROWN", COLOR(.6, .2, .2))
+                ADD("TAN", COLOR(.8, .7, .6))
+                ADD("RED", COLOR(1, 0, 0))
+                ADD("DARK_RED", COLOR(.6, 0, 0))
+                ADD("SALMON", COLOR(1, .5, .5))
+                ADD("ORANGE", COLOR(1, .5, 0))
+                ADD("GOLD", COLOR(1, .8, 0))
+                ADD("YELLOW", COLOR(1, 1, 0))
+                ADD("OLIVE", COLOR(.5, .5, 0))
+                ADD("LIME", COLOR(0, 1, 0))
+                ADD("DARK_GREEN", COLOR(0, .4, 0))
+                ADD("GREEN", COLOR(0, .5, 0))
+                ADD("AQUA", COLOR(0, 1, 1))
+                ADD("BLUE", COLOR(0, 0, 1))
+                ADD("LIGHT_BLUE", COLOR(.5, .8, 1))
+                ADD("AZURE", COLOR(.9, 1, 1))
+                ADD("NAVY", COLOR(0, 0, .5))
+                ADD("PURPLE", COLOR(.5, 0, 1))
+                ADD("PINK", COLOR(1, .75, .8))
+                ADD("MAGENTA", COLOR(1, 0, 1))
+
+                qsort(keys, LEN(keys), sizeof(Key), (int (*)(const void *, const void *)) compare);
+                qsort(mods, LEN(mods), sizeof(Key), (int (*)(const void *, const void *)) compare);
+                qsort(key, LEN(keys), sizeof(Button), (int (*)(const void *, const void *)) name);
+                qsort(mod, LEN(mods), sizeof(Button), (int (*)(const void *, const void *)) name);
+
+                matrix();
+                camera.flip = 1;
+
+                
+                // MIX_AudioDecoder *decoder = MIX_CreateAudioDecoder("darla.mp3", 0);
+                // FILE *f = fopen("output.txt", "wb");
+
+                // int bytes = 0;
+
+                
+                // SDL_AudioSpec spec;
+
+                // if (!MIX_GetAudioDecoderFormat(decoder, &spec)) {
+                //     printf("AAAAAA %s\n", SDL_GetError());
+                // }
+
+                // double time = 0;
+                // int frames = 0;
+
+                // // MIX_MSToFrames(spec.freq, );
+
+                // while (1) {
+                //     time += 1. / 60;
+                //     int goal = (int) (time * spec.freq);
+                //     int amount = goal - frames;
+
+                //     frames = goal;
+
+                //     int size = amount * sizeof(float) * spec.channels;
+                //     float *buffer = malloc(size);
+
+                //     bytes = MIX_DecodeAudio(decoder, buffer, size, &spec);
+
+                //     if (bytes < 0) {
+                //         printf("An error occurred %s\n", SDL_GetError());
+                //         break;
+                //     }
+
+                //     for (int i = 0; i < bytes / (4 * spec.channels); i ++) {
+                //         fprintf(f, i ? ", %f" : "%f", buffer[i * spec.channels]);
+                //     }
+
+                //     fprintf(f, "\n");
+
+                //     if (!bytes)
+                //         break;
+                // }
 
                 return PyModule_AddFunctions(program, module_methods);
 
             fail:
-                printf("failool\n");
                 Py_DECREF(error);
                 Py_XDECREF(program);
 
@@ -896,13 +957,11 @@ static void module_free(void *closure) {
         Audio *this = audio;
 
         audio = this -> next;
-        MIX_DestroyAudio(audio -> src);
+        MIX_DestroyAudio(this -> src);
 
         free(this -> name);
         free(this);
     }
-
-    printf("FREE vao\n");
 
     if (shader.vao) {
         glDeleteVertexArrays(1, &shader.vao);
@@ -913,8 +972,6 @@ static void module_free(void *closure) {
         glDeleteProgram(shader.circle.src);
         glDeleteProgram(shader.text.src);
     }
-
-    printf("FREE end\n");
 }
 
 #ifdef __EMSCRIPTEN__

@@ -106,12 +106,7 @@ static PyObject *rect_draw(Rect *self, PyObject *args) {
 }
 
 static PyObject *rect_blit(Rect *self, PyObject *item) {
-    if (screen_bind(item))
-        return NULL;
-
-    draw(self);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    Py_RETURN_NONE;
+    return screen_bind((Base *) self, item, (void (*)(Base *)) draw);
 }
 
 PyObject *rect_intersect(PyObject *item, Vec2 *poly) {

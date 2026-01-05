@@ -106,12 +106,7 @@ static PyObject *image_draw(Image *self, PyObject *args) {
 }
 
 static PyObject *image_blit(Image *self, PyObject *item) {
-    if (screen_bind(item))
-        return NULL;
-
-    draw(self);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    Py_RETURN_NONE;
+    return screen_bind((Base *) self, item, (void (*)(Base *)) draw);
 }
 
 static PyGetSetDef image_getset[] = {

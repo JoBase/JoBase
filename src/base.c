@@ -191,9 +191,9 @@ void base_matrix(Base *self, GLint obj, GLint color, double width, double height
 
     GLfloat matrix[] = {
         width * self -> scale.x * cosine, width * self -> scale.x * sine, 0,
-        height * self -> scale.y * -sine, height * self -> scale.y * cosine, 0,
+        height * self -> scale.y * -sine * camera.flip, height * self -> scale.y * cosine * camera.flip, 0,
         self -> anchor.x * cosine + self -> anchor.y * -sine + self -> pos.x,
-        self -> anchor.x * sine + self -> anchor.y * cosine + self -> pos.y, 1
+        (self -> anchor.x * sine + self -> anchor.y * cosine + self -> pos.y) * camera.flip, 1
     };
 
     glUniformMatrix3fv(obj, 1, GL_FALSE, matrix);
