@@ -1,6 +1,7 @@
-import subprocess, sysconfig, pathlib, sys, zipfile, shutil, hashlib, base64, packaging.tags, platform
+import packaging.tags, subprocess, sysconfig, pathlib, sys, zipfile, shutil, hashlib, base64, platform
 
 VERSION = "3.1"
+NAME = "JoBase"
 
 def build_wheel(wheel_directory, config_settings = None, metadata_directory = None):
     def write(src, path):
@@ -13,7 +14,7 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
             hash.update(chunk)
 
         code = base64.urlsafe_b64encode(hash.digest()).rstrip(b"=").decode("ascii")
-        lines.append(f"JoBase/{path},sha256={code},{pathlib.Path(src).stat().st_size}")
+        lines.append(f"{NAME}/{path},sha256={code},{pathlib.Path(src).stat().st_size}")
 
     def writestr(path, list):
         text = "\n".join(list)
@@ -33,7 +34,7 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
     base, ext = sysconfig.get_config_vars("installed_base", "EXT_SUFFIX")
     tag = next(packaging.tags.sys_tags())
 
-    wheel = f"JoBase-{VERSION}-{tag}.whl"
+    wheel = f"{NAME.lower()}-{VERSION}-{tag}.whl"
     build = "build/" + tag.platform
     file = zipfile.ZipFile(pathlib.Path(wheel_directory) / wheel, "w")
     lines = []
@@ -76,33 +77,57 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
         "-DJOBASE_DIR=" + str(pathlib.Path(wheel_directory))
     ])
 
-    subprocess.run(["cmake", "--build", build, "--config", "Release", "--verbose"])
+    subprocess.run(["cmake", "--build", build, "--config", "Release"])
     subprocess.run(["ls", str(pathlib.Path(wheel_directory))])
 
     for path in pathlib.Path("module").rglob("*"):
         if path.suffix in (".pyi", ".png", ".bin", ".wav"):
             write(path, pathlib.Path(*path.parts[1:]))
 
-    writestr(f"JoBase-{VERSION}.dist-info/METADATA", [
+    writestr(f"{NAME.lower()}-{VERSION}.dist-info/METADATA", [
         "Metadata-Version: 2.1",
-        "Name: JoBase",
+        "Name: " + NAME,
         "Version: " + VERSION,
+        "Description-Content-Type: text/x-rst",
         "Summary: JoBase is a fast Python game library for beginner coders",
         "Keywords: game engine learn beginner",
         "Home-page: https://jobase.org",
         "Author: Reuben Grey Ford",
-        "Author-email: <hello@jobase.org>"
+        "Author-email: <hello@jobase.org>",
+        "",
+        "Welcome to JoBase, the fastest Python game framework.",
+        "",
+        "Features",
+        "========",
+        "",
+        "* Beginner friendly",
+        "* Fast",
+        "* Works on Windows, Linux, MacOS, and all modern browsers",
+        "",
+        "Installation",
+        "============",
+        "",
+        "If you already have Python installed, you can install JoBase with pip.::",
+        "",
+        "    pip install JoBase",
+        "",
+        "Run Python Online",
+        "=================",
+        "",
+        "If you don't want to install Python, and you're happy to code online, you can run the examples on `the website <https://jobase.org>`__."
     ])
 
-    writestr(f"JoBase-{VERSION}.dist-info/WHEEL", [
+    writestr(f"{NAME.lower()}-{VERSION}.dist-info/WHEEL", [
         "Wheel-Version: 1.0",
-        "Generator: JoBase " + VERSION,
+        f"Generator: {NAME} {VERSION}",
         "Root-Is-Purelib: false",
         "Tag: " + str(tag)
     ])
 
     write(pathlib.Path(wheel_directory) / ("__init__" + ext), "__init__" + ext)
-    lines.append(f"JoBase-{VERSION}.dist-info/RECORD,,")
-    file.writestr(f"JoBase-{VERSION}.dist-info/RECORD", "\n".join(lines))
+    lines.append(f"{NAME.lower()}-{VERSION}.dist-info/RECORD,,")
+    file.writestr(f"{NAME.lower()}-{VERSION}.dist-info/RECORD", "\n".join(lines))
+
+    print("\n".join(lines))
 
     return wheel

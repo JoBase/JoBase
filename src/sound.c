@@ -30,64 +30,64 @@ static int load(Sound *self, const char *name) {
     return PyErr_NoMemory(), -1;
 }
 
-static PyObject *sound_get_samples(Sound *self, void *closure) {
-    // if (self -> pcm) {
-    const int len = self -> samples / self -> channels;
-    PyObject *channels = PyTuple_New(self -> channels);
-
-    if (!channels)
-        return NULL;
-
-    for (int i = 0; i < self -> channels; i ++) {
-        PyObject *tuple = PyTuple_New(len);
-
-        if (!tuple) {
-            Py_DECREF(channels);
-            return NULL;
-        }
-
-        for (int j = 0; j < len; j ++) {
-            PyObject *value = PyFloat_FromDouble(self -> pcm[j * self -> channels + i]);
-
-            if (!value) {
-                Py_DECREF(tuple);
-                Py_DECREF(channels);
-
-                return NULL;
-            }
-
-            PyTuple_SET_ITEM(tuple, j, value);
-        }
-
-        PyTuple_SET_ITEM(channels, i, tuple);
-    }
-
-    return channels;
-    // }
-
-    // return PyTuple_New(0);
-}
-
 // static PyObject *sound_get_samples(Sound *self, void *closure) {
+//     // if (self -> pcm) {
 //     const int len = self -> samples / self -> channels;
-//     PyObject *tuple = PyTuple_New(len);
+//     PyObject *channels = PyTuple_New(self -> channels);
 
-//     if (!tuple)
+//     if (!channels)
 //         return NULL;
 
-//     for (int i = 0; i < len; i ++) {
-//         PyObject *value = PyFloat_FromDouble(self -> pcm[i * self -> channels]);
+//     for (int i = 0; i < self -> channels; i ++) {
+//         PyObject *tuple = PyTuple_New(len);
 
-//         if (!value) {
-//             Py_DECREF(tuple);
+//         if (!tuple) {
+//             Py_DECREF(channels);
 //             return NULL;
 //         }
 
-//         PyTuple_SET_ITEM(tuple, i, value);
+//         for (int j = 0; j < len; j ++) {
+//             PyObject *value = PyFloat_FromDouble(self -> pcm[j * self -> channels + i]);
+
+//             if (!value) {
+//                 Py_DECREF(tuple);
+//                 Py_DECREF(channels);
+
+//                 return NULL;
+//             }
+
+//             PyTuple_SET_ITEM(tuple, j, value);
+//         }
+
+//         PyTuple_SET_ITEM(channels, i, tuple);
 //     }
 
-//     return tuple;
+//     return channels;
+//     // }
+
+//     // return PyTuple_New(0);
 // }
+
+static PyObject *sound_get_samples(Sound *self, void *closure) {
+    const int len = self -> samples / self -> channels;
+    PyObject *tuple = PyTuple_New(len);
+
+    if (!tuple)
+        return NULL;
+
+    for (int i = 0; i < len; i ++) {
+        PyObject *value = PyFloat_FromDouble(self -> pcm[i * self -> channels]);
+
+        if (!value) {
+            Py_DECREF(tuple);
+            return NULL;
+        }
+
+        PyTuple_SET_ITEM(tuple, i, value);
+    }
+
+    return tuple;
+}
 
 static PyObject *sound_get_amp(Sound *self, void *closure) {
     double sum = 0;
