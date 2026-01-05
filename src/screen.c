@@ -113,21 +113,24 @@ static PyObject *screen_save(Screen *self, PyObject *item) {
     const char *ext = strrchr(path, '.') + 1;
     const bool hdr = !strcmp(ext, "hdr");
 
+    const double x = self -> base.size.x * window.ratio;
+    const double y = self -> base.size.y * window.ratio;
+
     const size_t size = hdr ? sizeof(GLfloat) : sizeof(GLubyte);
-    void *buffer = malloc(self -> base.size.x * self -> base.size.y * 4 * size * window.ratio);
+    void *buffer = malloc(x * y * 4 * size);
 
     if (!buffer)
         return PyErr_NoMemory();
 
     glBindFramebuffer(GL_FRAMEBUFFER, self -> buffer);
-    glReadPixels(0, 0, self -> base.size.x, self -> base.size.y, GL_RGBA, hdr ? GL_FLOAT : GL_UNSIGNED_BYTE, buffer);
+    glReadPixels(0, 0, x, y, GL_RGBA, hdr ? GL_FLOAT : GL_UNSIGNED_BYTE, buffer);
 
     int status = strcmp(ext, "bmp") ? strcmp(ext, "jpg") ? strcmp(ext, "tga") ? hdr ?
-        stbi_write_hdr(path, self -> base.size.x, self -> base.size.y, 4, buffer) :
-        stbi_write_png(path, self -> base.size.x, self -> base.size.y, 4, buffer, self -> base.size.x * 4) :
-        stbi_write_tga(path, self -> base.size.x, self -> base.size.y, 4, buffer) :
-        stbi_write_jpg(path, self -> base.size.x, self -> base.size.y, 4, buffer, 80) :
-        stbi_write_bmp(path, self -> base.size.x, self -> base.size.y, 4, buffer);
+        stbi_write_hdr(path, x, y, 4, buffer) :
+        stbi_write_png(path, x, y, 4, buffer, x * 4) :
+        stbi_write_tga(path, x, y, 4, buffer) :
+        stbi_write_jpg(path, x, y, 4, buffer, 80) :
+        stbi_write_bmp(path, x, y, 4, buffer);
 
     free(buffer);
     return status ? Py_None : (PyErr_Format(PyExc_SystemError, "Failed to save image '%s', %s", path, stbi_failure_reason()), NULL);

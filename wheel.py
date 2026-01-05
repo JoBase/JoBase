@@ -78,7 +78,6 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
     ])
 
     subprocess.run(["cmake", "--build", build, "--config", "Release"])
-    subprocess.run(["ls", str(pathlib.Path(wheel_directory))])
 
     for path in pathlib.Path("module").rglob("*"):
         if path.suffix in (".pyi", ".png", ".bin", ".wav"):
@@ -127,7 +126,5 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
     write(pathlib.Path(wheel_directory) / ("__init__" + ext), "__init__" + ext)
     lines.append(f"{NAME.lower()}-{VERSION}.dist-info/RECORD,,")
     file.writestr(f"{NAME.lower()}-{VERSION}.dist-info/RECORD", "\n".join(lines))
-
-    print("\n".join(lines))
 
     return wheel
