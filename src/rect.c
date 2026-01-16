@@ -1,10 +1,10 @@
 #include "main.h"
 
 static void draw(Rect *self) {
-    glUseProgram(shader.plain.src);
-    base_matrix(&self -> base, shader.plain.obj, shader.plain.color, self -> size.x, self -> size.y);
+    base_matrix((Base *) self, &shader.plain, self -> size.x, self -> size.y);
+    // base_color((Base *) self);
+    array(shader.vao);
 
-    glBindVertexArray(shader.vao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
@@ -101,7 +101,9 @@ static int rect_init(Rect *self, PyObject *args, PyObject *kwds) {
 }
 
 static PyObject *rect_draw(Rect *self, PyObject *args) {
+    unbind();
     draw(self);
+
     Py_RETURN_NONE;
 }
 

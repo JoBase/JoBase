@@ -36,7 +36,7 @@ TO Test:
 screen saving
 */
 
-#define FILE(n, s) sprintf(path.src+path.size,s);CHECK(PyModule_AddStringConstant(program,n,path.src))
+#define FILE(n) sprintf(path.src+path.size,n);CHECK(PyModule_AddStringConstant(program,#n,path.src))
 #define ADD(n, t) CHECK(PyModule_Add(program,n,t))
 #define COLOR(r, g, b) PyTuple_Pack(3,PyFloat_FromDouble(r),PyFloat_FromDouble(g),PyFloat_FromDouble(b))
 #define TYPE(e, x) CHECK(!(e.type=(PyTypeObject *)PyType_FromSpecWithBases(&e.spec,x)))
@@ -375,20 +375,10 @@ static int name(Button *a, Button *b) {
     return strcmp(a -> key -> key, b -> key -> key);
 }
 
-static void matrix(void) {
-    const double sx = 2 / window.size.x / camera.scale.x;
-    const double sy = 2 / window.size.y / camera.scale.y;
-
-    GLfloat matrix[] = {
-        sx, 0, 0, 0,
-        0, sy, 0, 0,
-        -camera.pos.x * sx, -camera.pos.y * sy, -1, 0
-    };
-
-    glBindBuffer(GL_UNIFORM_BUFFER, shader.ubo);
-    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof matrix, matrix);
-    glBindBuffer(GL_UNIFORM_BUFFER, 0);
-}
+// static void matrix(void) {
+    
+//     // glBindBuffer(GL_UNIFORM_BUFFER, 0);
+// }
 
 static Key *search(uint32_t code, Key *list, size_t size) {
     return bsearch(&code, list, size, sizeof(Key), (int (*)(const void *, const void *)) compare);
@@ -400,20 +390,35 @@ static GLuint compile(GLenum type, const GLchar *source) {
     glShaderSource(shader, 1, &source, NULL);
     glCompileShader(shader);
 
+    // GLint status;
+    // glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
+
+    // if (!status) {
+    //     GLchar log[512];
+    //     glGetShaderInfoLog(shader, 512, NULL, log);
+    //     printf("Shader compile error: %s", log);
+    // }
+
     return shader;
 }
 
-static void create(struct Program *program, GLuint vertex, GLuint fragment) {
-    program -> src = glCreateProgram();
-
-    glAttachShader(program -> src, vertex);
-    glAttachShader(program -> src, fragment);
-
+static void create(Program *program, GLuint vert, GLuint frag) {
+    glAttachShader(program -> src = glCreateProgram(), vert);
+    glAttachShader(program -> src, frag);
     glLinkProgram(program -> src);
     glUniformBlockBinding(program -> src, glGetUniformBlockIndex(program -> src, "camera"), 0);
 
     program -> obj = glGetUniformLocation(program -> src, "object");
+    program -> size = glGetUniformLocation(program -> src, "size");
     program -> color = glGetUniformLocation(program -> src, "color");
+}
+
+static void filter(Filter *filter, GLuint vert, GLuint frag) {
+    glAttachShader(filter -> src = glCreateProgram(), vert);
+    glAttachShader(filter -> src, frag);
+    glLinkProgram(filter -> src);
+
+    filter -> data = glGetUniformLocation(filter -> src, "data");
 }
 
 static int update(PyObject *loop) {
@@ -436,10 +441,15 @@ static int update(PyObject *loop) {
             window.resize = true;
             window.size.x = event.window.data1;
             window.size.y = event.window.data2;
+
+            if (!shader.screen && shader.active)
+                glUniform2f(shader.active -> size, window.size.x, window.size.y);
         }
 
-        else if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
-            glViewport(0, 0, event.window.data1, event.window.data2);
+        else if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
+            if (!shader.screen)
+                glViewport(0, 0, event.window.data1, event.window.data2);
+        }
 
         else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN || event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
             Key *button = search(event.button.button, buttons, LEN(buttons));
@@ -451,10 +461,10 @@ static int update(PyObject *loop) {
         else if (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP) {
             Key *key = search(event.key.key, keys, LEN(keys));
 
-            if (event.key.mod)
-                search(event.key.mod, mods, LEN(mods)) -> press = true;
-
             if (event.key.down) {
+                if (event.key.mod && !event.key.repeat)
+                    search(event.key.mod, mods, LEN(mods)) -> press = true;
+
                 keyboard.press = key -> press = !event.key.repeat;
                 key -> repeat = event.key.repeat;
                 key -> down = true;
@@ -467,7 +477,6 @@ static int update(PyObject *loop) {
         }
     }
 
-    matrix();
     glClear(GL_COLOR_BUFFER_BIT);
 
     if (loop) {
@@ -480,14 +489,15 @@ static int update(PyObject *loop) {
     for (uint16_t i = 0; i < LEN(keys); i ++)
         keys[i].press = keys[i].release = keys[i].repeat = false;
 
+    for (uint8_t i = 0; i < LEN(buttons); i ++)
+        buttons[i].press = buttons[i].release = false;
+
     for (uint8_t i = 0; i < LEN(mods); i ++)
         mods[i].press = false;
 
-    for (uint8_t i = 0; i < LEN(buttons); i ++)
-        buttons[i].press = false;
-
     window.resize = mouse.press = mouse.release = keyboard.press = keyboard.release = false;
     mouse.move.x = mouse.move.y = 0;
+    unbind();
 
     return SDL_GL_SwapWindow(window.sdl) ? 0 : (PyErr_SetString(error, SDL_GetError()), -1);
 }
@@ -587,6 +597,10 @@ static int module_exec(PyObject *self) {
                 (window.ratio = SDL_GetWindowPixelDensity(window.sdl)) &&
                 SDL_GL_SetSwapInterval(1)
             ) {
+                shader.active = 0;
+                shader.array = 0;
+                shader.texture = 0;
+                shader.screen = NULL;
 #ifdef __EMSCRIPTEN__
                 if (!(path.src = malloc(36))) {
                     PyErr_NoMemory();
@@ -644,35 +658,85 @@ static int module_exec(PyObject *self) {
                 TYPE(line_data, (PyObject *) shape_data.type)
                 TYPE(image_data, (PyObject *) rect_data.type)
 
-                FILE("MAN", "images/man.png")
-                FILE("COIN", "images/coin.png")
-                FILE("ENEMY", "images/enemy.png")
-                FILE("PICKUP", "audio/pickup.wav")
-                FILE("BLIP", "audio/blip.wav")
+                FILE(MAN)
+                FILE(COIN)
+                FILE(ENEMY)
+                FILE(PICKUP)
+                FILE(BLIP)
 
                 CHECK(PyModule_AddIntConstant(program, "DEFAULT", 0))
                 CHECK(PyModule_AddIntConstant(program, "CODE", 1))
                 CHECK(PyModule_AddIntConstant(program, "SERIF", 2))
                 CHECK(PyModule_AddIntConstant(program, "DISPLAY", 3))
                 CHECK(PyModule_AddIntConstant(program, "PIXEL", 4))
+
+                // CHECK(PyModule_AddIntConstant(program, "ADDITIVE", ADDITIVE))
+                // CHECK(PyModule_AddIntConstant(program, "MULTIPLY", MULTIPLY))
+                // CHECK(PyModule_AddIntConstant(program, "SCREEN", SCREEN))
+                // CHECK(PyModule_AddIntConstant(program, "OVERLAY", OVERLAY))
                 CHECK(!PyObject_Init(&keyboard.map, mod_data.type))
 
                 GLfloat data[] = {-.5, .5, 0, 0, .5, .5, 1, 0, -.5, -.5, 0, 1, .5, -.5, 1, 1};
                 GLuint buffers[2];
 
-                GLuint vn = compile(GL_VERTEX_SHADER,
+                GLuint vert_norm = compile(GL_VERTEX_SHADER,
                     "#version " VERSION "\n"
 
                     "layout(std140) uniform camera { mat3 view; };"
                     "layout(location = 0) in vec2 vert;"
 
+                    "uniform vec2 size;"
                     "uniform mat3 object;"
 
                     "void main() {"
-                        "gl_Position = vec4(view * object * vec3(vert, 1), 1);"
+                        "gl_Position = vec4((view * object * vec3(vert, 1)).xy * 2. / size, 0, 1);"
                     "}");
 
-                GLuint fn = compile(GL_FRAGMENT_SHADER,
+                GLuint vert_img = compile(GL_VERTEX_SHADER,
+                    "#version " VERSION "\n"
+
+                    "layout(std140) uniform camera { mat3 view; };"
+                    "layout(location = 0) in vec2 vert;"
+                    "layout(location = 1) in vec2 coord;"
+
+                    "uniform vec2 size;"
+                    "uniform mat3 object;"
+                    "out vec2 pos;"
+
+                    "void main() {"
+                        "gl_Position = vec4((view * object * vec3(vert, 1)).xy * 2. / size, 0, 1);"
+                        "pos = coord;"
+                    "}");
+
+                GLuint vert_circle = compile(GL_VERTEX_SHADER,
+                    "#version " VERSION "\n"
+
+                    "layout(std140) uniform camera { mat3 view; };"
+                    "layout(location = 0) in vec2 vert;"
+
+                    "uniform vec2 size;"
+                    "uniform mat3 object;"
+                    "out vec2 pos;"
+
+                    "void main() {"
+                        "gl_Position = vec4((view * object * vec3(vert, 1)).xy * 2. / size, 0, 1);"
+                        "pos = vert;"
+                    "}");
+
+                GLuint vert_full = compile(GL_VERTEX_SHADER,
+                    "#version " VERSION "\n"
+
+                    "layout(location = 0) in vec2 vert;"
+                    "layout(location = 1) in vec2 coord;"
+
+                    "out vec2 pos;"
+
+                    "void main() {"
+                        "gl_Position = vec4(vert * vec2(2, -2), 0, 1);"
+                        "pos = coord;"
+                    "}");
+
+                GLuint frag_norm = compile(GL_FRAGMENT_SHADER,
                     "#version " VERSION "\n"
                     "precision mediump float;"
 
@@ -683,22 +747,7 @@ static int module_exec(PyObject *self) {
                         "frag = color;"
                     "}");
 
-                GLuint vi = compile(GL_VERTEX_SHADER,
-                    "#version " VERSION "\n"
-
-                    "layout(std140) uniform camera { mat3 view; };"
-                    "layout(location = 0) in vec2 vert;"
-                    "layout(location = 1) in vec2 coord;"
-
-                    "uniform mat3 object;"
-                    "out vec2 pos;"
-
-                    "void main() {"
-                        "gl_Position = vec4(view * object * vec3(vert, 1), 1);"
-                        "pos = coord;"
-                    "}");
-
-                GLuint fi = compile(GL_FRAGMENT_SHADER,
+                GLuint frag_img = compile(GL_FRAGMENT_SHADER,
                     "#version " VERSION "\n"
                     "precision mediump float;"
 
@@ -712,21 +761,7 @@ static int module_exec(PyObject *self) {
                         "frag = color * texture(sampler, pos);"
                     "}");
 
-                GLuint vc = compile(GL_VERTEX_SHADER,
-                    "#version " VERSION "\n"
-
-                    "layout(std140) uniform camera { mat3 view; };"
-                    "layout(location = 0) in vec2 vert;"
-
-                    "uniform mat3 object;"
-                    "out vec2 pos;"
-
-                    "void main() {"
-                        "gl_Position = vec4(view * object * vec3(vert, 1), 1);"
-                        "pos = vert;"
-                    "}");
-
-                GLuint fc = compile(GL_FRAGMENT_SHADER,
+                GLuint frag_circle = compile(GL_FRAGMENT_SHADER,
                     "#version " VERSION "\n"
                     "precision mediump float;"
 
@@ -738,7 +773,7 @@ static int module_exec(PyObject *self) {
                         "frag = length(pos) < .5 ? color : vec4(0);"
                     "}");
 
-                GLuint ft = compile(GL_FRAGMENT_SHADER,
+                GLuint frag_text = compile(GL_FRAGMENT_SHADER,
                     "#version " VERSION "\n"
                     "precision mediump float;"
 
@@ -761,17 +796,113 @@ static int module_exec(PyObject *self) {
                         // "frag = texture(sampler, pos);"
                     "}");
 
-                create(&shader.plain, vn, fn);
-                create(&shader.image, vi, fi);
-                create(&shader.circle, vc, fc);
-                create(&shader.text, vi, ft);
+                GLuint frag_warp = compile(GL_FRAGMENT_SHADER,
+                    "#version " VERSION "\n"
+                    "precision mediump float;"
 
-                glDeleteShader(vn);
-                glDeleteShader(fn);
-                glDeleteShader(vi);
-                glDeleteShader(fi);
-                glDeleteShader(fc);
-                glDeleteShader(ft);
+                    "uniform sampler2D sampler;"
+                    "uniform vec2 data;"
+
+                    "in vec2 pos;"
+                    "out vec4 frag;"
+
+                    // "vec4 blend(vec4 a, vec4 b, int mode) {"
+                    //     "vec4 res = b;"
+
+                    //     "res = mix(res, a + b, float(mode == " STR(ADDITIVE) "));"
+                    //     "res = mix(res, a * b, float(mode == " STR(MULTIPLY) "));"
+                    //     "res = mix(res, 1. - (1. - a) * (1. - b), float(mode == " STR(SCREEN) "));"
+
+                    //     "vec4 overlay = vec4("
+                    //         "a.r < .5 ? (2. * a.r * b.r) : (1. - 2. * (1. - a.r) * (1. - b.r)),"
+                    //         "a.g < .5 ? (2. * a.g * b.g) : (1. - 2. * (1. - a.g) * (1. - b.g)),"
+                    //         "a.b < .5 ? (2. * a.b * b.b) : (1. - 2. * (1. - a.b) * (1. - b.b)), 1.);"
+
+                    //     "return mix(res, overlay, float(mode == " STR(OVERLAY) "));"
+                    // "}"
+
+                    "void main() {"
+                        "vec2 scale = vec2(textureSize(sampler, 0)) / data.x;"
+                        "vec2 st = (pos - .5) * scale;"
+                        "float len = length(st);"
+
+                        "if (len < 1.) {"
+                            "float theta = atan(st.y, st.x);"
+                            "float rad = pow(len, abs(data.y));"
+
+                            "st.x = rad * cos(theta);"
+                            "st.y = rad * sin(theta);"
+
+                            "st = st / scale + .5;"
+                        "} else {"
+                            "st = pos;"
+                        "}"
+
+                        "frag = texture(sampler, st);"
+                    "}");
+
+                create(&shader.plain, vert_norm, frag_norm);
+                create(&shader.image, vert_img, frag_img);
+                create(&shader.circle, vert_circle, frag_circle);
+                create(&shader.text, vert_img, frag_text);
+                filter(&shader.warp, vert_full, frag_warp);
+
+                glDeleteShader(vert_norm);
+                glDeleteShader(vert_img);
+                glDeleteShader(vert_circle);
+                glDeleteShader(vert_full);
+                glDeleteShader(frag_norm);
+                glDeleteShader(frag_img);
+                glDeleteShader(frag_circle);
+                glDeleteShader(frag_text);
+                glDeleteShader(frag_warp);
+
+                /*9 PASS GUASSIAN ISH (BLOCKy at high radius)
+                
+                "vec2 texSize = vec2(textureSize(sampler, 0));"
+                                    "vec2 uv = pos;" // Your UV coordinates
+                                    "vec2 pixelSize = 1.0 / texSize;"
+                                    "float radiusUV = data[i].data.x / texSize.x;"
+                                    
+                                    "vec4 color = texture(sampler, uv) * 0.25;"
+                                    "float halfRadius = radiusUV * 0.5;"
+                                    "color += texture(sampler, uv + vec2(halfRadius, 0.0)) * 0.125;"
+                                    "color += texture(sampler, uv + vec2(-halfRadius, 0.0)) * 0.125;"
+                                    "color += texture(sampler, uv + vec2(0.0, halfRadius)) * 0.125;"
+                                    "color += texture(sampler, uv + vec2(0.0, -halfRadius)) * 0.125;"
+
+                                    "float quarterRadius = radiusUV * 0.25;"
+                                    "color += texture(sampler, uv + vec2(quarterRadius, quarterRadius)) * 0.0625;"
+                                    "color += texture(sampler, uv + vec2(-quarterRadius, quarterRadius)) * 0.0625;"
+                                    "color += texture(sampler, uv + vec2(quarterRadius, -quarterRadius)) * 0.0625;"
+                                    "color += texture(sampler, uv + vec2(-quarterRadius, -quarterRadius)) * 0.0625;"
+
+                                    "pixel = blend(pixel, color, data[i].mode);"*/
+
+
+                /*TANH LENS DISTORT "for (int i = 0; i < 16 && data[i].type != 0; i ++) {"
+                            "vec2 uv = pos - 0.5;"
+                            "float k = data[i].data.x;"
+                            "float len = length(uv);"
+
+                            "if (k < 0.) {"
+                                "float corner = tanh(.7071 * k) / k;"
+                                "float distort = tanh(len * k) / k;"
+                                "float radius = distort * (.7071 / corner);"
+
+                                "uv *= radius / len;"
+                            "}"
+
+                            "else if (k > 0.) {"
+                                "float edge = sinh(.5 * k) / k;"
+                                "float distort = sinh(len * k) / k;"
+                                "float radius = distort * (.5 / edge);"
+
+                                "uv *= radius / len;"
+                            "}"
+
+                            "pixel = merge(pixel, texture(sampler, .5 + uv), data[i].mode);"
+                        "}"*/
 
                 glGenVertexArrays(1, &shader.vao);
                 glGenBuffers(2, buffers);
@@ -855,8 +986,7 @@ static int module_exec(PyObject *self) {
                 qsort(key, LEN(keys), sizeof(Button), (int (*)(const void *, const void *)) name);
                 qsort(mod, LEN(mods), sizeof(Button), (int (*)(const void *, const void *)) name);
 
-                matrix();
-                camera.flip = 1;
+                // matrix();
 
                 
                 // MIX_AudioDecoder *decoder = MIX_CreateAudioDecoder("darla.mp3", 0);
@@ -971,6 +1101,7 @@ static void module_free(void *closure) {
         glDeleteProgram(shader.image.src);
         glDeleteProgram(shader.circle.src);
         glDeleteProgram(shader.text.src);
+        glDeleteProgram(shader.warp.src);
     }
 }
 

@@ -1,12 +1,28 @@
 #include "main.h"
 
+static int matrix(void *closure) {
+    const double sx = 1 / camera.scale.x;
+    const double sy = 1 / camera.scale.y;
+
+    GLfloat matrix[] = {
+        sx, 0, 0, 0,
+        0, sy, 0, 0,
+        -camera.pos.x * sx, -camera.pos.y * sy, -1, 0
+    };
+
+    glBindBuffer(GL_UNIFORM_BUFFER, shader.ubo);
+    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof matrix, matrix);
+
+    return 0;
+}
+
 static PyObject *camera_get_x(PyObject *self, void *closure) {
     return PyFloat_FromDouble(camera.pos.x);
 }
 
 static int camera_set_x(PyObject *self, PyObject *value, void *closure) {
     DEL(value, "x")
-    return ERR(camera.pos.x = PyFloat_AsDouble(value)) ? -1 : 0;
+    return ERR(camera.pos.x = PyFloat_AsDouble(value)) ? -1 : matrix(NULL);
 }
 
 static PyObject *camera_get_y(PyObject *self, void *closure) {
@@ -15,11 +31,11 @@ static PyObject *camera_get_y(PyObject *self, void *closure) {
 
 static int camera_set_y(PyObject *self, PyObject *value, void *closure) {
     DEL(value, "y")
-    return ERR(camera.pos.y = PyFloat_AsDouble(value)) ? -1 : 0;
+    return ERR(camera.pos.y = PyFloat_AsDouble(value)) ? -1 : matrix(NULL);
 }
 
 static Vector *camera_get_pos(PyObject *self, void *closure) {
-    Vector *vect = vector_new(NULL, (double *) &camera.pos, 2, NULL);
+    Vector *vect = vector_new(NULL, (double *) &camera.pos, 2, (int (*)(PyObject *)) matrix);
 
     if (vect) {
         vect -> names[x] = 'x';
@@ -31,11 +47,11 @@ static Vector *camera_get_pos(PyObject *self, void *closure) {
 
 static int camera_set_pos(PyObject *self, PyObject *value, void *closure) {
     DEL(value, "pos")
-    return vector_set(value, (double *) &camera.pos, 2);
+    return vector_set(value, (double *) &camera.pos, 2) ? -1 : matrix(NULL);
 }
 
 static Vector *camera_get_scale(PyObject *self, void *closure) {
-    Vector *vect = vector_new(NULL, (double *) &camera.scale, 2, NULL);
+    Vector *vect = vector_new(NULL, (double *) &camera.scale, 2, (int (*)(PyObject *)) matrix);
 
     if (vect) {
         vect -> names[x] = 'x';
@@ -47,7 +63,7 @@ static Vector *camera_get_scale(PyObject *self, void *closure) {
 
 static int camera_set_scale(PyObject *self, PyObject *value, void *closure) {
     DEL(value, "scale")
-    return vector_set(value, (double *) &camera.scale, 2);
+    return vector_set(value, (double *) &camera.scale, 2) ? -1 : matrix(NULL);
 }
 
 static int camera_init(PyObject *self, PyObject *args, PyObject *kwds) {
@@ -59,7 +75,7 @@ static int camera_init(PyObject *self, PyObject *args, PyObject *kwds) {
     camera.scale.x = 1;
     camera.scale.y = 1;
 
-    return PyArg_ParseTupleAndKeywords(args, kwds, "|dd:Camera", kwlist, &camera.pos.x, &camera.pos.y) ? 0 : -1;
+    return PyArg_ParseTupleAndKeywords(args, kwds, "|dd:Camera", kwlist, &camera.pos.x, &camera.pos.y) ? matrix(NULL) : -1;
 }
 
 static PyObject *camera_get_top(PyObject *self, void *closure) {
@@ -70,7 +86,7 @@ static int camera_set_top(PyObject *self, PyObject *value, void *closure) {
     DEL(value, "top")
 
     double pos = PyFloat_AsDouble(value);
-    return ERR(pos) ? -1 : (camera.pos.y = pos + window.size.y / 2, 0);
+    return ERR(pos) ? -1 : (camera.pos.y = pos + window.size.y / 2, matrix(NULL));
 }
 
 static PyObject *camera_get_left(PyObject *self, void *closure) {
@@ -81,7 +97,7 @@ static int camera_set_left(PyObject *self, PyObject *value, void *closure) {
     DEL(value, "left")
 
     double pos = PyFloat_AsDouble(value);
-    return ERR(pos) ? -1 : (camera.pos.x = pos + window.size.x / 2, 0);
+    return ERR(pos) ? -1 : (camera.pos.x = pos + window.size.x / 2, matrix(NULL));
 }
 
 static PyObject *camera_get_bottom(PyObject *self, void *closure) {
@@ -92,7 +108,7 @@ static int camera_set_bottom(PyObject *self, PyObject *value, void *closure) {
     DEL(value, "bottom")
 
     double pos = PyFloat_AsDouble(value);
-    return ERR(pos) ? -1 : (camera.pos.y = pos - window.size.y / 2, 0);
+    return ERR(pos) ? -1 : (camera.pos.y = pos - window.size.y / 2, matrix(NULL));
 }
 
 static PyObject *camera_get_right(PyObject *self, void *closure) {
@@ -103,7 +119,7 @@ static int camera_set_right(PyObject *self, PyObject *value, void *closure) {
     DEL(value, "right")
 
     double pos = PyFloat_AsDouble(value);
-    return ERR(pos) ? -1 : (camera.pos.x = pos - window.size.x / 2, 0);
+    return ERR(pos) ? -1 : (camera.pos.x = pos - window.size.x / 2, matrix(NULL));
 }
 
 static PyGetSetDef camera_getset[] = {

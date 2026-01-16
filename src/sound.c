@@ -69,7 +69,7 @@ static int load(Sound *self, const char *name) {
 // }
 
 static PyObject *sound_get_samples(Sound *self, void *closure) {
-    const int len = self -> samples / self -> channels;
+    const int len = self -> channels ? self -> samples / self -> channels : 0;
     PyObject *tuple = PyTuple_New(len);
 
     if (!tuple)
@@ -118,7 +118,7 @@ static int sound_init(Sound *self, PyObject *args, PyObject *kwds) {
     INIT(!PyArg_ParseTupleAndKeywords(args, kwds, "|s:Sound", kwlist, &name))
 
     if (!name) {
-        sprintf(path.src + path.size, "audio/pickup.wav");
+        sprintf(path.src + path.size, PICKUP);
         name = path.src;
     }
 

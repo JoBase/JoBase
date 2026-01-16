@@ -1,20 +1,19 @@
 #include "main.h"
 
 static void draw(Text *self) {
-    glBindTexture(GL_TEXTURE_2D, self -> src -> src);
-    glUseProgram(shader.text.src);
+    use(&shader.text);
+    texture(self -> src -> src);
+    array(self -> vao);
 
     GLfloat matrix[] = {
         self -> size * self -> base.scale.x, 0, 0,
-        0, self -> size * self -> base.scale.y * camera.flip, 0,
+        0, self -> size * self -> base.scale.y, 0,
         self -> base.pos.x - self -> width * self -> size / 2,
-        self -> base.pos.y * camera.flip, 1
+        self -> base.pos.y, 1
     };
 
     glUniformMatrix3fv(shader.text.obj, 1, GL_FALSE, matrix);
     glUniform4f(shader.text.color, self -> base.color.x, self -> base.color.y, self -> base.color.z, self -> base.color.w);
-
-    glBindVertexArray(self -> vao);
     glDrawArrays(GL_TRIANGLES, 0, self -> len * 6);
 }
 
@@ -57,7 +56,7 @@ static int create(Text *self) {
 
     self -> width = advance;
 
-    glBindVertexArray(self -> vao);
+    array(self -> vao);
     glBindBuffer(GL_ARRAY_BUFFER, self -> vbo);
     glBufferData(GL_ARRAY_BUFFER, size, data, GL_STATIC_DRAW);
 
@@ -110,13 +109,13 @@ static int load(Text *self, uint8_t src) {
 
                             if (fread(font -> chars, 1, size, file) == (unsigned) size) {
                                 fclose(file);
-
                                 glGenTextures(1, &font -> src);
-                                glBindTexture(GL_TEXTURE_2D, font -> src);
+
+                                texture(font -> src);
                                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, image);
                                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                                glBindTexture(GL_TEXTURE_2D, 0);
+                                // glBindTexture(GL_TEXTURE_2D, 0);
 
                                 return stbi_image_free(image), 0;
                             }
@@ -217,7 +216,7 @@ static Text *text_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
         glGenVertexArrays(1, &self -> vao);
         glGenBuffers(1, &self -> vbo);
 
-        glBindVertexArray(self -> vao);
+        array(self -> vao);
         glBindBuffer(GL_ARRAY_BUFFER, self -> vbo);
 
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLfloat) * 4, 0);
@@ -261,7 +260,9 @@ static int text_init(Text *self, PyObject *args, PyObject *kwds) {
 }
 
 static PyObject *text_draw(Text *self, PyObject *args) {
+    unbind();
     draw(self);
+
     Py_RETURN_NONE;
 }
 

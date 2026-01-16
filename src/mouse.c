@@ -57,6 +57,14 @@ static PyObject *mouse_get_release(PyObject *self, void *closure) {
     return PyBool_FromLong(mouse.release);
 }
 
+// static PyObject *mouse_get_down(PyObject *self, void *closure) {
+//     for (uint8_t i = 0; i < mouse.len; i ++)
+//         if (mouse.button[i].key -> down)
+//             Py_RETURN_TRUE;
+
+//     Py_RETURN_FALSE;
+// }
+
 // static int mouse_init(PyObject *self, PyObject *args, PyObject *kwds) {
 //     static char *kwlist[] = {"x", "y", NULL};
 
@@ -85,6 +93,7 @@ static PyGetSetDef mouse_getset[] = {
     {"move", (getter) mouse_get_move, NULL, "The movement of the mouse", NULL},
     {"press", mouse_get_press, NULL, "A mouse button is pressed", NULL},
     {"release", mouse_get_release, NULL, "A mouse button is released", NULL},
+    // {"down", mouse_get_down, NULL, "A mouse button is held down", NULL},
     {NULL}
 };
 

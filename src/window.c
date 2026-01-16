@@ -8,11 +8,11 @@ static int size(void *unused) {
 #ifdef __EMSCRIPTEN__
     window.size.x = width();
     window.size.y = height();
-
-    return 0;
 #else
-    return SDL_SetWindowSize(window.sdl, window.size.x, window.size.y) ? 0 : (PyErr_SetString(error, SDL_GetError()), -1);
+    if (!SDL_SetWindowSize(window.sdl, window.size.x, window.size.y))
+        return PyErr_SetString(error, SDL_GetError()), -1;
 #endif
+    return 0;
 }
 
 static PyObject *window_get_title(PyObject *self, void *closure) {

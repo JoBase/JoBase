@@ -6,10 +6,10 @@ static void draw(Line *self) {
     glDepthFunc(GL_LESS);
     glDepthMask(GL_TRUE);
 
-    glUseProgram(shader.plain.src);
-    base_matrix(&self -> base.base, shader.plain.obj, shader.plain.color, 1, 1);
+    base_matrix((Base *) self, &shader.plain, 1, 1);
+    // base_color((Base *) self);
+    array(self -> base.vao);
 
-    glBindVertexArray(self -> base.vao);
     glDrawElements(GL_TRIANGLES, self -> base.indices, GL_UNSIGNED_INT, 0);
     glDisable(GL_DEPTH_TEST);
 }
@@ -109,13 +109,13 @@ static int create(Line *self) {
         }
     }
 
-    glBindVertexArray(self -> base.vao);
+    array(self -> base.vao);
     glBindBuffer(GL_ARRAY_BUFFER, self -> base.vbo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self -> base.ibo);
 
     glBufferData(GL_ARRAY_BUFFER, vtx * sizeof(GLfloat), verts, GL_STATIC_DRAW);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, idx * sizeof(GLuint), index, GL_STATIC_DRAW);
-    glBindVertexArray(0);
+    // glBindVertexArray(0);
 
     free(verts);
     free(index);
@@ -239,7 +239,9 @@ static int line_init(Line *self, PyObject *args, PyObject *kwds) {
 }
 
 static PyObject *line_draw(Line *self, PyObject *args) {
+    unbind();
     draw(self);
+
     Py_RETURN_NONE;
 }
 

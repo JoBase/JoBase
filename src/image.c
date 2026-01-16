@@ -2,11 +2,12 @@
 #include "main.h"
 
 static void draw(Image *self) {
-    glBindTexture(GL_TEXTURE_2D, self -> src -> src);
-    glUseProgram(shader.image.src);
-    base_matrix(&self -> base.base, shader.image.obj, shader.image.color, self -> base.size.x, self -> base.size.y);
+    base_matrix((Base *) self, &shader.image, self -> base.size.x, self -> base.size.y);
+    // base_color((Base *) self);
 
-    glBindVertexArray(shader.vao);
+    texture(self -> src -> src);
+    array(shader.vao);
+
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
@@ -15,12 +16,12 @@ static int load(Image *self, const char *name) {
         if (!strcmp(this -> name, name))
             return self -> src = this, 0;
 
-    Texture *texture = malloc(sizeof(Texture));
+    Texture *buffer = malloc(sizeof(Texture));
 
-    if (texture) {
-        if ((texture -> name = strdup(name))) {
-            texture -> next = textures;
-            textures = self -> src = texture;
+    if (buffer) {
+        if ((buffer -> name = strdup(name))) {
+            buffer -> next = textures;
+            textures = self -> src = buffer;
 
             int width, height;
             stbi_uc *image = stbi_load(name, &width, &height, 0, STBI_rgb_alpha);
@@ -28,8 +29,8 @@ static int load(Image *self, const char *name) {
             if (!image)
                 return PyErr_Format(PyExc_FileNotFoundError, "Failed to load image '%s', %s", name, stbi_failure_reason()), -1;
 
-            glGenTextures(1, &texture -> src);
-            glBindTexture(GL_TEXTURE_2D, texture -> src);
+            glGenTextures(1, &buffer -> src);
+            texture(buffer -> src);
 
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -37,13 +38,13 @@ static int load(Image *self, const char *name) {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-            texture -> width = width;
-            texture -> height = height;
+            buffer -> width = width;
+            buffer -> height = height; // divided by devicePixelRatio?
 
             return 0;
         }
 
-        free(texture);
+        free(buffer);
     }
 
     return PyErr_NoMemory(), -1;
@@ -88,7 +89,7 @@ static int image_init(Image *self, PyObject *args, PyObject *kwds) {
         &self -> base.size.y, &color));
 
     if (!name) {
-        sprintf(path.src + path.size, "images/man.png");
+        sprintf(path.src + path.size, MAN);
         name = path.src;
     }
 
@@ -101,7 +102,9 @@ static int image_init(Image *self, PyObject *args, PyObject *kwds) {
 }
 
 static PyObject *image_draw(Image *self, PyObject *args) {
+    unbind();
     draw(self);
+
     Py_RETURN_NONE;
 }
 

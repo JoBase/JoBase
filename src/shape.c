@@ -24,7 +24,7 @@ static int create(Shape *self) {
         return tessDeleteTess(tess), free(points), -1;
     }
 
-    glBindVertexArray(self -> vao);
+    array(self -> vao);
     self -> indices = tessGetElementCount(tess) * 3;
 
     glBindBuffer(GL_ARRAY_BUFFER, self -> vbo);
@@ -37,10 +37,10 @@ static int create(Shape *self) {
 }
 
 static void draw(Shape *self) {
-    glUseProgram(shader.plain.src);
-    base_matrix(&self -> base, shader.plain.obj, shader.plain.color, 1, 1);
+    base_matrix((Base *) self, &shader.plain, 1, 1);
+    // base_color((Base *) self);
+    array(self -> vao);
 
-    glBindVertexArray(self -> vao);
     glDrawElements(GL_TRIANGLES, self -> indices, GL_UNSIGNED_INT, 0);
 }
 
@@ -109,7 +109,7 @@ static Shape *shape_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
         self -> vbo = buffers[0];
         self -> ibo = buffers[1];
 
-        glBindVertexArray(self -> vao);
+        array(self -> vao);
         glBindBuffer(GL_ARRAY_BUFFER, self -> vbo);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self -> ibo);
 
@@ -148,7 +148,9 @@ static int shape_init(Shape *self, PyObject *args, PyObject *kwds) {
 }
 
 static PyObject *shape_draw(Shape *self, PyObject *args) {
+    unbind();
     draw(self);
+
     Py_RETURN_NONE;
 }
 

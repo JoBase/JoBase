@@ -185,20 +185,25 @@ static PyObject *base_move_to(Base *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
-void base_matrix(Base *self, GLint obj, GLint color, double width, double height) {
+void base_matrix(Base *self, Program *shader, double width, double height) {
     const double sine = sin(self -> angle * M_PI / 180);
     const double cosine = cos(self -> angle * M_PI / 180);
 
     GLfloat matrix[] = {
         width * self -> scale.x * cosine, width * self -> scale.x * sine, 0,
-        height * self -> scale.y * -sine * camera.flip, height * self -> scale.y * cosine * camera.flip, 0,
+        height * self -> scale.y * -sine, height * self -> scale.y * cosine, 0,
         self -> anchor.x * cosine + self -> anchor.y * -sine + self -> pos.x,
-        (self -> anchor.x * sine + self -> anchor.y * cosine + self -> pos.y) * camera.flip, 1
+        self -> anchor.x * sine + self -> anchor.y * cosine + self -> pos.y, 1
     };
 
-    glUniformMatrix3fv(obj, 1, GL_FALSE, matrix);
-    glUniform4f(color, self -> color.x, self -> color.y, self -> color.z, self -> color.w);
+    use(shader);
+    glUniformMatrix3fv(shader -> obj, 1, GL_FALSE, matrix);
+    glUniform4f(shader -> color, self -> color.x, self -> color.y, self -> color.z, self -> color.w);
 }
+
+// void base_color(Base *self) {
+    
+// }
 
 void base_trans(Base *self, Vec2 *src, Vec2 *dst, size_t length) {
     const double x = cos(self -> angle * M_PI / 180);

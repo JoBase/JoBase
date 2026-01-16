@@ -1,10 +1,10 @@
 #include "main.h"
 
 static void draw(Circle *self) {
-    glUseProgram(shader.circle.src);
-    base_matrix(&self -> base, shader.circle.obj, shader.circle.color, self -> diameter, self -> diameter);
+    base_matrix((Base *) self, &shader.circle, self -> diameter, self -> diameter);
+    // base_color((Base *) self);
+    array(shader.vao);
 
-    glBindVertexArray(shader.vao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
@@ -43,7 +43,9 @@ static int circle_init(Circle *self, PyObject *args, PyObject *kwds) {
 }
 
 static PyObject *circle_draw(Circle *self, PyObject *args) {
+    unbind();
     draw(self);
+
     Py_RETURN_NONE;
 }
 
