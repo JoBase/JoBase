@@ -1,39 +1,33 @@
 /*
-TODO:
-
-- Base - top, bottom, left, right
-- Constants (colours)
-- Check OpenGL binding to zero
-- Check all mallocs and strdup
-- mousedown
+✅ Base - top, bottom, left, right
+✅ Constants (colours)
+✅ Check OpenGL binding to zero
+✅ Check all mallocs and strdup
+✅ mousedown
 mouse enter, leave
-- keydown
-- text.units
-- update __init__.pyi
-- more fonts
-- images memory leak
-- sdl errors
+✅ keydown
+✅ text.units
+✅ update __init__.pyi
+✅ more fonts
+✅ images memory leak
+✅ sdl errors
 zooom opposite of scale?
 turn mods into booleans, maybe
-- sound files (init name = DEFAULT) <-- actually no
-- add blit() to all shapes
-fix the save() function of screen
+✅ sound files (init name = DEFAULT) <-- actually no
+✅ add blit() to all shapes
+fix the save() function of screen (high dpi)
 sound change file after init?
-- line transparency
+✅ line transparency
 window pixel ratio
-- sound default audio
-- finish collision (and docs)
-- docs: text doesn not instance rect
-- pyargparse for screen
-- docs: top bottom left right
-- random in docs
-- upside down screen?
-- app logo!!
+✅ sound default audio
+✅ finish collision (and docs)
+✅ docs: text doesn not instance rect
+✅ pyargparse for screen
+✅ docs: top bottom left right
+✅ random in docs
+✅ upside down screen?
+✅ app logo!!
 finish key init__py
-
-TO Test:
-
-screen saving
 */
 
 #define FILE(n) sprintf(path.src+path.size,n);CHECK(PyModule_AddStringConstant(program,#n,path.src))

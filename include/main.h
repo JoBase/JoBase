@@ -35,6 +35,35 @@ extern uint32_t height(void);
 #include <stb_image.h>
 #include <stb_image_write.h>
 
+#if PY_VERSION_HEX < 0x30A0000 // 3.10
+static inline PyObject *_Py_NewRef(PyObject *e) {
+    return Py_INCREF(e), e;
+}
+
+#define Py_NewRef(e) _Py_NewRef((PyObject*)e)
+#endif
+
+#if PY_VERSION_HEX < 0x30D0000 // 3.13
+static inline int PyObject_GetOptionalAttrString(PyObject *obj, const char *name, PyObject **res) {
+    return (*res = PyObject_GetAttrString(obj, name)) ? 1 : PyErr_ExceptionMatches(PyExc_AttributeError) ? (PyErr_Clear(), 0) : -1;
+}
+
+static inline PyObject *PyImport_AddModuleRef(const char *name) {
+    return Py_NewRef(PyImport_AddModule(name));
+}
+
+static inline int PyModule_Add(PyObject *module, const char *name, PyObject *value) {
+    if (PyModule_AddObject(module, name, value)) {
+        Py_XDECREF(value);
+        return -1;
+    }
+
+    return 0;
+}
+
+#define PyLong_AsInt(e) (int)PyLong_AsLong(e)
+#endif
+
 enum {x, y, z, w};
 enum {r, g, b, a};
 
@@ -148,13 +177,6 @@ struct Audio {
     char *name;
 };
 
-// struct Filter {
-//     Filter *next;
-//     void (*func)(Screen *, Filter *);
-//     float a;
-//     float b;
-// };
-
 struct Image {
     Rect base;
     Texture *src;
@@ -203,12 +225,8 @@ struct Sound {
 struct Screen {
     Rect base;
     GLuint buffer;
-    // GLuint uniform;
     GLuint a;
     GLuint b;
-    // Filter *filters;
-    // Filter *current;
-    // uint8_t index;
 };
 
 struct Key {
@@ -332,7 +350,6 @@ extern Vec2 circle_pos(Circle *);
 
 extern void base_trans(Base *, Vec2 *, Vec2 *, size_t);
 extern void base_matrix(Base *, Program *, double, double);
-// extern void base_color(Base *);
 extern void base_rect(Base *, Vec2 *, double, double);
 extern double base_radius(Base *, double);
 extern double rect_y(Base *, double, double, char);
@@ -353,11 +370,6 @@ extern int base_left(Base *, PyObject *, double);
 extern int button_compare(const char *, Button *);
 extern int vector_set(PyObject *, double *, uint8_t);
 extern int points_set(PyObject *, Shape *);
-
-// static inline void resize() {
-//     // if active
-    
-// }
 
 static inline Vec2 norm(double x, double y) {
     const double len = hypot(x, y);
