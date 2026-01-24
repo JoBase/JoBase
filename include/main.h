@@ -35,7 +35,7 @@ extern uint32_t height(void);
 #include <stb_image.h>
 #include <stb_image_write.h>
 
-#if PY_VERSION_HEX < 0x30A0000 // 3.10
+#if PY_VERSION_HEX < 0x30a0000 // 3.10
 static inline PyObject *_Py_NewRef(PyObject *e) {
     return Py_INCREF(e), e;
 }
@@ -43,7 +43,7 @@ static inline PyObject *_Py_NewRef(PyObject *e) {
 #define Py_NewRef(e) _Py_NewRef((PyObject*)e)
 #endif
 
-#if PY_VERSION_HEX < 0x30D0000 // 3.13
+#if PY_VERSION_HEX < 0x30d0000 // 3.13
 static inline int PyObject_GetOptionalAttrString(PyObject *obj, const char *name, PyObject **res) {
     return (*res = PyObject_GetAttrString(obj, name)) ? 1 : PyErr_ExceptionMatches(PyExc_AttributeError) ? (PyErr_Clear(), 0) : -1;
 }
