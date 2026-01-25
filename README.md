@@ -8,4 +8,4 @@ Visit [jobase.org](https://jobase.org) for tutorials and demos.
 JoBase now has full browser support.
 Soon, you'll be able share your online projects with friends.
 
-Join our friendly [Discord](https://discord.gg/DzHyvZfa5q) to ask questions and get live updates.
+Join our friendly [Discord server](https://discord.gg/DzHyvZfa5q) to ask questions and get live updates.

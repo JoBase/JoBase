@@ -33,7 +33,7 @@ finish key init__py
 #define FILE(n) sprintf(path.src+path.size,n);CHECK(PyModule_AddStringConstant(program,#n,path.src))
 #define ADD(n, t) CHECK(PyModule_Add(program,n,t))
 #define COLOR(r, g, b) PyTuple_Pack(3,PyFloat_FromDouble(r),PyFloat_FromDouble(g),PyFloat_FromDouble(b))
-#define TYPE(e, x) CHECK(!(e.type=(PyTypeObject *)PyType_FromSpecWithBases(&e.spec,x)))
+#define TYPE(e, x) CHECK(!(e.type=(PyTypeObject *)PyType_FromSpecWithBases(&e.spec,(PyObject*)x)))
 #define CHECK(e) if(e)goto fail;
 
 #include "main.h"
@@ -576,7 +576,7 @@ static int module_exec(PyObject *self) {
             SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) && MIX_Init() &&
             SDL_SetHint(SDL_HINT_EMSCRIPTEN_KEYBOARD_ELEMENT, "#canvas") &&
             SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3) &&
-            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0) &&
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3) &&
             SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE) &&
             SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 0)
         ) {
@@ -644,13 +644,13 @@ static int module_exec(PyObject *self) {
                 TYPE(button_data, NULL)
                 TYPE(mod_data, NULL)
                 TYPE(points_data, NULL)
-                TYPE(rect_data, (PyObject *) base_data.type)
-                TYPE(shape_data, (PyObject *) base_data.type)
-                TYPE(circle_data, (PyObject *) base_data.type)
-                TYPE(screen_data, (PyObject *) rect_data.type)
-                TYPE(text_data, (PyObject *) base_data.type)
-                TYPE(line_data, (PyObject *) shape_data.type)
-                TYPE(image_data, (PyObject *) rect_data.type)
+                TYPE(rect_data, base_data.type)
+                TYPE(shape_data, base_data.type)
+                TYPE(circle_data, base_data.type)
+                TYPE(screen_data, rect_data.type)
+                TYPE(text_data, base_data.type)
+                TYPE(line_data, shape_data.type)
+                TYPE(image_data, rect_data.type)
 
                 FILE(MAN)
                 FILE(COIN)

@@ -43,6 +43,21 @@ static inline PyObject *_Py_NewRef(PyObject *e) {
 #define Py_NewRef(e) _Py_NewRef((PyObject*)e)
 #endif
 
+#if PY_VERSION_HEX < 0x30c0000 // 3.12
+static inline PyObject *_PyType_FromSpecWithBases(PyType_Spec *spec, PyObject *base) {
+    if (base) {
+        PyObject *tuple = PyTuple_Pack(1, base);
+        PyObject *type = PyType_FromSpecWithBases(spec, tuple);
+
+        return Py_DECREF(tuple), type;
+    }
+
+    return PyType_FromSpecWithBases(spec, base);
+}
+
+#define PyType_FromSpecWithBases _PyType_FromSpecWithBases
+#endif
+
 #if PY_VERSION_HEX < 0x30d0000 // 3.13
 static inline int PyObject_GetOptionalAttrString(PyObject *obj, const char *name, PyObject **res) {
     return (*res = PyObject_GetAttrString(obj, name)) ? 1 : PyErr_ExceptionMatches(PyExc_AttributeError) ? (PyErr_Clear(), 0) : -1;
