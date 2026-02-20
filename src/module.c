@@ -31,7 +31,8 @@ finish key init__py
 */
 
 #define FILE(n) sprintf(path.src+path.size,n);CHECK(PyModule_AddStringConstant(program,#n,path.src))
-#define ADD(n, t) CHECK(PyModule_Add(program,n,t))
+#define ADD(n, t) CHECK(PyModule_Add(program,n,t)||PyModule_Add(self,n,t))
+#define REF(n, t) CHECK(PyModule_AddObjectRef(program,n,t)||PyModule_AddObjectRef(self,n,t))
 #define COLOR(r, g, b) PyTuple_Pack(3,PyFloat_FromDouble(r),PyFloat_FromDouble(g),PyFloat_FromDouble(b))
 #define TYPE(e, x) CHECK(!(e.type=(PyTypeObject *)PyType_FromSpecWithBases(&e.spec,(PyObject*)x)))
 #define CHECK(e) if(e)goto fail;
@@ -940,14 +941,14 @@ static int module_exec(PyObject *self) {
                 ADD("window", PyObject_CallObject((PyObject *) window_data.type, NULL))
                 ADD("mouse", PyObject_CallObject((PyObject *) mouse_data.type, NULL))
                 ADD("key", PyObject_CallObject((PyObject *) key_data.type, NULL))
-                ADD("Rect", (PyObject *) rect_data.type)
-                ADD("Shape", (PyObject *) shape_data.type)
-                ADD("Line", (PyObject *) line_data.type)
-                ADD("Image", (PyObject *) image_data.type)
-                ADD("Circle", (PyObject *) circle_data.type)
-                ADD("Text", (PyObject *) text_data.type)
-                ADD("Sound", (PyObject *) sound_data.type)
-                ADD("Screen", (PyObject *) screen_data.type)
+                REF("Rect", (PyObject *) rect_data.type)
+                REF("Shape", (PyObject *) shape_data.type)
+                REF("Line", (PyObject *) line_data.type)
+                REF("Image", (PyObject *) image_data.type)
+                REF("Circle", (PyObject *) circle_data.type)
+                REF("Text", (PyObject *) text_data.type)
+                REF("Sound", (PyObject *) sound_data.type)
+                REF("Screen", (PyObject *) screen_data.type)
 
                 ADD("WHITE", COLOR(1, 1, 1))
                 ADD("BLACK", COLOR(0, 0, 0))
@@ -1144,6 +1145,7 @@ static PyModuleDef module = {
     .m_name = "JoBase",
     .m_size = 0,
     .m_slots = module_slots,
+    .m_methods = module_methods,
     .m_traverse = module_traverse,
     .m_clear = module_clear,
     .m_free = module_free

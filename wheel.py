@@ -1,6 +1,6 @@
 import packaging.tags, subprocess, sysconfig, pathlib, sys, zipfile, shutil, hashlib, base64, platform
 
-VERSION = "3.1"
+VERSION = "3.2"
 NAME = "JoBase"
 
 def build_wheel(wheel_directory, config_settings = None, metadata_directory = None):
@@ -106,7 +106,7 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
         "Installation",
         "============",
         "",
-        "If you already have Python installed, you can install JoBase with pip.::",
+        "If you already have Python installed, you can install JoBase with pip.:",
         "",
         "    pip install JoBase",
         "",
