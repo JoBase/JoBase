@@ -39,7 +39,7 @@ jobs:
           CIBW_PROJECT_REQUIRES_PYTHON: '>=3.8'
           CIBW_ARCHS_LINUX: ${{runner.arch == 'X64' && 'x86_64 i686 ppc64le riscv64' || 'aarch64'}}
           CIBW_SKIP: cp3??t-*
-          # CIBW_BUILD: cp313-win_amd64*
+          CIBW_BUILD: cp313-win_amd64*
           #aarch64 armv7l
           #s390x
 
