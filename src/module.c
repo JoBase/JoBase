@@ -32,7 +32,7 @@ finish key init__py
 
 #define FILE(n) sprintf(path.src+path.size,n);CHECK(PyModule_AddStringConstant(program,#n,path.src))
 #define ADD(n, t) CHECK(PyModule_Add(program,n,t)||PyModule_Add(self,n,t))
-#define REF(n, t) CHECK(PyModule_AddObjectRef(program,n,t)||PyModule_AddObjectRef(self,n,t))
+// #define REF(n, t) CHECK(PyModule_AddObjectRef(program,n,t)||PyModule_AddObjectRef(self,n,t))
 #define COLOR(r, g, b) PyTuple_Pack(3,PyFloat_FromDouble(r),PyFloat_FromDouble(g),PyFloat_FromDouble(b))
 #define TYPE(e, x) CHECK(!(e.type=(PyTypeObject *)PyType_FromSpecWithBases(&e.spec,(PyObject*)x)))
 #define CHECK(e) if(e)goto fail;
@@ -664,11 +664,6 @@ static int module_exec(PyObject *self) {
                 CHECK(PyModule_AddIntConstant(program, "SERIF", 2))
                 CHECK(PyModule_AddIntConstant(program, "DISPLAY", 3))
                 CHECK(PyModule_AddIntConstant(program, "PIXEL", 4))
-
-                // CHECK(PyModule_AddIntConstant(program, "ADDITIVE", ADDITIVE))
-                // CHECK(PyModule_AddIntConstant(program, "MULTIPLY", MULTIPLY))
-                // CHECK(PyModule_AddIntConstant(program, "SCREEN", SCREEN))
-                // CHECK(PyModule_AddIntConstant(program, "OVERLAY", OVERLAY))
                 CHECK(!PyObject_Init(&keyboard.map, mod_data.type))
 
                 GLfloat data[] = {-.5, .5, 0, 0, .5, .5, 1, 0, -.5, -.5, 0, 1, .5, -.5, 1, 1};
@@ -852,53 +847,6 @@ static int module_exec(PyObject *self) {
                 glDeleteShader(frag_text);
                 glDeleteShader(frag_warp);
 
-                /*9 PASS GUASSIAN ISH (BLOCKy at high radius)
-                
-                "vec2 texSize = vec2(textureSize(sampler, 0));"
-                                    "vec2 uv = pos;" // Your UV coordinates
-                                    "vec2 pixelSize = 1.0 / texSize;"
-                                    "float radiusUV = data[i].data.x / texSize.x;"
-                                    
-                                    "vec4 color = texture(sampler, uv) * 0.25;"
-                                    "float halfRadius = radiusUV * 0.5;"
-                                    "color += texture(sampler, uv + vec2(halfRadius, 0.0)) * 0.125;"
-                                    "color += texture(sampler, uv + vec2(-halfRadius, 0.0)) * 0.125;"
-                                    "color += texture(sampler, uv + vec2(0.0, halfRadius)) * 0.125;"
-                                    "color += texture(sampler, uv + vec2(0.0, -halfRadius)) * 0.125;"
-
-                                    "float quarterRadius = radiusUV * 0.25;"
-                                    "color += texture(sampler, uv + vec2(quarterRadius, quarterRadius)) * 0.0625;"
-                                    "color += texture(sampler, uv + vec2(-quarterRadius, quarterRadius)) * 0.0625;"
-                                    "color += texture(sampler, uv + vec2(quarterRadius, -quarterRadius)) * 0.0625;"
-                                    "color += texture(sampler, uv + vec2(-quarterRadius, -quarterRadius)) * 0.0625;"
-
-                                    "pixel = blend(pixel, color, data[i].mode);"*/
-
-
-                /*TANH LENS DISTORT "for (int i = 0; i < 16 && data[i].type != 0; i ++) {"
-                            "vec2 uv = pos - 0.5;"
-                            "float k = data[i].data.x;"
-                            "float len = length(uv);"
-
-                            "if (k < 0.) {"
-                                "float corner = tanh(.7071 * k) / k;"
-                                "float distort = tanh(len * k) / k;"
-                                "float radius = distort * (.7071 / corner);"
-
-                                "uv *= radius / len;"
-                            "}"
-
-                            "else if (k > 0.) {"
-                                "float edge = sinh(.5 * k) / k;"
-                                "float distort = sinh(len * k) / k;"
-                                "float radius = distort * (.5 / edge);"
-
-                                "uv *= radius / len;"
-                            "}"
-
-                            "pixel = merge(pixel, texture(sampler, .5 + uv), data[i].mode);"
-                        "}"*/
-
                 glGenVertexArrays(1, &shader.vao);
                 glGenBuffers(2, buffers);
 
@@ -941,14 +889,14 @@ static int module_exec(PyObject *self) {
                 ADD("window", PyObject_CallObject((PyObject *) window_data.type, NULL))
                 ADD("mouse", PyObject_CallObject((PyObject *) mouse_data.type, NULL))
                 ADD("key", PyObject_CallObject((PyObject *) key_data.type, NULL))
-                REF("Rect", (PyObject *) rect_data.type)
-                REF("Shape", (PyObject *) shape_data.type)
-                REF("Line", (PyObject *) line_data.type)
-                REF("Image", (PyObject *) image_data.type)
-                REF("Circle", (PyObject *) circle_data.type)
-                REF("Text", (PyObject *) text_data.type)
-                REF("Sound", (PyObject *) sound_data.type)
-                REF("Screen", (PyObject *) screen_data.type)
+                ADD("Rect", (PyObject *) rect_data.type)
+                ADD("Shape", (PyObject *) shape_data.type)
+                ADD("Line", (PyObject *) line_data.type)
+                ADD("Image", (PyObject *) image_data.type)
+                ADD("Circle", (PyObject *) circle_data.type)
+                ADD("Text", (PyObject *) text_data.type)
+                ADD("Sound", (PyObject *) sound_data.type)
+                ADD("Screen", (PyObject *) screen_data.type)
 
                 ADD("WHITE", COLOR(1, 1, 1))
                 ADD("BLACK", COLOR(0, 0, 0))

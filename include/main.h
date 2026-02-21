@@ -40,16 +40,16 @@ static inline PyObject *_Py_NewRef(PyObject *e) {
     return Py_INCREF(e), e;
 }
 
-static inline int PyModule_AddObjectRef(PyObject *module, const char *name, PyObject *value) {
-    Py_XINCREF(value);
+// static inline int PyModule_AddObjectRef(PyObject *module, const char *name, PyObject *value) {
+//     Py_XINCREF(value);
 
-    if (PyModule_AddObject(module, name, value)) {
-        Py_XDECREF(value);
-        return -1;
-    }
+//     if (PyModule_AddObject(module, name, value)) {
+//         Py_XDECREF(value);
+//         return -1;
+//     }
 
-    return 0;
-}
+//     return 0;
+// }
 
 #define Py_NewRef(e) _Py_NewRef((PyObject*)e)
 #endif
