@@ -11,8 +11,10 @@
 #define PICKUP "audio/pickup.wav"
 #define BLIP "audio/blip.wav"
 
-#define BLUR 1
-#define WARP 2
+#define MULTIPLY 1
+#define SCREEN 2
+#define ADD 3
+
 #define _USE_MATH_DEFINES
 
 #ifdef __EMSCRIPTEN__

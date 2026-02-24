@@ -262,11 +262,9 @@ PyObject *screen_bind(Base *object, PyObject *item, void (*draw)(Base *)) {
     if (shader.mode != mode) {
         shader.mode = mode;
 
-        if (mode == 1) {
-            glBlendFunc(GL_DST_COLOR, GL_ZERO);
-        }
-
-        else glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
+        mode == MULTIPLY ? glBlendFunc(GL_DST_COLOR, GL_ZERO) :
+        mode == SCREEN ? glBlendFunc(GL_ONE_MINUS_DST_COLOR, GL_ONE) :
+        mode == ADD ? glBlendFunc(GL_ONE, GL_ONE) : glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
     }
 
     frame(self);
