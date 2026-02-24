@@ -40,16 +40,16 @@ static inline PyObject *_Py_NewRef(PyObject *e) {
     return Py_INCREF(e), e;
 }
 
-// static inline int PyModule_AddObjectRef(PyObject *module, const char *name, PyObject *value) {
-//     Py_XINCREF(value);
+static inline int PyModule_AddObjectRef(PyObject *module, const char *name, PyObject *value) {
+    Py_XINCREF(value);
 
-//     if (PyModule_AddObject(module, name, value)) {
-//         Py_XDECREF(value);
-//         return -1;
-//     }
+    if (PyModule_AddObject(module, name, value)) {
+        Py_XDECREF(value);
+        return -1;
+    }
 
-//     return 0;
-// }
+    return 0;
+}
 
 #define Py_NewRef(e) _Py_NewRef((PyObject*)e)
 #endif
@@ -330,8 +330,9 @@ extern struct Shader {
     Filter warp;
     GLuint ubo;
     GLuint vao;
-    GLuint array;
-    GLuint texture;
+    uint8_t mode;
+    // GLuint array;
+    // GLuint texture;
 } shader;
 
 extern struct Path {
@@ -409,16 +410,6 @@ static inline void use(Program *program) {
         glUseProgram((shader.active = program) -> src);
         glUniform2f(program -> size, shader.screen ? shader.screen -> base.size.x : window.size.x, shader.screen ? -shader.screen -> base.size.y : window.size.y);
     }
-}
-
-static inline void array(GLuint vao) {
-    if (vao != shader.array)
-        glBindVertexArray(shader.array = vao);
-}
-
-static inline void texture(GLuint src) {
-    if (src != shader.texture)
-        glBindTexture(GL_TEXTURE_2D, shader.texture = src);
 }
 
 static inline void unbind(void) {

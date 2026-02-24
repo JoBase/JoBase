@@ -24,7 +24,7 @@ static int create(Shape *self) {
         return tessDeleteTess(tess), free(points), -1;
     }
 
-    array(self -> vao);
+    glBindVertexArray(self -> vao);
     self -> indices = tessGetElementCount(tess) * 3;
 
     glBindBuffer(GL_ARRAY_BUFFER, self -> vbo);
@@ -38,9 +38,8 @@ static int create(Shape *self) {
 
 static void draw(Shape *self) {
     base_matrix((Base *) self, &shader.plain, 1, 1);
-    // base_color((Base *) self);
-    array(self -> vao);
 
+    glBindVertexArray(self -> vao);
     glDrawElements(GL_TRIANGLES, self -> indices, GL_UNSIGNED_INT, 0);
 }
 
@@ -109,12 +108,14 @@ static Shape *shape_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
         self -> vbo = buffers[0];
         self -> ibo = buffers[1];
 
-        array(self -> vao);
+        glBindVertexArray(self -> vao);
         glBindBuffer(GL_ARRAY_BUFFER, self -> vbo);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self -> ibo);
 
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
         glEnableVertexAttribArray(0);
+
+        // glBindVertexArray(0);
     }
 
     return self;
@@ -269,7 +270,7 @@ static PyGetSetDef shape_getset[] = {
 
 static PyMethodDef shape_methods[] = {
     {"draw", (PyCFunction) shape_draw, METH_NOARGS, "Draw the shape on the screen"},
-    {"blit", (PyCFunction) shape_blit, METH_O, "Render the shape to an offscreen surface"},
+    {"blit", (PyCFunction) shape_blit, METH_VARARGS, "Render the shape to an offscreen surface"},
     {"collide", (PyCFunction) shape_collide, METH_O, "Detect collision with another object"},
     {NULL}
 };

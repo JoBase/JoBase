@@ -125,7 +125,7 @@ static int base_set_alpha(Base *self, PyObject *value, void *closure) {
 }
 
 static Vector *base_get_color(Base *self, void *closure) {
-    Vector *vect = vector_new((PyObject *) self, (double *) &self -> color, 2, NULL);
+    Vector *vect = vector_new((PyObject *) self, (double *) &self -> color, 4, NULL);
 
     if (vect) {
         vect -> names[r] = 'r';

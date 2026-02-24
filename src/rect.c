@@ -2,9 +2,8 @@
 
 static void draw(Rect *self) {
     base_matrix((Base *) self, &shader.plain, self -> size.x, self -> size.y);
-    // base_color((Base *) self);
-    array(shader.vao);
 
+    glBindVertexArray(shader.vao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
@@ -180,7 +179,7 @@ static PyGetSetDef rect_getset[] = {
 
 static PyMethodDef rect_methods[] = {
     {"draw", (PyCFunction) rect_draw, METH_NOARGS, "Draw the rectangle on the screen"},
-    {"blit", (PyCFunction) rect_blit, METH_O, "Draw the rectangle to an offscreen surface"},
+    {"blit", (PyCFunction) rect_blit, METH_VARARGS, "Draw the rectangle to an offscreen surface"},
     {"collide", (PyCFunction) rect_collide, METH_O, "Detect collision with another object"},
     {NULL}
 };

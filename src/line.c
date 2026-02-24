@@ -7,11 +7,12 @@ static void draw(Line *self) {
     glDepthMask(GL_TRUE);
 
     base_matrix((Base *) self, &shader.plain, 1, 1);
-    // base_color((Base *) self);
-    array(self -> base.vao);
 
+    glBindVertexArray(self -> base.vao);
     glDrawElements(GL_TRIANGLES, self -> base.indices, GL_UNSIGNED_INT, 0);
     glDisable(GL_DEPTH_TEST);
+
+    // glBindVertexArray(0);
 }
 
 static int create(Line *self) {
@@ -109,7 +110,7 @@ static int create(Line *self) {
         }
     }
 
-    array(self -> base.vao);
+    glBindVertexArray(self -> base.vao);
     glBindBuffer(GL_ARRAY_BUFFER, self -> base.vbo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self -> base.ibo);
 
@@ -301,7 +302,7 @@ static PyGetSetDef line_getset[] = {
 
 static PyMethodDef line_methods[] = {
     {"draw", (PyCFunction) line_draw, METH_NOARGS, "Draw the line on the screen"},
-    {"blit", (PyCFunction) line_blit, METH_O, "Render the line to an offscreen surface"},
+    {"blit", (PyCFunction) line_blit, METH_VARARGS, "Render the line to an offscreen surface"},
     {"collide", (PyCFunction) line_collide, METH_O, "Detect collision with another object"},
     {NULL}
 };

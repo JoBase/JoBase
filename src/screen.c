@@ -12,7 +12,7 @@ static inline void swap(Screen *self) {
     self -> a = self -> b;
     self -> b = base;
 
-    texture(base);
+    glBindTexture(GL_TEXTURE_2D, base);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, self -> a, 0);
 }
 
@@ -28,11 +28,9 @@ static inline void frame(Screen *self) {
 
 static void draw(Screen *self) {
     base_matrix((Base *) self, &shader.image, self -> base.size.x, self -> base.size.y);
-    // base_color((Base *) self);
 
-    texture(self -> a);
-    array(shader.vao);
-
+    glBindTexture(GL_TEXTURE_2D, self -> a);
+    glBindVertexArray(shader.vao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
@@ -40,10 +38,10 @@ static int size(Screen *self) {
     const double x = self -> base.size.x * window.ratio;
     const double y = self -> base.size.y * window.ratio;
 
-    texture(self -> a);
+    glBindTexture(GL_TEXTURE_2D, self -> a);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, x, y, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
-    texture(self -> b);
+    glBindTexture(GL_TEXTURE_2D, self -> b);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, x, y, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
     if (shader.screen == self) {
@@ -123,11 +121,11 @@ static Screen *screen_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
         glGenFramebuffers(1, &self -> buffer);
         glGenTextures(2, textures);
 
-        texture(self -> a = textures[0]);
+        glBindTexture(GL_TEXTURE_2D, self -> a = textures[0]);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-        texture(self -> b = textures[1]);
+        glBindTexture(GL_TEXTURE_2D, self -> b = textures[1]);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
@@ -202,7 +200,7 @@ static PyObject *screen_save(Screen *self, PyObject *item) {
         stbi_write_bmp(path, x, y, 4, buffer);
 
     free(buffer);
-    return status ? Py_None : (PyErr_Format(PyExc_SystemError, "Failed to save image '%s', %s", path, stbi_failure_reason()), NULL);
+    return status ? Py_None : (PyErr_Format(PyExc_SystemError, "Failed to save image '%s'", path), NULL);
 }
 
 static PyObject *screen_warp(Screen *self, PyObject *args) {
@@ -214,7 +212,8 @@ static PyObject *screen_warp(Screen *self, PyObject *args) {
 
     frame(self);
     swap(self);
-    array(shader.vao);
+
+    glBindVertexArray(shader.vao);
     filter(&shader.warp);
 
     glUniform2f(shader.warp.data, radius, value);
@@ -255,9 +254,20 @@ static void screen_dealloc(Screen *self) {
 
 PyObject *screen_bind(Base *object, PyObject *item, void (*draw)(Base *)) {
     Screen *self;
+    uint8_t mode = 0;
 
-    if (!PyArg_Parse(item, "O!:bind", screen_data.type, &self))
+    if (!PyArg_ParseTuple(item, "O!|b:bind", screen_data.type, &self, &mode))
         return NULL;
+
+    if (shader.mode != mode) {
+        shader.mode = mode;
+
+        if (mode == 1) {
+            glBlendFunc(GL_DST_COLOR, GL_ZERO);
+        }
+
+        else glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
+    }
 
     frame(self);
     draw(object);
@@ -274,7 +284,7 @@ static PyGetSetDef screen_getset[] = {
 
 static PyMethodDef screen_methods[] = {
     {"draw", (PyCFunction) screen_draw, METH_NOARGS, "Draw the offscreen texture on the main screen"},
-    {"blit", (PyCFunction) screen_blit, METH_O, "Draw the offscreen texture to another offscreen surface"},
+    {"blit", (PyCFunction) screen_blit, METH_VARARGS, "Draw the offscreen texture to another offscreen surface"},
     {"save", (PyCFunction) screen_save, METH_O, "Save the offscreen texture to a file"},
     {"clear", (PyCFunction) screen_clear, METH_NOARGS, "Clear the screen to transparent pixels"},
     {"warp", (PyCFunction) screen_warp, METH_VARARGS, ""},

@@ -3,11 +3,9 @@
 
 static void draw(Image *self) {
     base_matrix((Base *) self, &shader.image, self -> base.size.x, self -> base.size.y);
-    // base_color((Base *) self);
 
-    texture(self -> src -> src);
-    array(shader.vao);
-
+    glBindTexture(GL_TEXTURE_2D, self -> src -> src);
+    glBindVertexArray(shader.vao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
@@ -30,7 +28,7 @@ static int load(Image *self, const char *name) {
                 return PyErr_Format(PyExc_FileNotFoundError, "Failed to load image '%s', %s", name, stbi_failure_reason()), -1;
 
             glGenTextures(1, &buffer -> src);
-            texture(buffer -> src);
+            glBindTexture(GL_TEXTURE_2D, buffer -> src);
 
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -119,7 +117,7 @@ static PyGetSetDef image_getset[] = {
 
 static PyMethodDef image_methods[] = {
     {"draw", (PyCFunction) image_draw, METH_NOARGS, "Draw the image on the screen"},
-    {"blit", (PyCFunction) image_blit, METH_O, "Render the image to an offscreen surface"},
+    {"blit", (PyCFunction) image_blit, METH_VARARGS, "Render the image to an offscreen surface"},
     {NULL}
 };
 

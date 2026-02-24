@@ -1,38 +1,17 @@
 /*
-✅ Base - top, bottom, left, right
-✅ Constants (colours)
-✅ Check OpenGL binding to zero
-✅ Check all mallocs and strdup
-✅ mousedown
 mouse enter, leave
-✅ keydown
-✅ text.units
-✅ update __init__.pyi
-✅ more fonts
-✅ images memory leak
-✅ sdl errors
 zooom opposite of scale?
 turn mods into booleans, maybe
-✅ sound files (init name = DEFAULT) <-- actually no
-✅ add blit() to all shapes
 fix the save() function of screen (high dpi)
 sound change file after init?
-✅ line transparency
 window pixel ratio
-✅ sound default audio
-✅ finish collision (and docs)
-✅ docs: text doesn not instance rect
-✅ pyargparse for screen
-✅ docs: top bottom left right
-✅ random in docs
-✅ upside down screen?
-✅ app logo!!
 finish key init__py
+blend modes on blit
 */
 
-#define FILE(n) sprintf(path.src+path.size,n);CHECK(PyModule_AddStringConstant(program,#n,path.src))
-#define ADD(n, t) CHECK(PyModule_Add(program,n,t)||PyModule_Add(self,n,t))
-// #define REF(n, t) CHECK(PyModule_AddObjectRef(program,n,t)||PyModule_AddObjectRef(self,n,t))
+#define FILE(n) sprintf(path.src+path.size,n);ADD(#n,PyUnicode_FromString(path.src))
+#define ADD(n, t) temp=t;CHECK(PyModule_AddObjectRef(program,n,temp)||PyModule_Add(self,n,temp))
+#define REF(n, t) temp=t;CHECK(PyModule_AddObjectRef(program,n,temp)||PyModule_AddObjectRef(self,n,temp))
 #define COLOR(r, g, b) PyTuple_Pack(3,PyFloat_FromDouble(r),PyFloat_FromDouble(g),PyFloat_FromDouble(b))
 #define TYPE(e, x) CHECK(!(e.type=(PyTypeObject *)PyType_FromSpecWithBases(&e.spec,(PyObject*)x)))
 #define CHECK(e) if(e)goto fail;
@@ -592,9 +571,10 @@ static int module_exec(PyObject *self) {
                 (window.ratio = SDL_GetWindowPixelDensity(window.sdl)) &&
                 SDL_GL_SetSwapInterval(1)
             ) {
+                PyObject *temp;
+
                 shader.active = 0;
-                shader.array = 0;
-                shader.texture = 0;
+                shader.mode = 0;
                 shader.screen = NULL;
 #ifdef __EMSCRIPTEN__
                 if (!(path.src = malloc(36))) {
@@ -659,11 +639,12 @@ static int module_exec(PyObject *self) {
                 FILE(PICKUP)
                 FILE(BLIP)
 
-                CHECK(PyModule_AddIntConstant(program, "DEFAULT", 0))
-                CHECK(PyModule_AddIntConstant(program, "CODE", 1))
-                CHECK(PyModule_AddIntConstant(program, "SERIF", 2))
-                CHECK(PyModule_AddIntConstant(program, "DISPLAY", 3))
-                CHECK(PyModule_AddIntConstant(program, "PIXEL", 4))
+                ADD("MULTIPLY", PyLong_FromLong(1))
+                ADD("DEFAULT", PyLong_FromLong(0))
+                ADD("CODE", PyLong_FromLong(1))
+                ADD("SERIF", PyLong_FromLong(2))
+                ADD("DISPLAY", PyLong_FromLong(3))
+                ADD("PIXEL", PyLong_FromLong(4))
                 CHECK(!PyObject_Init(&keyboard.map, mod_data.type))
 
                 GLfloat data[] = {-.5, .5, 0, 0, .5, .5, 1, 0, -.5, -.5, 0, 1, .5, -.5, 1, 1};
@@ -889,14 +870,14 @@ static int module_exec(PyObject *self) {
                 ADD("window", PyObject_CallObject((PyObject *) window_data.type, NULL))
                 ADD("mouse", PyObject_CallObject((PyObject *) mouse_data.type, NULL))
                 ADD("key", PyObject_CallObject((PyObject *) key_data.type, NULL))
-                ADD("Rect", (PyObject *) rect_data.type)
-                ADD("Shape", (PyObject *) shape_data.type)
-                ADD("Line", (PyObject *) line_data.type)
-                ADD("Image", (PyObject *) image_data.type)
-                ADD("Circle", (PyObject *) circle_data.type)
-                ADD("Text", (PyObject *) text_data.type)
-                ADD("Sound", (PyObject *) sound_data.type)
-                ADD("Screen", (PyObject *) screen_data.type)
+                REF("Rect", (PyObject *) rect_data.type)
+                REF("Shape", (PyObject *) shape_data.type)
+                REF("Line", (PyObject *) line_data.type)
+                REF("Image", (PyObject *) image_data.type)
+                REF("Circle", (PyObject *) circle_data.type)
+                REF("Text", (PyObject *) text_data.type)
+                REF("Sound", (PyObject *) sound_data.type)
+                REF("Screen", (PyObject *) screen_data.type)
 
                 ADD("WHITE", COLOR(1, 1, 1))
                 ADD("BLACK", COLOR(0, 0, 0))
@@ -928,53 +909,6 @@ static int module_exec(PyObject *self) {
                 qsort(mods, LEN(mods), sizeof(Key), (int (*)(const void *, const void *)) compare);
                 qsort(key, LEN(keys), sizeof(Button), (int (*)(const void *, const void *)) name);
                 qsort(mod, LEN(mods), sizeof(Button), (int (*)(const void *, const void *)) name);
-
-                // matrix();
-
-                
-                // MIX_AudioDecoder *decoder = MIX_CreateAudioDecoder("darla.mp3", 0);
-                // FILE *f = fopen("output.txt", "wb");
-
-                // int bytes = 0;
-
-                
-                // SDL_AudioSpec spec;
-
-                // if (!MIX_GetAudioDecoderFormat(decoder, &spec)) {
-                //     printf("AAAAAA %s\n", SDL_GetError());
-                // }
-
-                // double time = 0;
-                // int frames = 0;
-
-                // // MIX_MSToFrames(spec.freq, );
-
-                // while (1) {
-                //     time += 1. / 60;
-                //     int goal = (int) (time * spec.freq);
-                //     int amount = goal - frames;
-
-                //     frames = goal;
-
-                //     int size = amount * sizeof(float) * spec.channels;
-                //     float *buffer = malloc(size);
-
-                //     bytes = MIX_DecodeAudio(decoder, buffer, size, &spec);
-
-                //     if (bytes < 0) {
-                //         printf("An error occurred %s\n", SDL_GetError());
-                //         break;
-                //     }
-
-                //     for (int i = 0; i < bytes / (4 * spec.channels); i ++) {
-                //         fprintf(f, i ? ", %f" : "%f", buffer[i * spec.channels]);
-                //     }
-
-                //     fprintf(f, "\n");
-
-                //     if (!bytes)
-                //         break;
-                // }
 
                 return PyModule_AddFunctions(program, module_methods);
 

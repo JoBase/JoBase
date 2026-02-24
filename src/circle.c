@@ -2,9 +2,8 @@
 
 static void draw(Circle *self) {
     base_matrix((Base *) self, &shader.circle, self -> diameter, self -> diameter);
-    // base_color((Base *) self);
-    array(shader.vao);
 
+    glBindVertexArray(shader.vao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
@@ -105,7 +104,7 @@ Vec2 circle_pos(Circle *self) {
 
 static PyMethodDef circle_methods[] = {
     {"draw", (PyCFunction) circle_draw, METH_NOARGS, "Draw the circle on the screen"},
-    {"blit", (PyCFunction) circle_blit, METH_O, "Render the circle to an offscreen surface"},
+    {"blit", (PyCFunction) circle_blit, METH_VARARGS, "Render the circle to an offscreen surface"},
     {"collide", (PyCFunction) circle_collide, METH_O, "Detect collision with another object"},
     {NULL}
 };
