@@ -201,10 +201,6 @@ void base_matrix(Base *self, Program *shader, double width, double height) {
     glUniform4f(shader -> color, self -> color.x, self -> color.y, self -> color.z, self -> color.w);
 }
 
-// void base_color(Base *self) {
-    
-// }
-
 void base_trans(Base *self, Vec2 *src, Vec2 *dst, size_t length) {
     const double x = cos(self -> angle * M_PI / 180);
     const double y = sin(self -> angle * M_PI / 180);

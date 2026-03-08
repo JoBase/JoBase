@@ -95,7 +95,7 @@ static PyObject *sound_get_amp(Sound *self, void *closure) {
     for (int i = 0; i < self -> samples; i ++)
         sum += self -> pcm[i] * self -> pcm[i];
 
-    return PyFloat_FromDouble(sqrt(sum / self -> samples));
+    return PyFloat_FromDouble(self -> samples ? sqrt(sum / self -> samples) : 0);
 }
 
 static PyObject *sound_get_playing(Sound *self, void *closure) {
