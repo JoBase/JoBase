@@ -236,7 +236,7 @@ class Text(Base):
     font: int
 
 class Circle(Base):
-    def __init__(self, x: float = 0, y: float = 0, radius: float = 25, color = (0, 0, 0, 1)) -> None: ...
+    def __init__(self, x: float = 0, y: float = 0, diameter: float = 50, color = (0, 0, 0, 1)) -> None: ...
 
     diameter: float
 
@@ -263,7 +263,8 @@ class Screen(Rect):
     def save(self, name: str) -> None: ...
 
 def run() -> None: ...
-def random(x: float, y: float = 1) -> None: ...
+def random(x: float, y: float = 1) -> float: ...
+def randint(x: int, y: int = 1) -> int: ...
 
 window: Window
 mouse: Mouse
@@ -282,6 +283,30 @@ CODE = 1
 SERIF = 2
 DISPLAY = 3
 PIXEL = 4
+
+MULTIPLY = 1
+SCREEN = 2
+ADD = 3
+
+TEXT: int
+WAIT: int
+CROSSHAIR: int
+PROGRESS: int
+NWSE_RESIZE: int
+NESW_RESIZE: int
+EW_RESIZE: int
+NS_RESIZE: int
+MOVE: int
+NOT_ALLOWED: int
+POINTER: int
+NW_RESIZE: int
+N_RESIZE: int
+NE_RESIZE: int
+E_RESIZE: int
+SE_RESIZE: int
+S_RESIZE: int
+SW_RESIZE: int
+W_RESIZE: int
 
 WHITE = 1, 1, 1
 BLACK = 0, 0, 0
@@ -310,12 +335,15 @@ PINK = 1, .75, .8
 MAGENTA = 1, 0, 1
 
 __all__ = [
-    "window", "mouse", "camera", "key", "run", "random",
+    "window", "mouse", "camera", "key", "run", "random", "randint",
     "Rect", "Shape", "Line", "Image", "Circle", "Text",
     "Sound", "Screen",
     "MAN", "COIN", "ENEMEY",
     "DEFAULT", "CODE", "SERIF", "DISPLAY", "PIXEL",
     "PICKUP", "BLIP",
     "WHITE", "BLACK", "GRAY", "DARK_GRAY", "LIGHT_GRAY", "BROWN", "TAN", "RED", "DARK_RED", "SALMON", "ORANGE", "GOLD", "YELLOW",
-    "OLIVE", "LIME", "DARK_GREEN", "GREEN", "AQUA", "BLUE", "LIGHT_BLUE", "AZURE", "NAVY", "PURPLE", "PINK", "MAGENTA"
+    "OLIVE", "LIME", "DARK_GREEN", "GREEN", "AQUA", "BLUE", "LIGHT_BLUE", "AZURE", "NAVY", "PURPLE", "PINK", "MAGENTA",
+    "MULTIPLY", "SCREEN", "ADD",
+    "TEXT", "WAIT", "CROSSHAIR", "PROGRESS", "NWSE_RESIZE", "NESW_RESIZE", "EW_RESIZE", "NS_RESIZE", "MOVE", "NOT_ALLOWED",
+    "POINTER", "NW_RESIZE", "N_RESIZE", "NE_RESIZE", "E_RESIZE", "SE_RESIZE", "S_RESIZE", "SW_RESIZE", "W_RESIZE"
 ]

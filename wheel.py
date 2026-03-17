@@ -106,7 +106,7 @@ def build_wheel(wheel_directory, config_settings = None, metadata_directory = No
         "Installation",
         "============",
         "",
-        "If you already have Python installed, you can install JoBase with pip.:",
+        "If you already have Python installed, you can install JoBase with pip.",
         "",
         "    pip install JoBase",
         "",

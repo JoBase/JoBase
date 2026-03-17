@@ -10,6 +10,7 @@ blend modes on blit
 */
 
 #define FILE(n) sprintf(path.src+path.size,n);MOD(#n,PyUnicode_FromString(path.src))
+#define NUM(n, t) MOD(n,PyLong_FromLong(t))
 #define MOD(n, t) temp=t;CHECK(PyModule_AddObjectRef(program,n,temp)||PyModule_Add(self,n,temp))
 #define REF(n, t) temp=t;CHECK(PyModule_AddObjectRef(program,n,temp)||PyModule_AddObjectRef(self,n,temp))
 #define COLOR(r, g, b) PyTuple_Pack(3,PyFloat_FromDouble(r),PyFloat_FromDouble(g),PyFloat_FromDouble(b))
@@ -44,6 +45,256 @@ static Key mods[] = {
     {SDL_KMOD_SHIFT, "shift"},
     {SDL_KMOD_ALT, "alt"},
     {SDL_KMOD_GUI, "gui"}
+};
+
+static Key codes[] = {
+    {SDL_SCANCODE_UNKNOWN, "unknown"},
+    {SDL_SCANCODE_A, "a"},
+    {SDL_SCANCODE_B, "b"},
+    {SDL_SCANCODE_C, "c"},
+    {SDL_SCANCODE_D, "d"},
+    {SDL_SCANCODE_E, "e"},
+    {SDL_SCANCODE_F, "f"},
+    {SDL_SCANCODE_G, "g"},
+    {SDL_SCANCODE_H, "h"},
+    {SDL_SCANCODE_I, "i"},
+    {SDL_SCANCODE_J, "j"},
+    {SDL_SCANCODE_K, "k"},
+    {SDL_SCANCODE_L, "l"},
+    {SDL_SCANCODE_M, "m"},
+    {SDL_SCANCODE_N, "n"},
+    {SDL_SCANCODE_O, "o"},
+    {SDL_SCANCODE_P, "p"},
+    {SDL_SCANCODE_Q, "q"},
+    {SDL_SCANCODE_R, "r"},
+    {SDL_SCANCODE_S, "s"},
+    {SDL_SCANCODE_T, "t"},
+    {SDL_SCANCODE_U, "u"},
+    {SDL_SCANCODE_V, "v"},
+    {SDL_SCANCODE_W, "w"},
+    {SDL_SCANCODE_X, "x"},
+    {SDL_SCANCODE_Y, "y"},
+    {SDL_SCANCODE_Z, "z"},
+    {SDL_SCANCODE_1, "_1"},
+    {SDL_SCANCODE_2, "_2"},
+    {SDL_SCANCODE_3, "_3"},
+    {SDL_SCANCODE_4, "_4"},
+    {SDL_SCANCODE_5, "_5"},
+    {SDL_SCANCODE_6, "_6"},
+    {SDL_SCANCODE_7, "_7"},
+    {SDL_SCANCODE_8, "_8"},
+    {SDL_SCANCODE_9, "_9"},
+    {SDL_SCANCODE_0, "_0"},
+    {SDL_SCANCODE_RETURN, "return"},
+    {SDL_SCANCODE_ESCAPE, "escape"},
+    {SDL_SCANCODE_BACKSPACE, "backspace"},
+    {SDL_SCANCODE_TAB, "tab"},
+    {SDL_SCANCODE_SPACE, "space"},
+    {SDL_SCANCODE_MINUS, "minus"},
+    {SDL_SCANCODE_EQUALS, "equals"},
+    {SDL_SCANCODE_LEFTBRACKET, "left_bracket"},
+    {SDL_SCANCODE_RIGHTBRACKET, "right_bracket"},
+    {SDL_SCANCODE_BACKSLASH, "backslash"},
+    {SDL_SCANCODE_NONUSHASH, "non_us_hash"},
+    {SDL_SCANCODE_SEMICOLON, "semicolon"},
+    {SDL_SCANCODE_APOSTROPHE, "apostrophe"},
+    {SDL_SCANCODE_GRAVE, "grave"},
+    {SDL_SCANCODE_COMMA, "comma"},
+    {SDL_SCANCODE_PERIOD, "period"},
+    {SDL_SCANCODE_SLASH, "slash"},
+    {SDL_SCANCODE_CAPSLOCK, "capslock"},
+    {SDL_SCANCODE_F1, "f1"},
+    {SDL_SCANCODE_F2, "f2"},
+    {SDL_SCANCODE_F3, "f3"},
+    {SDL_SCANCODE_F4, "f4"},
+    {SDL_SCANCODE_F5, "f5"},
+    {SDL_SCANCODE_F6, "f6"},
+    {SDL_SCANCODE_F7, "f7"},
+    {SDL_SCANCODE_F8, "f8"},
+    {SDL_SCANCODE_F9, "f9"},
+    {SDL_SCANCODE_F10, "f10"},
+    {SDL_SCANCODE_F11, "f11"},
+    {SDL_SCANCODE_F12, "f12"},
+    {SDL_SCANCODE_PRINTSCREEN, "print_screen"},
+    {SDL_SCANCODE_SCROLLLOCK, "scroll_lock"},
+    {SDL_SCANCODE_PAUSE, "pause"},
+    {SDL_SCANCODE_INSERT, "insert"},
+    {SDL_SCANCODE_HOME, "home"},
+    {SDL_SCANCODE_PAGEUP, "page_up"},
+    {SDL_SCANCODE_DELETE, "delete"},
+    {SDL_SCANCODE_END, "end"},
+    {SDL_SCANCODE_PAGEDOWN, "page_down"},
+    {SDL_SCANCODE_RIGHT, "right"},
+    {SDL_SCANCODE_LEFT, "left"},
+    {SDL_SCANCODE_DOWN, "down"},
+    {SDL_SCANCODE_UP, "up"},
+    {SDL_SCANCODE_NUMLOCKCLEAR, "num_lock_clear"},
+    {SDL_SCANCODE_KP_DIVIDE, "kp_divide"},
+    {SDL_SCANCODE_KP_MULTIPLY, "kp_multiply"},
+    {SDL_SCANCODE_KP_MINUS, "kp_minus"},
+    {SDL_SCANCODE_KP_PLUS, "kp_plus"},
+    {SDL_SCANCODE_KP_ENTER, "kp_enter"},
+    {SDL_SCANCODE_KP_1, "kp_1"},
+    {SDL_SCANCODE_KP_2, "kp_2"},
+    {SDL_SCANCODE_KP_3, "kp_3"},
+    {SDL_SCANCODE_KP_4, "kp_4"},
+    {SDL_SCANCODE_KP_5, "kp_5"},
+    {SDL_SCANCODE_KP_6, "kp_6"},
+    {SDL_SCANCODE_KP_7, "kp_7"},
+    {SDL_SCANCODE_KP_8, "kp_8"},
+    {SDL_SCANCODE_KP_9, "kp_9"},
+    {SDL_SCANCODE_KP_0, "kp_0"},
+    {SDL_SCANCODE_KP_PERIOD, "kp_period"},
+    {SDL_SCANCODE_NONUSBACKSLASH, "non_us_backslash"},
+    {SDL_SCANCODE_APPLICATION, "application"},
+    {SDL_SCANCODE_POWER, "power"},
+    {SDL_SCANCODE_KP_EQUALS, "kp_equals"},
+    {SDL_SCANCODE_F13, "f13"},
+    {SDL_SCANCODE_F14, "f14"},
+    {SDL_SCANCODE_F15, "f15"},
+    {SDL_SCANCODE_F16, "f16"},
+    {SDL_SCANCODE_F17, "f17"},
+    {SDL_SCANCODE_F18, "f18"},
+    {SDL_SCANCODE_F19, "f19"},
+    {SDL_SCANCODE_F20, "f20"},
+    {SDL_SCANCODE_F21, "f21"},
+    {SDL_SCANCODE_F22, "f22"},
+    {SDL_SCANCODE_F23, "f23"},
+    {SDL_SCANCODE_F24, "f24"},
+    {SDL_SCANCODE_EXECUTE, "execute"},
+    {SDL_SCANCODE_HELP, "help"},
+    {SDL_SCANCODE_MENU, "menu"},
+    {SDL_SCANCODE_SELECT, "select"},
+    {SDL_SCANCODE_STOP, "stop"},
+    {SDL_SCANCODE_AGAIN, "again"},
+    {SDL_SCANCODE_UNDO, "undo"},
+    {SDL_SCANCODE_CUT, "cut"},
+    {SDL_SCANCODE_COPY, "copy"},
+    {SDL_SCANCODE_PASTE, "paste"},
+    {SDL_SCANCODE_FIND, "find"},
+    {SDL_SCANCODE_MUTE, "mute"},
+    {SDL_SCANCODE_VOLUMEUP, "volume_up"},
+    {SDL_SCANCODE_VOLUMEDOWN, "volume_down"},
+    {SDL_SCANCODE_KP_COMMA, "kp_comma"},
+    {SDL_SCANCODE_KP_EQUALSAS400, "kp_equals_400"},
+    {SDL_SCANCODE_INTERNATIONAL1, "international_1"},
+    {SDL_SCANCODE_INTERNATIONAL2, "international_2"},
+    {SDL_SCANCODE_INTERNATIONAL3, "international_3"},
+    {SDL_SCANCODE_INTERNATIONAL4, "international_4"},
+    {SDL_SCANCODE_INTERNATIONAL5, "international_5"},
+    {SDL_SCANCODE_INTERNATIONAL6, "international_6"},
+    {SDL_SCANCODE_INTERNATIONAL7, "international_7"},
+    {SDL_SCANCODE_INTERNATIONAL8, "international_8"},
+    {SDL_SCANCODE_INTERNATIONAL9, "international_9"},
+    {SDL_SCANCODE_LANG1, "lang_1"},
+    {SDL_SCANCODE_LANG2, "lang_2"},
+    {SDL_SCANCODE_LANG3, "lang_3"},
+    {SDL_SCANCODE_LANG4, "lang_4"},
+    {SDL_SCANCODE_LANG5, "lang_5"},
+    {SDL_SCANCODE_LANG6, "lang_6"},
+    {SDL_SCANCODE_LANG7, "lang_7"},
+    {SDL_SCANCODE_LANG8, "lang_8"},
+    {SDL_SCANCODE_LANG9, "lang_9"},
+    {SDL_SCANCODE_ALTERASE, "alt_erase"},
+    {SDL_SCANCODE_SYSREQ, "sysreq"},
+    {SDL_SCANCODE_CANCEL, "cancel"},
+    {SDL_SCANCODE_CLEAR, "clear"},
+    {SDL_SCANCODE_PRIOR, "prior"},
+    {SDL_SCANCODE_RETURN2, "return_2"},
+    {SDL_SCANCODE_SEPARATOR, "separator"},
+    {SDL_SCANCODE_OUT, "out"},
+    {SDL_SCANCODE_OPER, "oper"},
+    {SDL_SCANCODE_CLEARAGAIN, "clear_again"},
+    {SDL_SCANCODE_CRSEL, "crsel"},
+    {SDL_SCANCODE_EXSEL, "exsel"},
+    {SDL_SCANCODE_KP_00, "kp_00"},
+    {SDL_SCANCODE_KP_000, "kp_000"},
+    {SDL_SCANCODE_THOUSANDSSEPARATOR, "thousands_separator"},
+    {SDL_SCANCODE_DECIMALSEPARATOR, "decimal_separator"},
+    {SDL_SCANCODE_CURRENCYUNIT, "currency_unit"},
+    {SDL_SCANCODE_CURRENCYSUBUNIT, "currency_subunit"},
+    {SDL_SCANCODE_KP_LEFTPAREN, "kp_left_paren"},
+    {SDL_SCANCODE_KP_RIGHTPAREN, "kp_right_paren"},
+    {SDL_SCANCODE_KP_LEFTBRACE, "kp_left_brace"},
+    {SDL_SCANCODE_KP_RIGHTBRACE, "kp_right_brace"},
+    {SDL_SCANCODE_KP_TAB, "kp_tab"},
+    {SDL_SCANCODE_KP_BACKSPACE, "kp_backspace"},
+    {SDL_SCANCODE_KP_A, "kp_a"},
+    {SDL_SCANCODE_KP_B, "kp_b"},
+    {SDL_SCANCODE_KP_C, "kp_c"},
+    {SDL_SCANCODE_KP_D, "kp_d"},
+    {SDL_SCANCODE_KP_E, "kp_e"},
+    {SDL_SCANCODE_KP_F, "kp_f"},
+    {SDL_SCANCODE_KP_XOR, "kp_xor"},
+    {SDL_SCANCODE_KP_POWER, "kp_power"},
+    {SDL_SCANCODE_KP_PERCENT, "kp_percent"},
+    {SDL_SCANCODE_KP_LESS, "kp_less"},
+    {SDL_SCANCODE_KP_GREATER, "kp_greater"},
+    {SDL_SCANCODE_KP_AMPERSAND, "kp_ampersand"},
+    {SDL_SCANCODE_KP_DBLAMPERSAND, "kp_dbl_ampersand"},
+    {SDL_SCANCODE_KP_VERTICALBAR, "kp_vertical_bar"},
+    {SDL_SCANCODE_KP_DBLVERTICALBAR, "kp_dbl_vertical_bar"},
+    {SDL_SCANCODE_KP_COLON, "kp_colon"},
+    {SDL_SCANCODE_KP_HASH, "kp_hash"},
+    {SDL_SCANCODE_KP_SPACE, "kp_space"},
+    {SDL_SCANCODE_KP_AT, "kp_at"},
+    {SDL_SCANCODE_KP_EXCLAM, "kp_exclam"},
+    {SDL_SCANCODE_KP_MEMSTORE, "kp_mem_store"},
+    {SDL_SCANCODE_KP_MEMRECALL, "kp_mem_recall"},
+    {SDL_SCANCODE_KP_MEMCLEAR, "kp_mem_clear"},
+    {SDL_SCANCODE_KP_MEMADD, "kp_mem_add"},
+    {SDL_SCANCODE_KP_MEMSUBTRACT, "kp_mem_subtract"},
+    {SDL_SCANCODE_KP_MEMMULTIPLY, "kp_mem_multiply"},
+    {SDL_SCANCODE_KP_MEMDIVIDE, "kp_mem_divide"},
+    {SDL_SCANCODE_KP_PLUSMINUS, "kp_plus_minus"},
+    {SDL_SCANCODE_KP_CLEAR, "kp_clear"},
+    {SDL_SCANCODE_KP_CLEARENTRY, "kp_clear_entry"},
+    {SDL_SCANCODE_KP_BINARY, "kp_binary"},
+    {SDL_SCANCODE_KP_OCTAL, "kp_octal"},
+    {SDL_SCANCODE_KP_DECIMAL, "kp_decimal"},
+    {SDL_SCANCODE_KP_HEXADECIMAL, "kp_hexadecimal"},
+    {SDL_SCANCODE_LCTRL, "lctrl"},
+    {SDL_SCANCODE_LSHIFT, "lshift"},
+    {SDL_SCANCODE_LALT, "lalt"},
+    {SDL_SCANCODE_LGUI, "lgui"},
+    {SDL_SCANCODE_RCTRL, "rctrl"},
+    {SDL_SCANCODE_RSHIFT, "rshift"},
+    {SDL_SCANCODE_RALT, "ralt"},
+    {SDL_SCANCODE_RGUI, "rgui"},
+    {SDL_SCANCODE_MODE, "mode"},
+    {SDL_SCANCODE_SLEEP, "sleep"},
+    {SDL_SCANCODE_WAKE, "wake"},
+    {SDL_SCANCODE_CHANNEL_INCREMENT, "channel_increment"},
+    {SDL_SCANCODE_CHANNEL_DECREMENT, "channel_decrement"},
+    {SDL_SCANCODE_MEDIA_PLAY, "media_play"},
+    {SDL_SCANCODE_MEDIA_PAUSE, "media_pause"},
+    {SDL_SCANCODE_MEDIA_RECORD, "media_record"},
+    {SDL_SCANCODE_MEDIA_FAST_FORWARD, "media_fast_forward"},
+    {SDL_SCANCODE_MEDIA_REWIND, "media_rewind"},
+    {SDL_SCANCODE_MEDIA_NEXT_TRACK, "media_next_track"},
+    {SDL_SCANCODE_MEDIA_PREVIOUS_TRACK, "media_previous_track"},
+    {SDL_SCANCODE_MEDIA_STOP, "media_stop"},
+    {SDL_SCANCODE_MEDIA_EJECT, "media_eject"},
+    {SDL_SCANCODE_MEDIA_PLAY_PAUSE, "media_play_pause"},
+    {SDL_SCANCODE_MEDIA_SELECT, "media_select"},
+    {SDL_SCANCODE_AC_NEW, "ac_new"},
+    {SDL_SCANCODE_AC_OPEN, "ac_open"},
+    {SDL_SCANCODE_AC_CLOSE, "ac_close"},
+    {SDL_SCANCODE_AC_EXIT, "ac_exit"},
+    {SDL_SCANCODE_AC_SAVE, "ac_save"},
+    {SDL_SCANCODE_AC_PRINT, "ac_print"},
+    {SDL_SCANCODE_AC_PROPERTIES, "ac_properties"},
+    {SDL_SCANCODE_AC_SEARCH, "ac_search"},
+    {SDL_SCANCODE_AC_HOME, "ac_home"},
+    {SDL_SCANCODE_AC_BACK, "ac_back"},
+    {SDL_SCANCODE_AC_FORWARD, "ac_forward"},
+    {SDL_SCANCODE_AC_STOP, "ac_stop"},
+    {SDL_SCANCODE_AC_REFRESH, "ac_refresh"},
+    {SDL_SCANCODE_AC_BOOKMARKS, "ac_bookmarks"},
+    {SDL_SCANCODE_SOFTLEFT, "soft_left"},
+    {SDL_SCANCODE_SOFTRIGHT, "soft_right"},
+    {SDL_SCANCODE_CALL, "call"},
+    {SDL_SCANCODE_ENDCALL, "end_call"}
 };
 
 static Key keys[] = {
@@ -87,7 +338,7 @@ static Key keys[] = {
     {SDLK_AT, "at"},
     {SDLK_LEFTBRACKET, "left_bracket"},
     {SDLK_BACKSLASH, "backslash"},
-    {SDLK_RIGHTBRACKET, "righ_bracket"},
+    {SDLK_RIGHTBRACKET, "right_bracket"},
     {SDLK_CARET, "caret"},
     {SDLK_UNDERSCORE, "underscore"},
     {SDLK_GRAVE, "grave"},
@@ -320,12 +571,15 @@ MIX_Mixer *mixer;
 Button button[LEN(buttons)];
 Button key[LEN(keys)];
 Button mod[LEN(mods)];
+Button code[LEN(codes)];
 
 struct Keyboard keyboard = {
     .key = key,
-    .mod = mod,
-    .mods = LEN(mods),
-    .keys = LEN(keys)
+    .keys = LEN(keys),
+    .mod.button = mod,
+    .mod.len = LEN(mods),
+    .code.button = code,
+    .code.len = LEN(codes)
 };
 
 struct Mouse mouse = {
@@ -434,19 +688,28 @@ static int update(PyObject *loop) {
 
         else if (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP) {
             Key *key = search(event.key.key, keys, LEN(keys));
+            Key *code = search(event.key.scancode, codes, LEN(codes));
 
             if (event.key.down) {
-                if (event.key.mod && !event.key.repeat)
-                    search(event.key.mod, mods, LEN(mods)) -> press = true;
+                printf("down\n");
 
-                keyboard.press = key -> press = !event.key.repeat;
-                key -> repeat = event.key.repeat;
-                key -> down = true;
+                if (event.key.mod && !event.key.repeat) {
+                    printf("mod\n");
+
+                    Key *mod = search(event.key.mod, mods, LEN(mods));
+
+                    printf("mod: %p\n", mod);
+                    mod -> press = true;
+                }
+
+                keyboard.press = code -> press = key -> press = !event.key.repeat;
+                code -> repeat = key -> repeat = event.key.repeat;
+                code -> down = key -> down = true;
             }
 
             else {
-                keyboard.release = key -> release = true;
-                key -> down = false;
+                keyboard.release = code -> release = key -> release = true;
+                code -> down = key -> down = false;
             }
         }
     }
@@ -462,6 +725,9 @@ static int update(PyObject *loop) {
 
     for (uint16_t i = 0; i < LEN(keys); i ++)
         keys[i].press = keys[i].release = keys[i].repeat = false;
+
+    for (uint16_t i = 0; i < LEN(codes); i ++)
+        codes[i].press = codes[i].release = codes[i].repeat = false;
 
     for (uint8_t i = 0; i < LEN(buttons); i ++)
         buttons[i].press = buttons[i].release = false;
@@ -537,7 +803,16 @@ static PyObject *module_random(PyObject *self, PyObject *args) {
     double x = 0, y = 1;
 
     if (PyArg_ParseTuple(args, "|dd:random", &x, &y))
-        return PyFloat_FromDouble(rand() / (RAND_MAX / fabs(y - x)) + MIN(x, y));
+        return PyFloat_FromDouble(rand() / (double) RAND_MAX * fabs(y - x) + MIN(x, y));
+
+    return NULL;
+}
+
+static PyObject *module_randint(PyObject *self, PyObject *args) {
+    int x = 0, y = 1;
+
+    if (PyArg_ParseTuple(args, "|ii:randint", &x, &y))
+        return PyLong_FromLong(rand() % (abs(y - x) + 1) + MIN(x, y));
 
     return NULL;
 }
@@ -545,6 +820,7 @@ static PyObject *module_random(PyObject *self, PyObject *args) {
 static PyMethodDef module_methods[] = {
     {"run", module_run, METH_NOARGS, "Run the main game loop"},
     {"random", module_random, METH_VARARGS, "Generate a random floating point number"},
+    {"randint", module_randint, METH_VARARGS, "Generate a random integer"},
     {NULL}
 };
 
@@ -574,6 +850,7 @@ static int module_exec(PyObject *self) {
                 PyObject *temp;
 
                 shader.active = 0;
+                mouse.cursor = 0;
                 shader.mode = 0;
                 shader.screen = NULL;
 #ifdef __EMSCRIPTEN__
@@ -639,16 +916,38 @@ static int module_exec(PyObject *self) {
                 FILE(PICKUP)
                 FILE(BLIP)
 
-                MOD("MULTIPLY", PyLong_FromLong(MULTIPLY))
-                MOD("SCREEN", PyLong_FromLong(SCREEN))
-                MOD("ADD", PyLong_FromLong(ADD))
+                NUM("TEXT", SDL_SYSTEM_CURSOR_TEXT)
+                NUM("WAIT", SDL_SYSTEM_CURSOR_WAIT)
+                NUM("CROSSHAIR", SDL_SYSTEM_CURSOR_CROSSHAIR)
+                NUM("PROGRESS", SDL_SYSTEM_CURSOR_PROGRESS)
+                NUM("NWSE_RESIZE", SDL_SYSTEM_CURSOR_NWSE_RESIZE)
+                NUM("NESW_RESIZE", SDL_SYSTEM_CURSOR_NESW_RESIZE)
+                NUM("EW_RESIZE", SDL_SYSTEM_CURSOR_EW_RESIZE)
+                NUM("NS_RESIZE", SDL_SYSTEM_CURSOR_NS_RESIZE)
+                NUM("MOVE", SDL_SYSTEM_CURSOR_MOVE)
+                NUM("NOT_ALLOWED", SDL_SYSTEM_CURSOR_NOT_ALLOWED)
+                NUM("POINTER", SDL_SYSTEM_CURSOR_POINTER)
+                NUM("NW_RESIZE", SDL_SYSTEM_CURSOR_NW_RESIZE)
+                NUM("N_RESIZE", SDL_SYSTEM_CURSOR_N_RESIZE)
+                NUM("NE_RESIZE", SDL_SYSTEM_CURSOR_NE_RESIZE)
+                NUM("E_RESIZE", SDL_SYSTEM_CURSOR_E_RESIZE)
+                NUM("SE_RESIZE", SDL_SYSTEM_CURSOR_SE_RESIZE)
+                NUM("S_RESIZE", SDL_SYSTEM_CURSOR_S_RESIZE)
+                NUM("SW_RESIZE", SDL_SYSTEM_CURSOR_SW_RESIZE)
+                NUM("W_RESIZE", SDL_SYSTEM_CURSOR_W_RESIZE)
 
-                MOD("DEFAULT", PyLong_FromLong(0))
-                MOD("CODE", PyLong_FromLong(1))
-                MOD("SERIF", PyLong_FromLong(2))
-                MOD("DISPLAY", PyLong_FromLong(3))
-                MOD("PIXEL", PyLong_FromLong(4))
-                CHECK(!PyObject_Init(&keyboard.map, mod_data.type))
+                NUM("MULTIPLY", MULTIPLY)
+                NUM("SCREEN", SCREEN)
+                NUM("ADD", ADD)
+
+                NUM("DEFAULT", 0)
+                NUM("CODE", 1)
+                NUM("SERIF", 2)
+                NUM("DISPLAY", 3)
+                NUM("PIXEL", 4)
+
+                CHECK(!PyObject_Init((PyObject *) &keyboard.mod, mod_data.type))
+                CHECK(!PyObject_Init((PyObject *) &keyboard.code, mod_data.type))
 
                 GLfloat data[] = {-.5, .5, 0, 0, .5, .5, 1, 0, -.5, -.5, 0, 1, .5, -.5, 1, 1};
                 GLuint buffers[2];
@@ -859,6 +1158,11 @@ static int module_exec(PyObject *self) {
                     key[i].key = &keys[i];
                 }
 
+                for (uint16_t i = 0; i < LEN(codes); i ++) {
+                    CHECK(!PyObject_Init((PyObject *) &code[i], button_data.type))
+                    code[i].key = &codes[i];
+                }
+
                 for (uint8_t i = 0; i < LEN(mods); i ++) {
                     CHECK(!PyObject_Init((PyObject *) &mod[i], button_data.type))
                     mod[i].key = &mods[i];
@@ -910,8 +1214,10 @@ static int module_exec(PyObject *self) {
 
                 qsort(keys, LEN(keys), sizeof(Key), (int (*)(const void *, const void *)) compare);
                 qsort(mods, LEN(mods), sizeof(Key), (int (*)(const void *, const void *)) compare);
+                qsort(codes, LEN(codes), sizeof(Key), (int (*)(const void *, const void *)) compare);
                 qsort(key, LEN(keys), sizeof(Button), (int (*)(const void *, const void *)) name);
                 qsort(mod, LEN(mods), sizeof(Button), (int (*)(const void *, const void *)) name);
+                qsort(code, LEN(code), sizeof(Button), (int (*)(const void *, const void *)) name);
 
                 return PyModule_AddFunctions(program, module_methods);
 
@@ -972,6 +1278,10 @@ static void module_free(void *closure) {
         free(this -> name);
         free(this);
     }
+
+    for (uint8_t i = 0; i < SDL_SYSTEM_CURSOR_COUNT; i ++)
+        if (mouse.cursors[i])
+            SDL_DestroyCursor(mouse.cursors[i]);
 
     if (shader.vao) {
         glDeleteVertexArrays(1, &shader.vao);

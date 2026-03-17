@@ -27,8 +27,6 @@ static bool segment_circle(Vec2 p1, Vec2 p2, Vec2 pos, double radius) {
     return segment_point(p1, p2, point) ? hypot(point.x - pos.x, point.y - pos.y) <= radius : 0;
 }
 
-
-
 bool collide_circle_point(Vec2 pos, double radius, Vec2 point) {
     return hypot(point.x - pos.x, point.y - pos.y) < radius;
 }

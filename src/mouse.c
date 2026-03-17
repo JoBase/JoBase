@@ -38,6 +38,26 @@ static int mouse_set_pos(PyObject *self, PyObject *value, void *closure) {
     return vector_set(value, (double *) &mouse.pos, 2) ? -1 : pos(NULL);
 }
 
+static PyObject *mouse_get_cursor(PyObject *self, void *closure) {
+    return PyLong_FromLong(mouse.cursor);
+}
+
+static int mouse_set_cursor(PyObject *self, PyObject *value, void *closure) {
+    DEL(value, "cursor")
+
+    const int cursor = PyLong_AsInt(value);
+
+    if (cursor < 0 || cursor > SDL_SYSTEM_CURSOR_COUNT)
+        return PyErr_SetString(PyExc_TypeError, "Invalid mouse cursor"), -1;
+
+    if (mouse.cursor != cursor) {
+        SDL_SetCursor(mouse.cursors[cursor] ? mouse.cursors[cursor] : (mouse.cursors[cursor] = SDL_CreateSystemCursor(cursor)));
+        mouse.cursor = cursor;
+    }
+
+    return 0;
+}
+
 static Vector *mouse_get_move(PyObject *self, void *closure) {
     Vector *vect = vector_new(NULL, (double *) &mouse.move, 2, NULL); // Also provides a setter, which we can ignore
 
@@ -90,6 +110,7 @@ static PyGetSetDef mouse_getset[] = {
     {"y", mouse_get_y, mouse_set_y, "The y position of the mouse", NULL},
     {"pos", (getter) mouse_get_pos, mouse_set_pos, "The position of the mouse", NULL},
     {"position", (getter) mouse_get_pos, mouse_set_pos, "The position of the mouse", NULL},
+    {"cursor", mouse_get_cursor, mouse_set_cursor, "The icon of the mouse", NULL},
     {"move", (getter) mouse_get_move, NULL, "The movement of the mouse", NULL},
     {"press", mouse_get_press, NULL, "A mouse button is pressed", NULL},
     {"release", mouse_get_release, NULL, "A mouse button is released", NULL},

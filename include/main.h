@@ -119,6 +119,7 @@ typedef struct Screen Screen;
 typedef struct Spec Spec;
 typedef struct Filter Filter;
 typedef struct Program Program;
+typedef struct Mod Mod;
 
 struct Vec2 {
     double x;
@@ -288,6 +289,12 @@ struct Spec {
     PyTypeObject *type;
 };
 
+struct Mod {
+    PyObject_HEAD
+    Button *button;
+    uint16_t len;
+};
+
 extern struct Window {
     SDL_Window *sdl;
     SDL_GLContext ctx;
@@ -308,16 +315,17 @@ extern struct Mouse {
     Vec2 move;
     Button *button;
     uint8_t len;
+    SDL_Cursor *cursors[SDL_SYSTEM_CURSOR_COUNT];
+    enum SDL_SystemCursor cursor;
     bool press;
     bool release;
 } mouse;
 
 extern struct Keyboard {
     Button *key;
-    Button *mod;
-    PyObject map;
     uint16_t keys;
-    uint8_t mods;
+    Mod mod;
+    Mod code;
     bool press;
     bool release;
 } keyboard;
@@ -333,8 +341,6 @@ extern struct Shader {
     GLuint ubo;
     GLuint vao;
     uint8_t mode;
-    // GLuint array;
-    // GLuint texture;
 } shader;
 
 extern struct Path {

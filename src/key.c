@@ -1,7 +1,11 @@
 #include "main.h"
 
 static PyObject *key_get_mod(PyObject *self, void *closure) {
-    return Py_NewRef(&keyboard.map);
+    return Py_NewRef(&keyboard.mod);
+}
+
+static PyObject *key_get_code(PyObject *self, void *closure) {
+    return Py_NewRef(&keyboard.code);
 }
 
 static PyObject *key_get_press(PyObject *self, void *closure) {
@@ -25,6 +29,7 @@ static PyObject *key_getattro(PyObject *self, PyObject *attr) {
 
 static PyGetSetDef key_getset[] = {
     {"mod", (getter) key_get_mod, NULL, "The input handler for keyboard modifiers", NULL},
+    {"code", (getter) key_get_code, NULL, "The input handler for keyboard scancodes", NULL},
     {"press", key_get_press, NULL, "A key is pressed", NULL},
     {"release", key_get_release, NULL, "A key is released", NULL},
     {NULL}
