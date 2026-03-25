@@ -691,16 +691,10 @@ static int update(PyObject *loop) {
             Key *code = search(event.key.scancode, codes, LEN(codes));
 
             if (event.key.down) {
-                printf("down\n");
-
-                if (event.key.mod && !event.key.repeat) {
-                    printf("mod\n");
-
-                    Key *mod = search(event.key.mod, mods, LEN(mods));
-
-                    printf("mod: %p\n", mod);
-                    mod -> press = true;
-                }
+                if (event.key.mod && !event.key.repeat)
+                    for (uint8_t i = 0; i < LEN(mods); i ++)
+                        if (mods[i].id & event.key.mod)
+                            mods[i].press = true;
 
                 keyboard.press = code -> press = key -> press = !event.key.repeat;
                 code -> repeat = key -> repeat = event.key.repeat;
@@ -1213,7 +1207,7 @@ static int module_exec(PyObject *self) {
                 MOD("MAGENTA", COLOR(1, 0, 1))
 
                 qsort(keys, LEN(keys), sizeof(Key), (int (*)(const void *, const void *)) compare);
-                qsort(mods, LEN(mods), sizeof(Key), (int (*)(const void *, const void *)) compare);
+                // qsort(mods, LEN(mods), sizeof(Key), (int (*)(const void *, const void *)) compare);
                 qsort(codes, LEN(codes), sizeof(Key), (int (*)(const void *, const void *)) compare);
                 qsort(key, LEN(keys), sizeof(Button), (int (*)(const void *, const void *)) name);
                 qsort(mod, LEN(mods), sizeof(Button), (int (*)(const void *, const void *)) name);
